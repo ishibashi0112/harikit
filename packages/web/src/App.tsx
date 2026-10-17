@@ -339,7 +339,6 @@ export function App() {
               rowKeyGetter={(r) => r.id}
               createRow={() => ({ id: nextId() })}
               createOverflowColumn={sheetColumn}
-              getRowClassName={(_, i) => (i === 0 ? "hk-head-row" : undefined)}
               height="100%"
               density="compact"
               theme="auto"
