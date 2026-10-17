@@ -77,8 +77,8 @@ class FakeDialect implements Dialect {
       throw e;
     }
   }
-  renderUpdate(meta: TableMeta, set: Row, where: Row) {
-    return `UPDATE ${meta.table} SET ${JSON.stringify(set)} WHERE ${JSON.stringify(where)}`;
+  renderUpdate(meta: TableMeta, set: Row, key: Row, expect: Row) {
+    return `UPDATE ${meta.table} SET ${JSON.stringify(set)} WHERE ${JSON.stringify({ ...key, ...expect })}`;
   }
   async close() {}
 }
