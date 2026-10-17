@@ -107,9 +107,11 @@ DB の定義ではわからない決まりは、`harikit.rules.json` に書く�
 | --- | --- |
 | [packages/core](packages/core) | コア。Excel / CSV の読み込み、DB 定義での検証、差分、API クライアント。依存なしで、ブラウザでも Node でも動く |
 | [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server、`mssql` を使う） |
+| [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server） |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
 
 テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`。
+C# 版は `HARIKIT_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。
 
 ## ライセンス
 

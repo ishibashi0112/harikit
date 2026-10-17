@@ -33,3 +33,55 @@ jobs:
       - run: npm test
         env:
           HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
+
+  # C# 版を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通す。
+  dotnet:
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Harikit#Ci1"
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Mono
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mono-complete
+      - name: Wait for SQL Server
+        run: |
+          for i in $(seq 1 30); do
+            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Harikit#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),()=>process.exit(1))" && exit 0
+            sleep 2
+          done
+          exit 1
+      - run: npm run test:dotnet
+        env:
+          HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
+
+  # C# 版が .NET Framework 付属のコンパイラ（C# 5）と、Web サイトの App_Code の形で通るか。
+  dotnet-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with csc
+        shell: cmd
+        run: |
+          call packages\server-dotnet\build.cmd || exit /b 1
+          if not exist packages\server-dotnet\bin\Harikit.Server.dll exit /b 1
+      - name: Compile the page and App_Code with aspnet_compiler
+        shell: pwsh
+        run: |
+          $site = Join-Path $env:RUNNER_TEMP "site"
+          New-Item -ItemType Directory -Force (Join-Path $site "App_Code\Harikit") | Out-Null
+          Copy-Item packages/server-dotnet/src/*.cs (Join-Path $site "App_Code\Harikit")
+          Copy-Item packages/server-dotnet/web/Harikit.aspx $site
+          Set-Content (Join-Path $site "web.config") '<?xml version="1.0"?><configuration><system.web><compilation debug="false" /></system.web></configuration>'
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\aspnet_compiler.exe" -v / -p $site (Join-Path $env:RUNNER_TEMP "out")
+          if ($LASTEXITCODE -ne 0) { exit 1 }
