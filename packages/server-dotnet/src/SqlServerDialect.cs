@@ -472,18 +472,20 @@ namespace Harikit.Server
         {
             readonly SqlConnection conn;
             readonly SqlTransaction tx;
+            readonly int commandTimeout;
 
-            public MsTransaction(SqlConnection conn, SqlTransaction tx)
+            public MsTransaction(SqlConnection conn, SqlTransaction tx, int commandTimeout)
             {
                 this.conn = conn;
                 this.tx = tx;
+                this.commandTimeout = commandTimeout;
             }
 
             public LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before)
             {
                 var keyCols = meta.ColumnsOf(keyColumns);
                 var beforeCols = meta.ColumnsOf(before.Keys);
-                var cmd = new SqlCommand { Connection = conn, Transaction = tx };
+                var cmd = new SqlCommand { Connection = conn, Transaction = tx, CommandTimeout = commandTimeout };
                 var where = new List<string>();
                 for (var i = 0; i < keyCols.Count; i++) where.Add(Condition(keyCols[i], BindValue(cmd, "k" + i, keyCols[i], key[keyCols[i].Name])));
                 var select = new List<string>();
@@ -515,7 +517,7 @@ namespace Harikit.Server
             {
                 var keyCols = meta.ColumnsOf(keyColumns);
                 var setCols = meta.ColumnsOf(set.Keys);
-                var cmd = new SqlCommand { Connection = conn, Transaction = tx };
+                var cmd = new SqlCommand { Connection = conn, Transaction = tx, CommandTimeout = commandTimeout };
                 var assigns = new List<string>();
                 for (var i = 0; i < setCols.Count; i++) assigns.Add(QuoteName(setCols[i].Name) + " = " + BindValue(cmd, "p" + i, setCols[i], set[setCols[i].Name]));
                 var where = new List<string>();
@@ -564,7 +566,8 @@ namespace Harikit.Server
                 }
                 try
                 {
-                    var commit = fn(new MsTransaction(conn, tx));
+                    // SqlCommand の既定の 30 秒で先に切れると、ロック待ちの文（LockedMessage）にならないので、ロックを待つ秒数より長くする。
+                    var commit = fn(new MsTransaction(conn, tx, Math.Max(30, lockWaitSeconds + 5)));
                     try
                     {
                         if (commit) tx.Commit();
