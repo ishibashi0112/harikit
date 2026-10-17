@@ -239,9 +239,25 @@ namespace Harikit.Server
             }
         }
 
+        /// <summary>どの行か（キー）の条件。DB の照合順序で比べる。</summary>
         static string Condition(ColumnMeta col, string expr)
         {
             return expr == null ? QuoteName(col.Name) + " IS NULL" : QuoteName(col.Name) + " = " + expr;
+        }
+
+        /// <summary>
+        /// 値が変わっていないかの条件（仕様 1.6）。文字列は照合順序を使わず 1 文字ずつ比べる
+        /// （Japanese_CI_AS は 'ボールペン' と 'ﾎﾞｰﾙﾍﾟﾝ' を同じとみなす）。varchar に直接 BIN2 を当てると
+        /// コードページが変わって '?' に崩れるので、先に nvarchar に直す。= は BIN2 でも末尾の空白を無視するので、
+        /// 固定長でない列は DATALENGTH も比べる。char / nchar の末尾の空白は詰め物なので見ない。
+        /// </summary>
+        static string StrictCondition(ColumnMeta col, string expr)
+        {
+            if (expr == null || col.Type != "string") return Condition(col, expr);
+            var nv = "CAST(" + QuoteName(col.Name) + " AS nvarchar(max))";
+            var cond = nv + " COLLATE Latin1_General_BIN2 = " + expr;
+            if (col.BaseType == "char" || col.BaseType == "nchar") return cond;
+            return cond + " AND DATALENGTH(" + nv + ") = DATALENGTH(" + expr + ")";
         }
 
         SqlConnection Open()
@@ -463,7 +479,7 @@ namespace Harikit.Server
                 for (var i = 0; i < beforeCols.Count; i++)
                 {
                     var v = before[beforeCols[i].Name];
-                    var cond = Condition(beforeCols[i], v == null ? null : BindValue(cmd, "b" + i, beforeCols[i], v));
+                    var cond = StrictCondition(beforeCols[i], v == null ? null : BindValue(cmd, "b" + i, beforeCols[i], v));
                     select.Add("CASE WHEN " + cond + " THEN 1 ELSE 0 END AS " + QuoteName("__m" + i));
                 }
                 cmd.CommandText = "SELECT " + string.Join(", ", select) + " FROM " + QuoteTable(meta.Table) + " WITH (UPDLOCK, HOLDLOCK) WHERE " + string.Join(" AND ", where);
@@ -607,12 +623,13 @@ namespace Harikit.Server
             return output;
         }
 
-        public string RenderUpdate(TableMeta meta, Row set, Row where)
+        public string RenderUpdate(TableMeta meta, Row set, Row key, Row values)
         {
             var assigns = new List<string>();
             foreach (var c in meta.ColumnsOf(set.Keys)) assigns.Add(QuoteName(c.Name) + " = " + Literal(c, set[c.Name]));
             var conds = new List<string>();
-            foreach (var c in meta.ColumnsOf(where.Keys)) conds.Add(Condition(c, where[c.Name] == null ? null : Literal(c, where[c.Name])));
+            foreach (var c in meta.ColumnsOf(key.Keys)) conds.Add(Condition(c, key[c.Name] == null ? null : Literal(c, key[c.Name])));
+            foreach (var c in meta.ColumnsOf(values.Keys)) conds.Add(StrictCondition(c, values[c.Name] == null ? null : Literal(c, values[c.Name])));
             return "UPDATE " + QuoteTable(meta.Table) + " SET " + string.Join(", ", assigns) + " WHERE " + string.Join(" AND ", conds);
         }
     }

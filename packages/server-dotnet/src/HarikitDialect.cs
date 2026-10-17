@@ -121,7 +121,10 @@ namespace Harikit.Server
         /// 確かめない列（nvarchar など）の値には null を返す。
         /// </summary>
         List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items);
-        /// <summary>人が読む UPDATE 文を 1 本作る。where は「この値のときだけ」の条件。</summary>
-        string RenderUpdate(TableMeta meta, Row set, Row where);
+        /// <summary>
+        /// 人が読む UPDATE 文を 1 本作る。key はどの行か（照合順序で比べる）、values は「この値のときだけ」の条件
+        /// （厳密に比べる。仕様 1.6）。
+        /// </summary>
+        string RenderUpdate(TableMeta meta, Row set, Row key, Row values);
     }
 }
