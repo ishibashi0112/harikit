@@ -1,0 +1,22 @@
+{
+  "name": "@harikit/server-node",
+  "version": "0.0.0",
+  "description": "harikit のサーバ API（describe / fetch / apply）の Node 版参考実装。",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
+  "bin": {
+    "harikit-server": "dist/src/main.js"
+  },
+  "files": [
+    "dist/src"
+  ],
+  "dependencies": {
+    "@harikit/core": "0.0.0",
+    "mssql": "^12.7.9"
+  }
+}

@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Harikit#Ci1"
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Wait for SQL Server
+        run: |
+          for i in $(seq 1 30); do
+            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Harikit#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),()=>process.exit(1))" && exit 0
+            sleep 2
+          done
+          exit 1
+      - run: npm test
+        env:
+          HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'

@@ -9,7 +9,12 @@ harikit は「Excel やグリッドの値を、検証してから DB に貼り�
 
 ## 現状
 
-構想と仕様づくりの段階で、コードはまだない。最初に通すのは SQL Server で「1 テーブル、UPDATE だけ、Excel 取込」。
+「SQL Server、1 テーブル、UPDATE だけ、Excel / CSV 取込、CLI」の細い道が通ったところ。
+
+- `packages/core`: 取込（`xlsx.ts`、`table.ts`）、検証（`validate.ts`、`values.ts`）、差分（`diff.ts`）、API クライアント（`client.ts`）、まとめ（`prepare.ts`）。Node の API を使わない（ブラウザで動かすため）。
+- `packages/server-node`: API 3 本の中身（`handlers.ts`）、DB ごとの違い（`dialect.ts` と `mssql.ts`）、HTTP（`http.ts`）。
+- `packages/cli`: `harikit targets / diff / apply`。
+- `npm test` でビルドとテスト。`HARIKIT_TEST_MSSQL` を渡すと実際の SQL Server でも通す（`packages/server-node/test/mssql.integration.test.ts`）。
 
 ## 構成の決まりごと
 
