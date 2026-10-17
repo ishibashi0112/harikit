@@ -13,6 +13,7 @@ harikit は「Excel やグリッドの値を、検証してから DB に貼り�
 
 - `packages/core`: 取込（`xlsx.ts`、`table.ts`）、検証（`validate.ts`、`values.ts`）、差分（`diff.ts`）、API クライアント（`client.ts`）、まとめ（`prepare.ts`）。Node の API を使わない（ブラウザで動かすため）。
 - `packages/server-node`: API 3 本の中身（`handlers.ts`）、DB ごとの違い（`dialect.ts` と `mssql.ts`）、HTTP（`http.ts`）。
+- `packages/server-dotnet`: API 3 本の C# 版（`src/HarikitService.cs`、`src/SqlServerDialect.cs`）と WebForms のページ（`web/Harikit.aspx`）。C# 5 で書く（App_Code で通るように）。`npm run test:dotnet` で Mono の ASP.NET と実際の SQL Server で通す。
 - `packages/cli`: `harikit targets / diff / apply`。
 - `npm test` でビルドとテスト。`HARIKIT_TEST_MSSQL` を渡すと実際の SQL Server でも通す（`packages/server-node/test/mssql.integration.test.ts`）。
 
