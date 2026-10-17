@@ -4,7 +4,7 @@
 //   harikit diff <file.xlsx|csv> -t product  検証して差分と反映計画（plan.json）を作る
 //   harikit apply <plan.json> [--execute]    反映する（既定は check: DB は変えずに確かめるだけ）
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -17,6 +17,7 @@ import {
   readCsv,
   readXlsx,
   type ApplyRequest,
+  type RulesConfig,
   type Sheet,
 } from "@harikit/core";
 
@@ -32,6 +33,7 @@ interface Plan {
 const USAGE = `使い方:
   harikit targets
   harikit diff <file.xlsx|file.csv> --target <ターゲット> [--sheet <シート名>] [--out <フォルダ>] [--encoding shift_jis]
+               [--rules <業務ルールの JSON>]（省くと、今のフォルダの harikit.rules.json があれば使う）
   harikit apply <plan.json> [--execute] [--note <メモ>]
 
 共通: --server <URL>（既定 HARIKIT_SERVER か http://127.0.0.1:7357）、--token <トークン>（既定 HARIKIT_TOKEN）、--style rest|webmethod`;
@@ -43,6 +45,7 @@ const { values, positionals } = parseArgs({
     sheet: { type: "string" },
     out: { type: "string", short: "o" },
     encoding: { type: "string" },
+    rules: { type: "string" },
     execute: { type: "boolean", default: false },
     note: { type: "string" },
     server: { type: "string" },
@@ -78,6 +81,23 @@ async function readSheet(file: string): Promise<Sheet> {
   return sheet;
 }
 
+async function readRules(): Promise<{ path: string; config: RulesConfig } | undefined> {
+  let path = values.rules;
+  if (!path) {
+    try {
+      await access("harikit.rules.json");
+      path = "harikit.rules.json";
+    } catch {
+      return undefined;
+    }
+  }
+  try {
+    return { path, config: JSON.parse(await readFile(path, "utf8")) as RulesConfig };
+  } catch (e) {
+    throw new Error(`業務ルール ${path} が読めません: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 async function cmdTargets(): Promise<number> {
   const res = await client().targets();
   for (const t of res.targets) console.log(`${t.target}\t${t.access}\t${t.table}`);
@@ -87,7 +107,9 @@ async function cmdTargets(): Promise<number> {
 async function cmdDiff(file: string | undefined): Promise<number> {
   if (!file || !values.target) throw new Error(USAGE);
   const sheet = await readSheet(file);
-  const result = await prepare(client(), values.target, sheet);
+  const rules = await readRules();
+  if (rules) console.log(`業務ルール: ${rules.path}`);
+  const result = await prepare(client(), values.target, sheet, rules ? { rules: rules.config } : {});
   const out = values.out ?? join("harikit-out", `${values.target}-${stamp()}`);
   await mkdir(out, { recursive: true });
 
