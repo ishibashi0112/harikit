@@ -2,7 +2,7 @@
 
 Excel やグリッドの値を、検証してから DB に貼り替える道具。
 
-> 作りはじめの段階です。今動くのは「SQL Server、1 テーブル、UPDATE だけ、Excel / CSV 取込、CLI」の細い道だけです。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
+> 作りはじめの段階です。今動くのは「SQL Server、1 テーブル、UPDATE だけ」の細い道で、入口は表への貼り付け（画面）と Excel / CSV 取込（CLI）です。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
 
 ## 何をするものか
 
@@ -49,10 +49,23 @@ npm run build
 # 例のテーブルを作る（HarikitSample データベースに M_Product と M_Category）
 sqlcmd -S localhost -U sa -i examples/sqlserver/setup.sql
 
-# サーバを起動する（127.0.0.1:7357。起動時にトークンが出る）
+# サーバを起動する（127.0.0.1:7357。起動時に画面の URL とトークンが出る）
 cd examples/sqlserver
 HARIKIT_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c harikit.config.json
 ```
+
+### 画面で使う
+
+起動時に出る `画面: http://127.0.0.1:7357/#token=…` をブラウザで開く。
+
+1. 「対象」でテーブルを選ぶ。業務ルール（`harikit.rules.json`）は「ファイルを選ぶ」で読む（このブラウザが覚えておく）。
+2. Excel で見出しの行ごとコピーし、表の A1 を選んで貼り付ける。1 行目が列名で、キーの列と変える列だけでよい（貼っていない列は変わらない）。右の一覧の「＋見出し」で列名を入れることもできる。
+3. 「検証して差分を見る」。誤りのセルは赤くなり、直すと印が消える。通れば「差分」のタブが承認資料になる（差分 CSV と、CLI でも使える反映計画 plan.json を保存できる）。
+4. 「DB で確かめる」で DB を変えずに確かめ、「反映する」で 1 トランザクションで反映する。実行した SQL と戻し SQL を保存できる。
+
+貼り付けた値は文字列のまま検証する。Excel の表示が `2024/04/01` の日付や `1,200` の数値はエラーになるので、セルの書式を `2024-04-01` や桁区切りなしにしてからコピーする。
+
+### CLI で使う
 
 別の端末で:
 
@@ -109,6 +122,7 @@ DB の定義ではわからない決まりは、`harikit.rules.json` に書く�
 | [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server、`mssql` を使う） |
 | [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server） |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
+| [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配る |
 
 テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`。
 C# 版は `HARIKIT_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。

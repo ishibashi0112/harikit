@@ -1,12 +1,15 @@
 // 設定からサーバを組み立てて起動する。
 
 import { randomBytes } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { userInfo } from "node:os";
+import { dirname, extname, join, sep } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { ServerConfig } from "./config.js";
 import type { Dialect } from "./dialect.js";
 import { Handlers } from "./handlers.js";
-import { createHttpServer } from "./http.js";
+import { createHttpServer, type StaticFile } from "./http.js";
 import { fileLogger } from "./log.js";
 import { SqlServerDialect } from "./mssql.js";
 
@@ -15,12 +18,56 @@ export interface StartOptions {
   token?: string;
   /** テスト用に方言を差し替える。 */
   dialect?: Dialect;
+  /** 配る画面のフォルダ。省くとビルドした @harikit/web、false で配らない。 */
+  web?: string | false;
 }
 
 export interface RunningServer {
   url: string;
   token: string;
+  /** 画面を開く URL（トークンつき）。画面が無ければ null。 */
+  webUrl: string | null;
   close(): Promise<void>;
+}
+
+const TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".woff2": "font/woff2",
+};
+
+/** ビルドした画面（@harikit/web の dist/app）のフォルダ。入っていなければ null。 */
+export function defaultWebDir(): string | null {
+  try {
+    return join(dirname(createRequire(import.meta.url).resolve("@harikit/web/package.json")), "dist", "app");
+  } catch {
+    return null;
+  }
+}
+
+/** フォルダの中身を、配るファイルの表にする（起動時に読んでおく）。index.html が無ければ null。 */
+export async function loadWebFiles(dir: string): Promise<Map<string, StaticFile> | null> {
+  let names: string[];
+  try {
+    names = await readdir(dir, { recursive: true });
+  } catch {
+    return null;
+  }
+  const files = new Map<string, StaticFile>();
+  for (const name of names) {
+    const type = TYPES[extname(name).toLowerCase()];
+    if (!type) continue;
+    const body = await readFile(join(dir, name)).catch(() => null);
+    if (body) files.set("/" + name.split(sep).join("/"), { type, body });
+  }
+  const index = files.get("/index.html");
+  if (!index) return null;
+  files.set("/", index);
+  return files;
 }
 
 export async function startServer(config: ServerConfig, options: StartOptions = {}): Promise<RunningServer> {
@@ -33,16 +80,21 @@ export async function startServer(config: ServerConfig, options: StartOptions = 
     log: fileLogger(config.logDir ?? "harikit-log"),
     logError: (e) => console.error(e),
   });
-  const server = createHttpServer(handlers, { token });
+  const webDir = options.web === undefined ? defaultWebDir() : options.web;
+  const files = webDir ? await loadWebFiles(webDir) : null;
+  const server = createHttpServer(handlers, { token, ...(files && { files }) });
   const host = config.listen?.host ?? "127.0.0.1";
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(config.listen?.port ?? 7357, host, resolve);
   });
   const { port } = server.address() as AddressInfo;
+  const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}`;
   return {
-    url: `http://${host.includes(":") ? `[${host}]` : host}:${port}`,
+    url,
     token,
+    // トークンは # の後ろに置く（サーバのログや Referer に出ない）。画面が読んでアドレス欄から消す。
+    webUrl: files ? `${url}/#token=${token}` : null,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await dialect.close();

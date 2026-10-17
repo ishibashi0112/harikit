@@ -1,0 +1,208 @@
+// グリッドの行と取込データ（Sheet）の行き来、検証と差分の結果をセルの印にすること。
+// グリッドは Excel と同じく A、B、C… の列で、1 行目が見出し（DB の列名）。Excel 取込と同じ検証に通す。
+// React に依存しない（テストを Node で回すため）。
+
+import {
+  cellRef,
+  columnLetter,
+  type Cell,
+  type Conflict,
+  type DiffResult,
+  type DiffStatus,
+  type PrepareResult,
+  type Sheet,
+  type TableDescription,
+  type Value,
+} from "@harikit/core";
+
+export interface GridRow {
+  id: number;
+  [col: string]: unknown;
+}
+
+/** セルの文字列。空は ""。 */
+export function cellText(row: GridRow, col: string): string {
+  const v = row[col];
+  return v === null || v === undefined ? "" : String(v);
+}
+
+/** 空のセルが並んだ行を作る。 */
+export function blankRows(count: number, nextId: () => number): GridRow[] {
+  return Array.from({ length: count }, () => ({ id: nextId() }));
+}
+
+/** グリッドの行を取込データにする。空のセルは null、後ろの空の行は落とす。値は貼り付けたままの文字列。 */
+export function toSheet(rows: readonly GridRow[], columnCount: number, name = "grid"): Sheet {
+  const out: Cell[][] = rows.map((r) => Array.from({ length: columnCount }, (_, c) => cellText(r, columnLetter(c)) || null));
+  while (out.length > 0 && out[out.length - 1]!.every((c) => c === null)) out.pop();
+  return { name, rows: out };
+}
+
+/** 見出しの行（1 行目）に列名を足す。もうあればその列番号を、空きが無ければ右端の次を返す。 */
+export function addHeader(rows: readonly GridRow[], columnCount: number, name: string): { rows: GridRow[]; col: number } {
+  const head = rows[0];
+  if (!head) throw new Error("行がありません");
+  for (let c = 0; c < columnCount; c++) {
+    if (cellText(head, columnLetter(c)).trim().toLowerCase() === name.toLowerCase()) return { rows: [...rows], col: c };
+  }
+  let col = 0;
+  while (col < columnCount && cellText(head, columnLetter(col)) !== "") col++;
+  return { rows: [{ ...head, [columnLetter(col)]: name }, ...rows.slice(1)], col };
+}
+
+export type MarkKind = "change" | "not_found" | "conflict";
+
+/** 1 つのセルに付ける印。 */
+export interface CellMark {
+  /** 検証したときのセルの文字列。そこから書き換えたら印は出さない。 */
+  text: string;
+  errors: string[];
+  notes: string[];
+  warn: boolean;
+  kind?: MarkKind;
+}
+
+/** 行の id と列の文字（"B"）で引く。 */
+export type Marks = Map<string, CellMark>;
+
+export const markKey = (rowId: number, col: string) => `${rowId}:${col}`;
+
+function display(v: Value | undefined): string {
+  return v === null || v === undefined ? "（空）" : String(v);
+}
+
+function markAt(marks: Marks, rows: readonly GridRow[], row: number, col: number): CellMark | undefined {
+  const r = rows[row];
+  if (!r) return undefined;
+  const letter = columnLetter(col);
+  const key = markKey(r.id, letter);
+  let m = marks.get(key);
+  if (!m) {
+    m = { text: cellText(r, letter), errors: [], notes: [], warn: false };
+    marks.set(key, m);
+  }
+  return m;
+}
+
+/** 検証と差分の結果をセルの印にする。rows は検証に渡したときのグリッドの行。 */
+export function buildMarks(rows: readonly GridRow[], result: PrepareResult): Marks {
+  const marks: Marks = new Map();
+  for (const i of result.issues) {
+    if (i.row === undefined || i.col === undefined) continue;
+    const m = markAt(marks, rows, i.row, i.col);
+    if (!m) continue;
+    if (i.severity === "error") m.errors.push(i.message);
+    else {
+      m.notes.push(`警告: ${i.message}`);
+      m.warn = true;
+    }
+  }
+  const d = result.diff;
+  if (!d) return marks;
+  const index = result.validation.columnIndex;
+  for (const r of d.rows) {
+    if (r.status === "change") {
+      for (const c of r.changes) {
+        const m = markAt(marks, rows, r.row, index[c.column]!);
+        if (!m) continue;
+        m.kind = "change";
+        m.notes.push(`DB の今の値: ${display(c.before)}`);
+      }
+    } else if (r.status === "not_found") {
+      for (const k of d.keyColumns) {
+        const m = markAt(marks, rows, r.row, index[k]!);
+        if (!m) continue;
+        m.kind = "not_found";
+        m.notes.push("DB にこのキーの行がありません（反映しません）");
+      }
+    }
+  }
+  return marks;
+}
+
+/** apply が衝突で止めた行のキーのセルに印を足す。conflicts の index は「変わる」行の並び。 */
+export function addConflictMarks(marks: Marks, rows: readonly GridRow[], result: PrepareResult, conflicts: readonly Conflict[]): Marks {
+  const d = result.diff;
+  if (!d) return marks;
+  const next: Marks = new Map(marks);
+  const changeRows = d.rows.filter((r) => r.status === "change");
+  for (const c of conflicts) {
+    const r = changeRows[c.index];
+    if (!r) continue;
+    const message =
+      c.reason === "not_found"
+        ? "差分を取った後に DB から行が消えています"
+        : `差分を取った後に DB が変わっています${c.current ? `（今: ${Object.entries(c.current).map(([k, v]) => `${k}=${display(v)}`).join("、")}）` : ""}`;
+    for (const k of d.keyColumns) {
+      const col = result.validation.columnIndex[k]!;
+      const row = rows[r.row];
+      if (!row) continue;
+      const key = markKey(row.id, columnLetter(col));
+      const m = next.get(key);
+      next.set(key, { text: cellText(row, columnLetter(col)), errors: m?.errors ?? [], notes: [...(m?.notes ?? []), message], warn: m?.warn ?? false, kind: "conflict" });
+    }
+  }
+  return next;
+}
+
+/** 印が今のセルの値にまだ当てはまるか。 */
+export function liveMark(marks: Marks, row: GridRow, col: string): CellMark | undefined {
+  const m = marks.get(markKey(row.id, col));
+  return m && m.text === cellText(row, col) ? m : undefined;
+}
+
+export interface HeaderInfo {
+  kind: "key" | "update" | "readonly" | "unknown";
+  note: string;
+}
+
+/** 見出しのセル（1 行目）の名前が、ターゲットのどの列に当たるか。 */
+export function headerInfo(desc: TableDescription, text: string): HeaderInfo | undefined {
+  const name = text.trim();
+  if (name === "") return undefined;
+  const col = desc.columns.find((c) => c.name.toLowerCase() === name.toLowerCase());
+  if (!col) return { kind: "unknown", note: `「${name}」は ${desc.target} の列にありません` };
+  const isKey = desc.key.some((k) => k.toLowerCase() === col.name.toLowerCase());
+  const parts = [col.dbType, col.nullable ? "空を許す" : "必須"];
+  if (isKey) return { kind: "key", note: `キー（行を探す列）・${parts.join("・")}` };
+  if (!col.updatable) return { kind: "readonly", note: `${col.name} は更新できない列です` };
+  return { kind: "update", note: `更新する列・${parts.join("・")}` };
+}
+
+/** 差分を表で見せるための行。列のキーは "row"、"status"、"k:列名"、"b:列名"（前）、"a:列名"（後）。 */
+export interface DiffGridRow {
+  id: number;
+  row: number;
+  status: string;
+  /** 変わる列の名前。 */
+  changed: string[];
+  [col: string]: unknown;
+}
+
+export const STATUS_LABEL: Record<DiffStatus, string> = { change: "変わる", same: "同じ", not_found: "キーなし" };
+
+export function diffGridRows(d: DiffResult): DiffGridRow[] {
+  return d.rows.map((r, i) => {
+    const out: DiffGridRow = { id: i, row: r.row + 1, status: STATUS_LABEL[r.status], changed: r.changes.map((c) => c.column) };
+    for (const k of d.keyColumns) out[`k:${k}`] = r.key[k] ?? null;
+    for (const c of d.updateColumns) {
+      // キーなしの行は DB の値が無いので undefined（空と区別する）。
+      out[`b:${c}`] = r.current ? (r.current[c] ?? null) : undefined;
+      out[`a:${c}`] = r.input[c] ?? null;
+    }
+    return out;
+  });
+}
+
+/** 問題の一覧に出す場所（"B3"、シート全体なら "-"）。 */
+export function issuePlace(i: { row?: number; col?: number; cell?: string }): string {
+  if (i.cell) return i.cell;
+  if (i.row !== undefined && i.col !== undefined) return cellRef(i.row, i.col);
+  return "-";
+}
+
+/** ファイル名に付ける日時（20261017-153000）。 */
+export function stamp(d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}

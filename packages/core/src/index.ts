@@ -8,4 +8,5 @@ export * from "./rules.js";
 export * from "./diff.js";
 export * from "./client.js";
 export * from "./prepare.js";
+export * from "./plan.js";
 export * from "./report.js";

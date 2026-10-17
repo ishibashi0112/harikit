@@ -21,6 +21,17 @@ export interface ClientOptions {
   fetch?: typeof fetch;
 }
 
+/** サーバが HTTP のエラー（401 など）を返したときに投げる。 */
+export class HarikitHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly url: string,
+  ) {
+    super(`サーバに届きませんでした（HTTP ${status}）: ${url}`);
+    this.name = "HarikitHttpError";
+  }
+}
+
 /** API が ok:false を返したとき（describe と fetch）に投げる。 */
 export class HarikitApiError extends Error {
   constructor(public readonly failure: Failure) {
@@ -52,7 +63,7 @@ export class HarikitClient {
       headers,
       body: JSON.stringify(this.style === "webmethod" ? { req } : req),
     });
-    if (!res.ok) throw new Error(`サーバに届きませんでした（HTTP ${res.status}）: ${url}`);
+    if (!res.ok) throw new HarikitHttpError(res.status, url);
     const body = (await res.json()) as { d?: unknown };
     return (this.style === "webmethod" ? body.d : body) as T | Failure;
   }

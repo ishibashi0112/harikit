@@ -1,14 +1,46 @@
-// HTTP の入口（rest スタイル、仕様 1.1）。POST /describe、/fetch、/apply だけを受ける。
+// HTTP の入口（rest スタイル、仕様 1.1）。POST /describe、/fetch、/apply を受ける。
+// 画面（packages/web）を渡されたときは、その静的ファイルも GET で配る。データは API からしか出ない。
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import type { Handlers } from "./handlers.js";
+
+export interface StaticFile {
+  type: string;
+  body: Buffer;
+}
 
 export interface HttpOptions {
   /** Authorization: Bearer に求めるトークン。 */
   token: string;
   /** 本文の上限（バイト）。既定は 32MB。 */
   maxBodyBytes?: number;
+  /** GET で配るファイル（"/main.js" → 中身。"/" は index.html）。 */
+  files?: ReadonlyMap<string, StaticFile>;
+}
+
+/** 画面に許すこと。通信は同じオリジン（このサーバ）だけで、外には出さない。 */
+const PAGE_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+
+function sendFile(req: IncomingMessage, res: ServerResponse, file: StaticFile): void {
+  res.writeHead(200, {
+    "Content-Type": file.type,
+    "Content-Length": file.body.length,
+    "Cache-Control": "no-cache",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": PAGE_CSP,
+    "Referrer-Policy": "no-referrer",
+  });
+  res.end(req.method === "HEAD" ? undefined : file.body);
 }
 
 const ROUTES = new Set(["describe", "fetch", "apply"]);
@@ -47,7 +79,12 @@ export function createHttpServer(handlers: Handlers, options: HttpOptions): Serv
   const limit = options.maxBodyBytes ?? 32 * 1024 * 1024;
   return createServer(async (req, res) => {
     try {
-      const name = (req.url ?? "").replace(/^\/+/, "").replace(/[?#].*$/, "");
+      const path = (req.url ?? "").replace(/[?#].*$/, "");
+      if (req.method === "GET" || req.method === "HEAD") {
+        const file = options.files?.get(path);
+        return file ? sendFile(req, res, file) : send(res, 404, { message: "not found" });
+      }
+      const name = path.replace(/^\/+/, "");
       if (req.method !== "POST" || !ROUTES.has(name)) return send(res, 404, { message: "not found" });
       if (!tokenOk(req.headers.authorization, options.token)) return send(res, 401, { message: "token required" });
       if (req.headers["x-harikit"] !== "1") return send(res, 403, { message: "X-Harikit: 1 header required" });
