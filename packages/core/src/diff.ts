@@ -1,5 +1,6 @@
 // 差分。検証済みの行を DB の今の値と比べ、「変わる」「同じ」「キーなし」に分ける（仕様 5）。
 
+import { checkChange, type CompiledRule } from "./rules.js";
 import { cellRef } from "./table.js";
 import type { ApplyMode, ApplyRequest, FetchedRow, Row, TableDescription, Value } from "./types.js";
 import type { Issue, ParsedRow, ValidationResult } from "./validate.js";
@@ -41,7 +42,8 @@ export function validRows(validation: ValidationResult): ParsedRow[] {
 }
 
 /** fetch の結果（validRows と同じ順）と取込の行を比べる。 */
-export function diff(desc: TableDescription, validation: ValidationResult, fetched: FetchedRow[]): DiffResult {
+export function diff(desc: TableDescription, validation: ValidationResult, fetched: FetchedRow[], options: { rules?: CompiledRule[] } = {}): DiffResult {
+  const changeRules = (options.rules ?? []).filter((r) => r.maxChangePercent !== undefined);
   const cols = new Map(desc.columns.map((c) => [c.name, c]));
   const counts: Record<DiffStatus, number> = { change: 0, same: 0, not_found: 0 };
   const issues: Issue[] = [];
@@ -69,7 +71,14 @@ export function diff(desc: TableDescription, validation: ValidationResult, fetch
       const before = f.values[col] ?? null;
       const after = p.values[col] ?? null;
       current[col] = before;
-      if (!sameColumnValue(cols.get(col)!, before, after)) changes.push({ column: col, before, after });
+      if (sameColumnValue(cols.get(col)!, before, after)) continue;
+      changes.push({ column: col, before, after });
+      for (const rule of changeRules) {
+        if (rule.column !== col) continue;
+        const broken = checkChange(rule, before, after);
+        const c = validation.columnIndex[col]!;
+        if (broken) issues.push({ severity: rule.severity ?? "error", message: broken, row: p.row, col: c, cell: cellRef(p.row, c), column: col });
+      }
     }
     const status: DiffStatus = changes.length > 0 ? "change" : "same";
     counts[status]++;

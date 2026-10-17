@@ -92,7 +92,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | `unknown_target` | 許可リストにないターゲット |
 | `column_not_allowed` | 許可されていない列を読もう・更新しようとした |
 | `key_mismatch` | キーの列がターゲットのキー列と一致しない |
-| `too_many_rows` | 1回の上限（`limits`）を超えた |
+| `too_many_rows` | 1回の上限（`limits`）を超えた。返せる応答の大きさに上限がある実装で、それを超える場合も含む（`details` に上限と長さ） |
 | `conflict` | 変更前値が変わっていたので止めた（apply のみ、[7](#7-apply反映)） |
 | `db_error` | DB がエラーを返した |
 | `internal_error` | それ以外のサーバ側の失敗 |
@@ -101,7 +101,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 
 | code | 意味 |
 | --- | --- |
-| `invalid_value` | `key` / `before` / `after` の値が列の型の形でない（`decimal` に数値でない文字列、NOT NULL に `null`、桁あふれなど）。`column` で列を示す |
+| `invalid_value` | `key` / `before` / `after` の値が列の型の形でない（`decimal` に数値でない文字列、NOT NULL に `null`、桁あふれ、`maxBytes` 超え、列の文字コードで表せない字など）。`column` で列を示す |
 | `duplicate_key` | 照合順序のうえで、前の行と同じ DB 行を指している（`"a001"` と `"A001"` など） |
 
 `column_not_allowed`、`key_mismatch`、`bad_request` も行単位で使える。
@@ -160,6 +160,8 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
       "type": "string",
       "dbType": "varchar(10)",
       "maxLength": 10,
+      "maxBytes": 10,
+      "encoding": "shift_jis",
       "nullable": false,
       "updatable": false
     },
@@ -168,6 +170,8 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
       "type": "string",
       "dbType": "nvarchar(50)",
       "maxLength": 50,
+      "maxBytes": 100,
+      "encoding": "utf-16le",
       "nullable": false,
       "updatable": true
     },
@@ -185,6 +189,8 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
       "type": "string",
       "dbType": "varchar(4)",
       "maxLength": 4,
+      "maxBytes": 4,
+      "encoding": "shift_jis",
       "nullable": false,
       "updatable": true
     }
@@ -203,9 +209,35 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 ```
 
 - `columns` は `readable` に載った列だけ。並びは DB の列順。
-- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
+- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `maxBytes`, `encoding`（この2つは [文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
 - `foreignKeys[].referencedTarget` は、参照先が許可リストに読めるターゲットとして載っていればその名前、なければ `null`。`null` のときコアは存在確認を飛ばし、「確認できない」と警告を出す。
 - 業務ルール（価格は0より大きい等）は describe に含めない。コア側の設定で持つ。
+
+### 文字列の列の長さと文字コード
+
+SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanese_CI_AS（コードページ 932）なら日本語は1文字2バイトになる。`nvarchar(n)` の `n` は UTF-16 の単位で、「𠮷」のようなサロゲートペアは2と数える。さらに、列の文字コードで表せない字（Latin1 の列に日本語、cp932 の列に「𠮷」など）はエラーにならず、黙って「?」に置き換わる。文字数だけでは見逃すので、文字列（`type: "string"`）の列には当てはまるときだけ次の2つを付ける。
+
+| 項目 | 意味 | 例 |
+| --- | --- | --- |
+| `encoding` | 列の文字コード。[WHATWG Encoding](https://encoding.spec.whatwg.org/) の名前 | `"shift_jis"`、`"windows-1252"`、`"utf-8"`、`"utf-16le"` |
+| `maxBytes` | その文字コードでの上限バイト数。`max` の列では付けない | `varchar(10)` なら `10`、`nvarchar(10)` なら `20` |
+
+- `maxLength` は今までどおり文字数の上限（`varchar(n)` でも `n`）。1文字は1バイト以上なので、文字数の上限としては正しい。
+- コアは `encoding` で値をバイト列に直して `maxBytes` と比べ、表せない字があれば検証エラーにする。知らない `encoding` なら確かめず、「確認できない」と警告を出す。ブラウザの `TextEncoder` は UTF-8 しか扱えないので、他の文字コードの変換表はコアが持つ。
+- サーバも apply の値の形の確認（`invalid_value`）で同じことをする。ブラウザは書き換えられるので、ここを省くと「?」への置き換わりを防げない。
+- SQL Server ではコードページを `COLLATIONPROPERTY(collation_name, 'CodePage')` で取り、次のように直す。`nchar` / `nvarchar` は照合順序によらず `utf-16le`。
+
+| コードページ | `encoding` |
+| --- | --- |
+| 932 | `shift_jis` |
+| 936 | `gbk` |
+| 949 | `euc-kr` |
+| 950 | `big5` |
+| 874 | `windows-874` |
+| 1250〜1258 | `windows-1250`〜`windows-1258` |
+| 65001（`_UTF8` の照合順序） | `utf-8` |
+
+- WHATWG の名前と DB のコードページは完全には一致しない（WHATWG の `big5` は HKSCS を含み cp950 より広い、など）。コアの確認は目安で、最後に確かめるのはサーバの `invalid_value`。
 
 ### レスポンス（target 省略）
 ```json
@@ -316,6 +348,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 ### サーバの処理（実装が守ること）
 
 1. ターゲット・列・キーを許可リストで照合し、値が列の型の形か（`invalid_value`）も確かめる。違えばすぐ失敗（DB に触らない）。戻し SQL に値を埋め込むので、この確認は省けない。
+   返せる応答の大きさに上限がある実装（C# 版の `maxJsonLength` など）は、ここで結果（`script`、`undoScript` を含む）を組み立てて長さを見積もり、超えるなら `too_many_rows` で止める。コミットした後に結果が返せないと、戻し SQL がクライアントに届かないため。fetch も同じ。
 2. トランザクションを開始する。
 3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`）。キーごとに、
    - 行がない → 衝突（`reason: "not_found"`）
@@ -328,7 +361,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
       SET [UnitPrice] = @p1
     WHERE [ProductCode] = @k1
    ```
-   テーブル名と列名は許可リストの値から組み、`[]` で囲む（クライアントの文字列を名前に使わない）。影響行数が1でなければ全体をロールバックして `db_error`。
+   テーブル名と列名は許可リストの値から組み、`[]` で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
 7. コミットする。`check` のときは手順 3〜5 の後でロールバックして終わる（手順 6 は流さず、SQL を組むだけ）。
 8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
 
@@ -403,10 +436,12 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 ### C#（.NET Framework、WebForms）版
 - 1つの `.aspx`（例 `Harikit.aspx`）に `[WebMethod]` を3つ置く: `Describe`、`Fetch`、`Apply`。引数は `Dictionary<string, object> req`、戻り値は `Dictionary<string, object>`（`{"d": ...}` は ASP.NET が付ける）。
 - 例外は WebMethod の中で捕まえて `ok:false` に直す（[1.5](#15-結果とエラーの返し方)）。
-- `JavaScriptSerializer` の既定の上限（約 2MB）では足りないことがあるので、`web.config` の `jsonSerialization maxJsonLength` を上げる手順を README に書く。
+- WebMethod の受け取りと返しの両方に効くのは `web.config` の `system.web.extensions/scripting/webServices/jsonSerialization` の `maxJsonLength`（Mono の既定は 2097152）。超えると HTTP 500（`Maximum length exceeded`）になるので、上げる手順を README に書き、apply と fetch は DB を変える前に結果の長さを見て `too_many_rows`（`details.maxJsonLength`、`details.length`）で止める（[7](#7-apply反映) の手順 1）。
+- `application/json` でない POST は WebMethod に届かずページそのものが動くので、ページ側で 415 を返す（GET は 404）。
 - 日付は `DateTime` をそのまま返すと `"\/Date(...)\/"` になるので、必ず [1.3](#13-値の書き方json-と-db-型の対応) の文字列に変換して返す。`decimal` も文字列で返す。
-- 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`。
+- 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`（載せ先が匿名を通す設定でログインしていないときは `"(anonymous)"`）。
 - 権限チェックは載せ先の仕組み（`web.config` の `<authorization>`、ロール判定など）に任せる。
+- `maxBytes` と表せない字の確認は `Encoding.GetEncoding(codePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback)` の `GetByteCount` でできる（[文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）。
 
 ### 適合テスト
 - 仕様どおりかを確かめるテスト一式（リクエストと期待するレスポンスの JSON の組）をリポジトリに置き、Node 版・C# 版の両方に同じものを流す。他の言語で作る人もこれで確かめられる。

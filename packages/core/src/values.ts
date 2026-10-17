@@ -1,6 +1,7 @@
 // 値の形の確認と比較。仕様 1.3 の「JSON での値」を扱う。
 // サーバ側の Node 版もここを使い、クライアントとサーバで判定がずれないようにする。
 
+import { byteCount } from "./encoding.js";
 import type { ColumnDef, ColumnType, Value } from "./types.js";
 
 const INTEGER_RANGES: Record<string, [number, number]> = {
@@ -46,6 +47,11 @@ export function checkValue(col: ColumnDef, v: Value): string | null {
       if (col.maxLength !== undefined && col.maxLength >= 0) {
         const len = [...v].length;
         if (len > col.maxLength) return `${col.maxLength} 文字を超えています（${len} 文字）`;
+      }
+      if (col.encoding) {
+        const n = byteCount(v, col.encoding);
+        if (n && "unencodable" in n) return `「${n.unencodable}」は列の文字コード（${col.encoding}）で表せません`;
+        if (n && col.maxBytes !== undefined && n.bytes > col.maxBytes) return `${col.maxBytes} バイトを超えています（${n.bytes} バイト）`;
       }
       return null;
     }

@@ -26,6 +26,10 @@ export interface ColumnDef {
   updatable: boolean;
   /** 文字数。max は -1。 */
   maxLength?: number;
+  /** 桁をバイトで数える文字列の列の上限バイト数（varchar(10) なら 10、nvarchar(10) なら 20）。 */
+  maxBytes?: number;
+  /** 文字列の列の文字コード（WHATWG の名前。"shift_jis"、"windows-1252"、"utf-8"、"utf-16le" など）。 */
+  encoding?: string;
   precision?: number;
   scale?: number;
   identity?: boolean;
