@@ -203,6 +203,19 @@ function condition(col: MsColumn, expr: string | null): string {
   return expr === null ? `${quoteName(col.name)} IS NULL` : `${quoteName(col.name)} = ${expr}`;
 }
 
+/**
+ * 値が厳密に同じかの条件（仕様 1.6）。文字列は列の照合順序を使わず、nvarchar に直してから BIN2 で比べる
+ * （varchar のまま BIN2 を当てるとコードページが変わって日本語が「?」に崩れる）。
+ * `=` は末尾の空白を無視するので、可変長の列は DATALENGTH も比べる。char / nchar の末尾の空白は詰め物なので見ない。
+ * expr は nvarchar の値（パラメータか N'' リテラル）。
+ */
+function sameCondition(col: MsColumn, expr: string | null): string {
+  if (expr === null || col.type !== "string") return condition(col, expr);
+  const v = `CAST(${quoteName(col.name)} AS nvarchar(max))`;
+  const eq = `${v} COLLATE Latin1_General_BIN2 = ${expr}`;
+  return col.baseType === "char" || col.baseType === "nchar" ? eq : `(${eq} AND DATALENGTH(${v}) = DATALENGTH(${expr}))`;
+}
+
 function cols(meta: TableMeta, names: string[]): MsColumn[] {
   return names.map((n) => {
     const c = (meta.columns as MsColumn[]).find((x) => x.name === n);
@@ -231,7 +244,7 @@ class MsTransaction implements Transaction {
       const where = keyCols.map((c, i) => condition(c, bindValue(req, `k${i}`, c, key[c.name]!)));
       const checks = beforeCols.map((c, i) => {
         const v = before[c.name]!;
-        const cond = condition(c, v === null ? null : bindValue(req, `b${i}`, c, v));
+        const cond = sameCondition(c, v === null ? null : bindValue(req, `b${i}`, c, v));
         return `CASE WHEN ${cond} THEN 1 ELSE 0 END AS ${quoteName(`__m${i}`)}`;
       });
       const select = [...keyCols, ...beforeCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
@@ -451,12 +464,11 @@ export class SqlServerDialect implements Dialect {
     return out;
   }
 
-  renderUpdate(meta: TableMeta, set: Row, where: Row): string {
-    const setCols = cols(meta, Object.keys(set)) as MsColumn[];
-    const whereCols = cols(meta, Object.keys(where)) as MsColumn[];
-    const assigns = setCols.map((c) => `${quoteName(c.name)} = ${literal(c, set[c.name]!)}`);
-    const conds = whereCols.map((c) => condition(c, where[c.name] === null ? null : literal(c, where[c.name]!)));
-    return `UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${conds.join(" AND ")}`;
+  renderUpdate(meta: TableMeta, set: Row, key: Row, expect: Row): string {
+    const assigns = cols(meta, Object.keys(set)).map((c) => `${quoteName(c.name)} = ${literal(c, set[c.name]!)}`);
+    const keyConds = cols(meta, Object.keys(key)).map((c) => condition(c, key[c.name] === null ? null : literal(c, key[c.name]!)));
+    const valueConds = cols(meta, Object.keys(expect)).map((c) => sameCondition(c, expect[c.name] === null ? null : literal(c, expect[c.name]!)));
+    return `UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${[...keyConds, ...valueConds].join(" AND ")}`;
   }
 
   async close(): Promise<void> {

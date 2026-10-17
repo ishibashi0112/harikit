@@ -33,7 +33,10 @@ export interface LockedRow {
 }
 
 export interface Transaction {
-  /** 更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。 */
+  /**
+   * 更新ロックを掛けて 1 行読み、before と比べる。行はキーで DB の比較規則（照合順序）で探し、
+   * 値は厳密に比べる（仕様 1.6。大文字小文字、かな、全角半角、末尾の空白を区別する。char / nchar の末尾の空白だけは見ない）。
+   */
   lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row): Promise<LockedRow>;
   /** パラメータ付き UPDATE を 1 行流し、影響行数を返す。 */
   update(meta: TableMeta, keyColumns: string[], key: Row, set: Row): Promise<number>;
@@ -61,7 +64,9 @@ export interface Dialect {
    * 確かめない列（nvarchar など）の値には null を返す。
    */
   checkStrings?(meta: TableMeta, items: { column: string; value: string }[]): Promise<({ encodable: boolean; bytes: number } | null)[]>;
-  /** 人が読む UPDATE 文を 1 本作る。where は「この値のときだけ」の条件。 */
-  renderUpdate(meta: TableMeta, set: Row, where: Row): string;
+  /**
+   * 人が読む UPDATE 文を 1 本作る。key で行を探し（照合順序）、expect は「この値のときだけ」の条件（厳密に比べる）。
+   */
+  renderUpdate(meta: TableMeta, set: Row, key: Row, expect: Row): string;
   close(): Promise<void>;
 }
