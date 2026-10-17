@@ -81,7 +81,9 @@ test("describe: 型、桁、主キー、外部キー、更新できない列", {
   const d = await client.describe("item");
   assert.deepEqual(d.key, ["Code"]);
   const col = (n: string) => d.columns.find((c) => c.name === n)!;
-  assert.deepEqual({ ...col("Name") }, { name: "Name", type: "string", dbType: "nvarchar(50)", nullable: false, maxLength: 50, updatable: true });
+  assert.deepEqual({ ...col("Name") }, { name: "Name", type: "string", dbType: "nvarchar(50)", nullable: false, maxLength: 50, maxBytes: 100, encoding: "utf-16le", updatable: true });
+  assert.deepEqual([col("Memo").maxBytes, col("Memo").encoding], [20, "shift_jis"]);
+  assert.deepEqual([col("KindCode").maxBytes, col("KindCode").encoding], [4, "windows-1252"]);
   assert.deepEqual([col("Price").type, col("Price").precision, col("Price").scale], ["decimal", 9, 2]);
   assert.deepEqual([col("Cost").type, col("Cost").dbType], ["decimal", "money"]);
   assert.equal(col("Big").type, "bigint");
@@ -189,4 +191,26 @@ test("照合順序が DB の既定と違う varchar 列でも日本語が崩れ�
   assert.equal((await q(`SELECT Memo FROM dbo.Item WHERE Code = 'A001'`))[0]!.Memo, "メモ");
   await q(res.script);
   assert.equal((await q(`SELECT Memo FROM dbo.Item WHERE Code = 'A001'`))[0]!.Memo, "ボールペン（黒）");
+});
+
+test("varchar の桁はバイトで数え、列の文字コードで表せない字は取込でもサーバでも弾く", { skip }, async () => {
+  const p = await prepare(client, "item", {
+    name: "s",
+    rows: [
+      ["Code", "Memo", "KindCode"],
+      ["A001", "ボールペン（黒）替芯つき", "K1"],
+      ["A002", "メモ", "鍵"],
+    ],
+  });
+  assert.deepEqual(p.issues.map((i) => [i.cell, i.message]), [
+    ["B2", "20 バイトを超えています（24 バイト）"],
+    ["C3", "「鍵」は列の文字コード（windows-1252）で表せません"],
+  ]);
+  // クライアントを通さずに送っても、サーバが値の形として弾く（DB では黙って「?」になる）。
+  const res = (await client.apply({
+    requestId: crypto.randomUUID(),
+    mode: "execute",
+    changes: [{ target: "item", rows: [{ key: { Code: "A002" }, before: { KindCode: "K1" }, after: { KindCode: "鍵" } }] }],
+  })) as Failure;
+  assert.deepEqual(res.rowErrors!.map((e) => [e.code, e.column]), [["invalid_value", "KindCode"]]);
 });

@@ -1,6 +1,7 @@
 // 検証。取込データを DB の定義（describe の結果）で全行チェックし、型をそろえた値にする。
 // 入力の揺れ（全角半角、前後の空白）は直さない。前後の空白は警告だけ出す。
 
+import { checkRule, type CompiledRule } from "./rules.js";
 import { cellRef, type Cell, type Sheet } from "./table.js";
 import type { ColumnDef, Row, TableDescription, Value } from "./types.js";
 import { canonical, checkValue, DATE_RE, DECIMAL_RE } from "./values.js";
@@ -41,6 +42,8 @@ export interface ValidationResult {
 export interface ValidateOptions {
   /** 見出しの行（0 始まり）。既定は 0。 */
   headerRow?: number;
+  /** 業務ルール（compileRules で作ったもの）。変動率のルールは差分で見る。 */
+  rules?: CompiledRule[];
 }
 
 type Converted = { value: Value } | { error: string };
@@ -181,6 +184,14 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
         continue;
       }
       const value = (conv as { value: Value }).value;
+      for (const rule of options.rules ?? []) {
+        if (rule.column !== name) continue;
+        const broken = checkRule(rule, value);
+        if (!broken) continue;
+        const severity = rule.severity ?? "error";
+        issues.push({ severity, message: broken, row: r, col: c, cell: cellRef(r, c), column: name });
+        if (severity === "error") rowOk = false;
+      }
       if (typeof value === "string" && value !== value.trim()) {
         issues.push({ severity: "warning", message: "前後に空白があります（そのまま使います）", row: r, col: c, cell: cellRef(r, c), column: name });
       }

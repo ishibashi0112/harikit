@@ -162,7 +162,7 @@ export class Handlers {
           nullable: c.nullable,
           updatable: updatable.has(c.name) && !key.includes(c.name) && c.type !== "other" && !c.identity && !c.computed,
         };
-        for (const k of ["maxLength", "precision", "scale", "identity", "computed", "hasDefault"] as const) {
+        for (const k of ["maxLength", "maxBytes", "encoding", "precision", "scale", "identity", "computed", "hasDefault"] as const) {
           if (c[k] !== undefined) (col as unknown as Record<string, unknown>)[k] = c[k];
         }
         return col;

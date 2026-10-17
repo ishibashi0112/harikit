@@ -38,6 +38,25 @@ const TYPE_MAP: Record<string, ColumnType> = {
   time: "time",
 };
 
+/** 照合順序のコードページ → WHATWG の文字コード名。 */
+const CODE_PAGES: Record<number, string> = {
+  874: "windows-874",
+  932: "shift_jis",
+  936: "gbk",
+  949: "euc-kr",
+  950: "big5",
+  1250: "windows-1250",
+  1251: "windows-1251",
+  1252: "windows-1252",
+  1253: "windows-1253",
+  1254: "windows-1254",
+  1255: "windows-1255",
+  1256: "windows-1256",
+  1257: "windows-1257",
+  1258: "windows-1258",
+  65001: "utf-8",
+};
+
 /** 名前を [] で囲む。] は ]] にする。 */
 export function quoteName(name: string): string {
   return `[${name.replace(/]/g, "]]")}]`;
@@ -272,7 +291,8 @@ export class SqlServerDialect implements Dialect {
     const colRes = await run(pool, (req) => {
       req.input("name", sql.NVarChar(512), qualified);
       return `SELECT c.name, TYPE_NAME(c.system_type_id) AS base_type, c.max_length, c.precision, c.scale,
-                c.is_nullable, c.is_identity, c.is_computed, c.default_object_id
+                c.is_nullable, c.is_identity, c.is_computed, c.default_object_id,
+                CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page
                 FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id`;
     });
     if (colRes.recordset.length === 0) throw new DbError(`テーブル ${table} が見つかりません`);
@@ -292,7 +312,13 @@ export class SqlServerDialect implements Dialect {
         baseType: base,
         sqlType: dbType,
       };
-      if (type === "string") col.maxLength = maxLength;
+      if (type === "string") {
+        col.maxLength = maxLength;
+        // 桁はバイトで決まる。nchar / nvarchar は UTF-16、char / varchar は照合順序のコードページ。
+        const encoding = base.startsWith("n") ? "utf-16le" : CODE_PAGES[Number(r.code_page)];
+        if (encoding) col.encoding = encoding;
+        if (bytes !== -1) col.maxBytes = bytes;
+      }
       if (type === "decimal") {
         col.precision = precision;
         col.scale = scale;

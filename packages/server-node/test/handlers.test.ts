@@ -8,7 +8,7 @@ const META: TableMeta = {
   columns: [
     { name: "ProductCode", type: "string", dbType: "varchar(10)", maxLength: 10, nullable: false },
     { name: "ProductName", type: "string", dbType: "nvarchar(50)", maxLength: 50, nullable: false },
-    { name: "CategoryCode", type: "string", dbType: "varchar(4)", maxLength: 4, nullable: false },
+    { name: "CategoryCode", type: "string", dbType: "varchar(4)", maxLength: 4, maxBytes: 4, encoding: "windows-1252", nullable: false },
     { name: "UnitPrice", type: "decimal", dbType: "decimal(9,2)", precision: 9, scale: 2, nullable: true },
     { name: "Secret", type: "string", dbType: "varchar(10)", maxLength: 10, nullable: true },
   ],
@@ -210,6 +210,8 @@ test("apply: 行ごとの誤りはまとめて返し、DB に触らない", asyn
   );
   const bad = await handlers.handle("apply", applyReq([{ key: { ProductCode: "A001" }, before: { UnitPrice: "1" }, after: { UnitPrice: "1; DROP TABLE x" } }]));
   assert.deepEqual((bad.rowErrors as { code: string }[]).map((e) => e.code), ["invalid_value"]);
+  const unencodable = await handlers.handle("apply", applyReq([{ key: { ProductCode: "A001" }, before: { CategoryCode: "C01" }, after: { CategoryCode: "鍵" } }]));
+  assert.deepEqual((unencodable.rowErrors as { code: string; column: string }[]).map((e) => [e.code, e.column]), [["invalid_value", "CategoryCode"]]);
   const dup = await handlers.handle("apply", applyReq([
     { key: { ProductCode: "A001" }, before: { UnitPrice: "120.00" }, after: { UnitPrice: "1" } },
     { key: { ProductCode: "a001" }, before: { UnitPrice: "120.00" }, after: { UnitPrice: "2" } },

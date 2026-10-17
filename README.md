@@ -72,6 +72,35 @@ node $H apply harikit-out/product-.../plan.json --execute  # 反映する
 - 反映すると、実行した SQL（`applied.sql`）と戻し用 SQL（`undo.sql`）がファイルに残る。戻し SQL は「今の値が harikit で入れた値のままの行だけ戻す」形。サーバ側にも反映ログ（`harikit-log/`）が残る。
 - 許可リスト（どのテーブルのどの列を読めて、どの列を更新できるか）は `harikit.config.json` の `targets` に書く。
 
+### 業務ルール
+
+DB の定義ではわからない決まりは、`harikit.rules.json` に書く（`diff` は今のフォルダにあれば読む。別の場所は `--rules`）。
+
+```json
+{
+  "targets": {
+    "product": [
+      { "column": "UnitPrice", "greaterThan": 0, "message": "価格は 0 より大きくしてください" },
+      { "column": "UnitPrice", "maxChangePercent": 50, "severity": "warning" },
+      { "column": "ProductCode", "pattern": "^[A-Z][0-9]{3}$" }
+    ]
+  }
+}
+```
+
+| 項目 | 意味 |
+| --- | --- |
+| `required` | 空を許さない（DB では NULL を許す列でも） |
+| `min` / `max` | 以上 / 以下（数値と日付の列） |
+| `greaterThan` / `lessThan` | より大きい / より小さい（数値と日付の列） |
+| `pattern` | 文字列が合うべき正規表現 |
+| `oneOf` | 使ってよい値の一覧 |
+| `maxChangePercent` | DB の今の値からの変動の上限（%、数値の列） |
+| `severity` | `"error"`（既定。差分を作らない）か `"warning"`（差分は作り、`issues.csv` に残す） |
+| `message` | 合わないときに出す文 |
+
+桁や NOT NULL、型、外部キーは DB の定義から自動で確かめるので、ここには書かない。varchar の桁は列の照合順序の文字コードでバイト数を数え、その文字コードで表せない字（Latin1 の列に日本語など）もエラーにする。
+
 ## 中身
 
 | パッケージ | 役割 |

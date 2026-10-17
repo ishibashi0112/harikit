@@ -2,6 +2,7 @@
 
 import type { HarikitClient } from "./client.js";
 import { diff, validRows, type DiffResult } from "./diff.js";
+import { compileRules, type RulesConfig } from "./rules.js";
 import { cellRef, type Sheet } from "./table.js";
 import type { FetchedRow, Row, TableDescription } from "./types.js";
 import { validate, type Issue, type ValidateOptions, type ValidationResult } from "./validate.js";
@@ -69,21 +70,29 @@ export async function checkReferences(client: HarikitClient, desc: TableDescript
   return issues;
 }
 
-/** シートを検証して差分まで作る。エラーがあれば差分は作らない。 */
-export async function prepare(client: HarikitClient, target: string, sheet: Sheet, options: ValidateOptions = {}): Promise<PrepareResult> {
+export interface PrepareOptions extends Omit<ValidateOptions, "rules"> {
+  /** 業務ルールの設定（ファイルの中身）。このターゲットの分だけ使う。 */
+  rules?: RulesConfig;
+}
+
+/** シートを検証して差分まで作る。エラーがあれば差分は作らない（変動率のエラーは差分を作ってから出る）。 */
+export async function prepare(client: HarikitClient, target: string, sheet: Sheet, options: PrepareOptions = {}): Promise<PrepareResult> {
   const description = await client.describe(target);
   if (description.access !== "update") throw new Error(`${target} は読むだけのターゲットです`);
-  const validation = validate(description, sheet, options);
-  const issues = [...validation.issues];
+  const targets = options.rules?.targets;
+  const compiled = compileRules(description, targets && Object.hasOwn(targets, target) ? targets[target] : undefined);
+  const validation = validate(description, sheet, { ...options, rules: compiled.rules });
+  const issues = [...compiled.issues, ...validation.issues];
   const done = (d: DiffResult | null): PrepareResult => {
     const all = sortIssues(d ? [...issues, ...d.issues] : issues);
     return { description, validation, diff: d, issues: all, ok: d !== null && !all.some((i) => i.severity === "error") };
   };
+  if (compiled.issues.length > 0) return done(null);
   // 見出しの誤りでなければ、他の行に誤りがあっても参照先は確かめる（依頼者へ一度に返すため）。
   if (validation.rows.length > 0) issues.push(...(await checkReferences(client, description, validation)));
   if (issues.some((i) => i.severity === "error")) return done(null);
   const fetched = await fetchAll(client, description, validRows(validation).map((r) => r.key), validation.updateColumns);
-  return done(diff(description, validation, fetched));
+  return done(diff(description, validation, fetched, { rules: compiled.rules }));
 }
 
 function sortIssues(issues: Issue[]): Issue[] {
