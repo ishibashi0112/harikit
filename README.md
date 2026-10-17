@@ -37,3 +37,7 @@ Excel やグリッドの値を、検証してから DB に貼り替える道具�
 ## 最初に通す道
 
 SQL Server で「1 テーブル、UPDATE だけ、Excel 取込」。Oracle、PostgreSQL、MySQL はその後。
+
+## ライセンス
+
+MIT
