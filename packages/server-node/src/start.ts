@@ -12,6 +12,7 @@ import { Handlers } from "./handlers.js";
 import { createHttpServer, type StaticFile } from "./http.js";
 import { fileLogger } from "./log.js";
 import { SqlServerDialect } from "./mssql.js";
+import { OracleDialect } from "./oracle.js";
 
 export interface StartOptions {
   /** 省くと乱数で作る。 */
@@ -70,8 +71,13 @@ export async function loadWebFiles(dir: string): Promise<Map<string, StaticFile>
   return files;
 }
 
+/** 設定の database.dialect に合う方言を作る。 */
+export function createDialect(database: ServerConfig["database"]): Dialect {
+  return database.dialect === "oracle" ? new OracleDialect(database) : new SqlServerDialect(database);
+}
+
 export async function startServer(config: ServerConfig, options: StartOptions = {}): Promise<RunningServer> {
-  const dialect = options.dialect ?? new SqlServerDialect(config.database);
+  const dialect = options.dialect ?? createDialect(config.database);
   const token = options.token ?? randomBytes(24).toString("base64url");
   const handlers = new Handlers({
     config,

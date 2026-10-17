@@ -64,7 +64,7 @@ function parseTime(s: string): DisplayRead<string> {
   let h: number, mi: number, sec: number;
   let frac = "";
   let half: string | undefined;
-  let m = /^(午前|午後|[AP]M)?\s*(\d{1,2}):(\d{2})(?::(\d{2})(\.\d{1,7})?)?\s*([AP]M?)?$/i.exec(s);
+  let m = /^(午前|午後|[AP]M)?\s*(\d{1,2}):(\d{2})(?::(\d{2})(\.\d{1,9})?)?\s*([AP]M?)?$/i.exec(s);
   if (m) {
     h = +m[2]!;
     mi = +m[3]!;

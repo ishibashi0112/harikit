@@ -31,7 +31,7 @@
         public List<Dictionary<string, object>> FetchRows(TableMeta meta, IList<string> keyColumns, IList<string> columns, IList<Dictionary<string, object>> keys) { return inner.FetchRows(meta, keyColumns, columns, keys); }
         public void RunTransaction(Func<IHarikitTransaction, bool> fn) { inner.RunTransaction(fn); }
         public List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items) { return inner.CheckStrings(meta, items); }
-        public string RenderUpdate(TableMeta meta, Dictionary<string, object> set, Dictionary<string, object> key, Dictionary<string, object> values) { return inner.RenderUpdate(meta, set, key, values); }
+        public string RenderScript(TableMeta meta, string head, IList<ScriptUpdate> updates, string kind) { return inner.RenderScript(meta, head, updates, kind); }
     }
 
     [WebMethod]

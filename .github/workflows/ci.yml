@@ -34,6 +34,42 @@ jobs:
         env:
           HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
 
+  # Node 版を実際の Oracle で通す。23ai Free と、業務でまだ多い 19c に近い 21c XE の 2 つ。
+  oracle:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: gvenzl/oracle-free:23-slim
+            service: FREEPDB1
+          - image: gvenzl/oracle-xe:21-slim
+            service: XEPDB1
+    services:
+      oracle:
+        image: ${{ matrix.image }}
+        env:
+          ORACLE_PASSWORD: Harikit1
+          APP_USER: harikit
+          APP_USER_PASSWORD: Harikit1
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          HARIKIT_TEST_ORACLE: '{"connectString":"localhost:1521/${{ matrix.service }}","user":"harikit","password":"Harikit1"}'
+
   # C# 版を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通す。
   dotnet:
     runs-on: ubuntu-latest

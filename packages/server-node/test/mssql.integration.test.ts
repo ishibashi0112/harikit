@@ -60,7 +60,16 @@ before(async () => {
     INSERT INTO dbo.ItemAudit SELECT Code, N'new' FROM inserted UNION ALL SELECT Code, N'old' FROM deleted;`);
   const config: ServerConfig = {
     listen: { port: 0 },
-    database: { dialect: "sqlserver", server: conn.server, port: conn.port ?? 1433, database: DB, user: conn.user, password: conn.password, options: { encrypt: false, trustServerCertificate: true } },
+    database: {
+      dialect: "sqlserver",
+      server: conn.server,
+      port: conn.port ?? 1433,
+      database: DB,
+      user: conn.user,
+      password: conn.password,
+      options: { encrypt: false, trustServerCertificate: true },
+      lockWaitSeconds: 1,
+    },
     targets: {
       item: {
         table: "dbo.Item",
@@ -171,6 +180,16 @@ test("Excel 相当の取込から反映、衝突、戻しまで", { skip }, asyn
   await q(`UPDATE dbo.Item SET Price = NULL WHERE Code = 'A002'`);
   await q(done.script);
   assert.equal((await q(`SELECT CONVERT(varchar(30), Price) AS Price FROM dbo.Item WHERE Code = 'A002'`))[0]!.Price, "99.90");
+
+  // 反映用の SQL は、1 行でも合わなければ全部戻して止まる（A001 は当たるが、A002 は後から変わった）。
+  await q(done.undoScript);
+  await q(`UPDATE dbo.Item SET Price = 50 WHERE Code = 'A002'`);
+  await assert.rejects(q(done.script), /harikit: 行が見つからないか、値が変わっています（Code=A002）。何も反映していません/);
+  const after = await q(`SELECT Code, CONVERT(varchar(30), Price) AS Price FROM dbo.Item ORDER BY Code`);
+  assert.deepEqual(after.map((r) => ({ ...r })), [
+    { Code: "A001", Price: "120.00" },
+    { Code: "A002", Price: "50.00" },
+  ]);
 });
 
 test("名前に ] や ' を含む値もパラメータで安全に通る", { skip }, async () => {
@@ -252,4 +271,21 @@ test("値が変わっていないかは厳密に比べる。全角半角、か�
   await q(done.undoScript);
   const undone = await q(`SELECT Memo, Name, Grade FROM dbo.Item WHERE Code = 'A002'`);
   assert.deepEqual({ ...undone[0] }, { Memo: "ボールペン", Name: "Pen", Grade: "B  " });
+});
+
+test("ほかのセッションがロックしている行は、待ちきれなければわかる言葉で止まる", { skip }, async () => {
+  // SQL Server では読み取りもロックで待つので、差分はロックされる前に取る。
+  const p = await prepare(client, "item", { name: "s", rows: [["Code", "Qty"], ["A001", 7]] });
+  assert.ok(p.ok, JSON.stringify(p.issues));
+  const other = new sql.Transaction(admin);
+  await other.begin();
+  try {
+    await new sql.Request(other).query(`UPDATE dbo.Item SET Qty = 6 WHERE Code = 'A001'`);
+    const res = (await client.apply(buildApplyRequest(p.diff!, { mode: "execute" }))) as Failure;
+    assert.equal(res.error.code, "db_error");
+    assert.match(res.error.message, /ほかのセッションにロックされています/);
+  } finally {
+    await other.rollback();
+  }
+  assert.equal((await q(`SELECT Qty FROM dbo.Item WHERE Code = 'A001'`))[0]!.Qty, 5);
 });

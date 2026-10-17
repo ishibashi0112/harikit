@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sameValue, type Row } from "@harikit/core";
-import { Handlers, createHttpServer, loadWebFiles, type ApplyLogEntry, type Dialect, type ServerConfig, type TableMeta, type Transaction } from "../src/index.js";
+import { Handlers, createHttpServer, loadWebFiles, type ApplyLogEntry, type Dialect, type ScriptUpdate, type ServerConfig, type TableMeta, type Transaction } from "../src/index.js";
 
 const META: TableMeta = {
   table: "dbo.M_Product",
@@ -80,8 +80,8 @@ class FakeDialect implements Dialect {
       throw e;
     }
   }
-  renderUpdate(meta: TableMeta, set: Row, key: Row, expect: Row) {
-    return `UPDATE ${meta.table} SET ${JSON.stringify(set)} WHERE ${JSON.stringify({ ...key, ...expect })}`;
+  renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[]) {
+    return [head, ...updates.map((u) => `UPDATE ${meta.table} SET ${JSON.stringify(u.set)} WHERE ${JSON.stringify({ ...u.key, ...u.expect })};`)].join("\n") + "\n";
   }
   async close() {}
 }

@@ -143,7 +143,7 @@ namespace Harikit.Server
             {
                 LogError(e);
                 error["code"] = "db_error";
-                error["message"] = o.Config.ExposeDbErrors ? e.Message : "DB がエラーを返しました（詳細はサーバのログ）";
+                error["message"] = o.Config.ExposeDbErrors ? e.Message : (((HarikitDbException)e).PublicMessage ?? "DB がエラーを返しました（詳細はサーバのログ）");
             }
             else
             {
@@ -778,23 +778,15 @@ namespace Harikit.Server
         {
             var d = o.Dialect;
             var head = "-- harikit " + requestId + " " + r.Name + " (" + r.Meta.Table + ") " + rows.Count + "行";
-            var lines = new List<string>();
-            var undoLines = new List<string>();
+            var updates = new List<ScriptUpdate>();
+            var undoUpdates = new List<ScriptUpdate>();
             foreach (var row in rows)
             {
-                lines.Add(d.RenderUpdate(r.Meta, row.After, row.Key, row.Before) + ";");
-                undoLines.Add(d.RenderUpdate(r.Meta, row.Before, row.Key, row.After) + ";");
+                updates.Add(new ScriptUpdate { Set = row.After, Key = row.Key, Expect = row.Before });
+                undoUpdates.Add(new ScriptUpdate { Set = row.Before, Key = row.Key, Expect = row.After });
             }
-            script = head + " " + (mode == "check" ? "実行予定" : "実行済み") + "\n" + Wrap(lines);
-            undoScript = head + " の戻し\n-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。\n" + Wrap(undoLines);
-        }
-
-        static string Wrap(List<string> lines)
-        {
-            var all = new List<string> { "SET XACT_ABORT ON;", "BEGIN TRANSACTION;" };
-            all.AddRange(lines);
-            all.Add("COMMIT;");
-            return string.Join("\n", all) + "\n";
+            script = d.RenderScript(r.Meta, head + " " + (mode == "check" ? "実行予定" : "実行済み"), updates, "apply");
+            undoScript = d.RenderScript(r.Meta, head + " の戻し", undoUpdates, "undo");
         }
     }
 }

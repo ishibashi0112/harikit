@@ -130,3 +130,28 @@ test("差分: 文字列は厳密に比べる（全角半角、かな、大文字
     ["same", []],
   ]);
 });
+
+test("空文字が NULL になる列（Oracle の文字列）は、取込の空文字を NULL として読む", () => {
+  const ora: TableDescription = {
+    ...product,
+    dialect: "oracle",
+    key: ["CODE"],
+    columns: [
+      { name: "CODE", type: "string", dbType: "VARCHAR2(10 BYTE)", maxLength: 10, nullable: false, updatable: false, emptyIsNull: true },
+      { name: "NAME", type: "string", dbType: "NVARCHAR2(50)", maxLength: 50, nullable: false, updatable: true, emptyIsNull: true },
+      { name: "NOTE", type: "string", dbType: "VARCHAR2(20 BYTE)", maxLength: 20, nullable: true, updatable: true, emptyIsNull: true },
+    ],
+  };
+  const v = validate(ora, sheet([["CODE", "NAME", "NOTE"], ["A001", "", ""], ["", "x", " "]]));
+  assert.deepEqual(v.issues.map((i) => [i.cell, i.message]), [
+    ["B2", "必須です（NOT NULL）"],
+    ["A3", "必須です（NOT NULL）"],
+    ["C3", "前後に空白があります（そのまま使います）"],
+  ]);
+  // 空白だけの値は NULL にならない（Oracle でも空白のまま入る）。
+  assert.deepEqual(v.rows.map((r) => r.values), [{ NOTE: null }, { NAME: "x", NOTE: " " }]);
+  const ok = validate(ora, sheet([["CODE", "NOTE"], ["A001", ""]]));
+  assert.deepEqual(ok.rows[0]!.values, { NOTE: null });
+  const d = diff(ora, ok, [{ index: 0, found: true, values: { CODE: "A001", NOTE: null } }]);
+  assert.deepEqual(d.counts, { change: 0, same: 1, not_found: 0 });
+});

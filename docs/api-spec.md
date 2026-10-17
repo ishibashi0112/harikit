@@ -1,7 +1,7 @@
 # harikit サーバ API 仕様（v1 草案）
 
 > 2026-10-17 草案。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
-> 範囲は「SQL Server、1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
+> 範囲は「SQL Server と Oracle、1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
 
 ## 1. 全体の約束
 
@@ -33,20 +33,21 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 
 .NET Framework の `JavaScriptSerializer` と JS の数値で精度や日付が崩れないよう、迷う型は文字列で送る。
 
-| 正規化した型 `type` | SQL Server の例 | JSON での値 |
-| --- | --- | --- |
-| `string` | char, varchar, nchar, nvarchar, text | 文字列 |
-| `integer` | tinyint, smallint, int | 数値 |
-| `bigint` | bigint | **文字列**（`"9007199254740993"`） |
-| `decimal` | decimal, numeric, money | **文字列**（`"1234.50"`） |
-| `float` | real, float | 数値 |
-| `boolean` | bit | `true` / `false` |
-| `date` | date | `"2026-10-17"` |
-| `datetime` | datetime, datetime2, smalldatetime | `"2026-10-17T09:30:00.123"`（タイムゾーンなし） |
-| `time` | time | `"09:30:00"` |
-| `other` | binary, xml, uniqueidentifier など | v1 では更新対象外（describe には出す） |
+| 正規化した型 `type` | SQL Server の例 | Oracle の例 | JSON での値 |
+| --- | --- | --- | --- |
+| `string` | char, varchar, nchar, nvarchar, text | VARCHAR2, CHAR, NVARCHAR2, NCHAR | 文字列 |
+| `integer` | tinyint, smallint, int | （使わない。NUMBER(p,0) は JS の数値に収まるとは限らない） | 数値 |
+| `bigint` | bigint | （使わない） | **文字列**（`"9007199254740993"`） |
+| `decimal` | decimal, numeric, money | NUMBER, NUMBER(p,s), INTEGER, FLOAT(p) | **文字列**（`"1234.50"`） |
+| `float` | real, float | BINARY_FLOAT, BINARY_DOUBLE | 数値 |
+| `boolean` | bit | BOOLEAN（23ai 以降） | `true` / `false` |
+| `date` | date | （使わない。Oracle の DATE は時刻を持つ） | `"2026-10-17"` |
+| `datetime` | datetime, datetime2, smalldatetime | DATE（`scale: 0`）, TIMESTAMP(n) | `"2026-10-17T09:30:00.123"`（タイムゾーンなし。秒の小数は 0〜9 桁で、上限は `scale`） |
+| `time` | time | （使わない） | `"09:30:00"` |
+| `other` | binary, xml, uniqueidentifier など | 負の scale の NUMBER, TIMESTAMP WITH (LOCAL) TIME ZONE, INTERVAL, RAW, CLOB / BLOB, ROWID など | v1 では更新対象外（describe には出す） |
 
-- SQL の NULL は JSON の `null`。空文字 `""` とは区別する。
+- SQL の NULL は JSON の `null`。空文字 `""` とは区別する。ただし Oracle のように空文字を NULL として保存する DB では、describe の `emptyIsNull` で知らせる（[3](#3-describeテーブル定義)）。
+- NUMBER(5,-2) のような負の scale は入れた値が丸められ、戻し SQL の条件が合わなくなるので `other` にする。
 - 入力の揺れ（全角半角、前後空白）を直すかどうかはコア側の話で、サーバは受け取った値をそのまま使う。
 
 ### 1.4 認証と CSRF
@@ -81,7 +82,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 
 - `code` はクライアントが分岐に使う固定の文字列。`message` は人向けで、日本語でよい。
 - 行ごとの問題は `error` ではなく、各 API の行単位の結果（`rowErrors`、`conflicts`）で返す。
-- DB の生のエラー文には接続先や SQL が混じりうるので、`db_error` の `message` に出すかはサーバ設定で切り替える（既定は出さず、サーバのログにだけ残す）。
+- DB の生のエラー文には接続先や SQL が混じりうるので、`db_error` の `message` に出すかはサーバ設定で切り替える（既定は出さず、サーバのログにだけ残す）。ロック待ちの時間切れのように、人が次に何をすればよいか分かるものは、生のエラー文ではなく**サーバが決めた固定の文**を `message` に出してよい（例「対象の行がほかのセッションにロックされています。コミットしていない更新が残っていないか確かめてから、もう一度試してください」）。
 
 共通のエラーコード:
 
@@ -132,6 +133,13 @@ AND DATALENGTH(CAST([ProductName] AS nvarchar(max))) = DATALENGTH(@b1)
 - `=` は BIN2 でも末尾の空白を無視するので、`DATALENGTH` も比べる。`char` / `nchar` の列には `DATALENGTH` の条件を付けない。
 - 戻し SQL（人が読む用）も同じ形で、`@b1` の代わりに `N'…'` のリテラルを書く。
 
+Oracle での書き方:
+- つないだときにセッションを `NLS_COMP = 'BINARY'`、`NLS_SORT = 'BINARY'` にする（`=` はセッションの `NLS_COMP` に従うため）。キーはこれで列の照合順序のまま比べる（Oracle の既定は BINARY）。人が流す `script` / `undoScript` も、先頭で `ALTER SESSION` して同じにする（流す人のセッションが `NLS_COMP = 'LINGUISTIC'` だと、キーが大文字小文字を無視して比べられ、ほかの行にも当たりうる。Oracle 23ai Free で確かめた）。
+- 値が変わっていないかは、`COLLATE` が使える DB（12.2 以降）なら `"NAME" COLLATE BINARY = :b1` と書く。列に照合順序が付いていても厳密に比べるため。使えないときはセッションの BINARY に頼る。
+- `VARCHAR2` / `NVARCHAR2` の `=` はもともと末尾の空白を区別する。`CHAR` / `NCHAR` は、パラメータを列と同じ型に CAST して比べる（`CAST(:k1 AS CHAR(6 BYTE))`、`CAST(:k1 AS NCHAR(4))`）。`VARCHAR2` のパラメータのままだと詰め物の空白まで比べて当たらない。固定長どうしは末尾の空白を見ないので、上の「固定長の末尾の空白だけは区別しない」と合う。
+- `NVARCHAR2` / `NCHAR` の値は `NVARCHAR2` のパラメータで渡す（`VARCHAR2` で渡すと DB の文字コードを通り、表せない字が崩れる）。
+- 戻し SQL のリテラルは、`NVARCHAR2` / `NCHAR` なら `N'…'`。DB の文字コードで表せない字を含むときは `UNISTR('\D842\DFB7…')` で書く（スクリプトのファイルが DB の文字コードを通ると `N'…'` の中身も崩れるため）。
+
 ## 2. 許可リスト（サーバ側の設定）
 
 サーバだけが持つ設定。クライアントからは変えられない。形は実装ごとに自由（JSON、web.config など）だが、持つ情報は次のとおり。
@@ -158,6 +166,7 @@ AND DATALENGTH(CAST([ProductName] AS nvarchar(max))) = DATALENGTH(@b1)
 ```
 
 - `access: "read"` は外部キーの存在確認用など、読むだけのターゲット。
+- `table` はその DB の書き方で読む。Oracle では `"` で囲まない名前は大文字にし（`app.m_product` は `APP.M_PRODUCT`）、囲めばそのまま使う。スキーマを省くと接続ユーザーのスキーマ。シノニムもたどる（自分のスキーマのもの、スキーマを省いたときは PUBLIC も）。DB リンク（`@`）は受けない。
 - `key` は主キー（または一意キー）の列。指定がなければ DB の主キーを使う。
 - `updatable` は `readable` の部分集合。キー列は更新できない（v1）。
 - 「更新日時」や「更新者」を自動で入れたい場合のために、将来 `stamp` 設定を足す余地を残す（v1 では持たない）。
@@ -234,9 +243,12 @@ AND DATALENGTH(CAST([ProductName] AS nvarchar(max))) = DATALENGTH(@b1)
 }
 ```
 
+- `dialect` は `"sqlserver"` か `"oracle"`。
+- `table` は実際の名前（Oracle なら `OWNER.NAME`。シノニムで書いた場合もたどった先）。
 - `columns` は `readable` に載った列だけ。並びは DB の列順。
-- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `maxBytes`, `encoding`（この2つは [文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
-- `foreignKeys[].referencedTarget` は、参照先が許可リストに読めるターゲットとして載っていればその名前、なければ `null`。`null` のときコアは存在確認を飛ばし、「確認できない」と警告を出す。
+- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `maxBytes`, `encoding`（この2つは [文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）, `emptyIsNull`（下記）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
+- `emptyIsNull: true` は、空文字 `""` を NULL として保存する文字列の列に付ける（Oracle の文字列の列は全部）。コアは取込でその列の空のセルを `null` にし、`""` を値として渡されたら検証エラーにする（「この列では空文字は NULL になります。空にするなら null」）。サーバはその列に `""` が来たら `invalid_value`。
+- `foreignKeys[].referencedTarget` は、参照先が許可リストに読めるターゲットとして載っていればその名前、なければ `null`。許可リストの各ターゲットを DB で解決した名前と、外部キーの参照先の名前で照らし合わせる（シノニムやスキーマ省略で書いてあっても見つかるように）。`null` のときコアは存在確認を飛ばし、「確認できない」と警告を出す。
 - 業務ルール（価格は0より大きい等）は describe に含めない。コア側の設定で持つ。
 
 ### 文字列の列の長さと文字コード
@@ -263,7 +275,23 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 | 1250〜1258 | `windows-1250`〜`windows-1258` |
 | 65001（`_UTF8` の照合順序） | `utf-8` |
 
-- WHATWG の名前と DB のコードページは完全には一致しない（WHATWG の `big5` は HKSCS を含み cp950 より広い、など）。コアの確認は目安で、最後に確かめるのはサーバの `invalid_value`。
+- Oracle では `maxLength` は文字数（`CHAR_LENGTH`）、`maxBytes` はバイト数（`DATA_LENGTH`）で、`VARCHAR2(10 CHAR)` でも `VARCHAR2(10 BYTE)` でも同じ取り方でよい。`dbType` には単位を出す（`VARCHAR2(10 CHAR)`）。`encoding` は `VARCHAR2` / `CHAR` なら `NLS_CHARACTERSET`、`NVARCHAR2` / `NCHAR` なら `NLS_NCHAR_CHARACTERSET` から次のように直す。表にない文字コード（`US7ASCII` など）は `encoding` を付けない。
+
+| Oracle の文字コード | `encoding` |
+| --- | --- |
+| AL32UTF8, UTF8 | `utf-8` |
+| AL16UTF16 | `utf-16le` |
+| JA16SJIS, JA16SJISTILDE | `shift_jis` |
+| JA16EUC, JA16EUCTILDE | `euc-jp` |
+| ZHS16GBK | `gbk` |
+| ZHT16BIG5, ZHT16MSWIN950, ZHT16HKSCS | `big5` |
+| KO16MSWIN949, KO16KSC5601 | `euc-kr` |
+| TH8TISASCII | `windows-874` |
+| EE8MSWIN1250 など（xx8MSWIN125x） | `windows-1250`〜`windows-1258` |
+| WE8ISO8859P1 | `windows-1252` |
+| WE8ISO8859P15 | `iso-8859-15` |
+
+- WHATWG の名前と DB のコードページは完全には一致しない（WHATWG の `big5` は HKSCS を含み cp950 より広い、Oracle の `UTF8` は CESU-8、`JA16SJISTILDE` の波ダッシュ、など）。コアの確認は目安で、最後に確かめるのはサーバの `invalid_value`。サーバはこの確認を DB に聞いてもよい（Oracle なら `TO_CHAR` / `TO_NCHAR` に通して元に戻るか、`LENGTHB` が `maxBytes` 以内か）。
 
 ### レスポンス（target 省略）
 ```json
@@ -376,7 +404,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 1. ターゲット・列・キーを許可リストで照合し、値が列の型の形か（`invalid_value`）も確かめる。違えばすぐ失敗（DB に触らない）。戻し SQL に値を埋め込むので、この確認は省けない。
    返せる応答の大きさに上限がある実装（C# 版の `maxJsonLength` など）は、ここで結果（`script`、`undoScript` を含む）を組み立てて長さを見積もり、超えるなら `too_many_rows` で止める。コミットした後に結果が返せないと、戻し SQL がクライアントに届かないため。fetch も同じ。
 2. トランザクションを開始する。
-3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`）。キーごとに、
+3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`、Oracle なら `SELECT … FOR UPDATE WAIT n`）。待つ秒数 `n` はサーバ設定（`lockWaitSeconds`、既定 10 秒）。待っても取れなければ全体をロールバックして `db_error`（`message` は [1.5](#15-結果とエラーの返し方) の固定の文でよい）。SQL Server も `SET LOCK_TIMEOUT` で同じ設定を使ってよい。キーごとに、
    - 行がない → 衝突（`reason: "not_found"`）
    - `before` の列のどれかが今の値と違う → 衝突（`reason: "changed"`）。比較は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の「厳密に同じ」で行う（NULL 同士は一致）。行の特定（キー）は照合順序のまま。
 4. 読んだ行の実際のキー値で、2行が同じ DB 行を指していないかを確かめる（`duplicate_key`。あればロールバックして `rowErrors` で返す）。
@@ -387,7 +415,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
       SET [UnitPrice] = @p1
     WHERE [ProductCode] = @k1
    ```
-   テーブル名と列名は許可リストの値から組み、`[]` で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
+   テーブル名と列名は許可リストの値から組み、`[]`（Oracle は `"`）で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
 7. コミットする。`check` のときは手順 3〜5 の後でロールバックして終わる（手順 6 は流さず、SQL を組むだけ）。
 8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
 
@@ -408,9 +436,9 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 }
 ```
 
-- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包む。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。
-- `undoScript`: 戻し用 SQL。「今の値が harikit で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。値の条件は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の厳密な比べ方で書く（キーの条件は照合順序のまま）。`script` と同じくトランザクションで包む。`check` のときも返す。
-- `script` と `undoScript` は方言ごとの書き方（引用、日付リテラル、NULL 比較）を知っているサーバが作る。コアはそれをファイルに保存する。
+- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう包み、**どれかの行の UPDATE が1行でなければ（行が見つからないか値が変わっていれば）全部戻して止まる**形にする（`check` で出した SQL を後から人が流したときに、変わっていた行だけ黙って飛ばさないため）。SQL Server では `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包み、UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, N'harikit: 行が見つからないか、値が変わっています（ProductCode=A001）。何も反映していません', 1;` を続ける（トリガーがあっても `@@ROWCOUNT` は UPDATE 文そのものの行数。SQL Server 2022 で確かめた）。メッセージにキーの値を入れるときは、リテラルと同じく引用を直す。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。
+- `undoScript`: 戻し用 SQL。「今の値が harikit で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。値の条件は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の厳密な比べ方で書く（キーの条件は照合順序のまま）。`script` と同じくトランザクションで包むが、0行の UPDATE があっても止めずに続ける（戻さなかった行を出力に出してよい）。`check` のときも返す。
+- `script` と `undoScript` は方言ごとの書き方（引用、日付リテラル、NULL 比較）を知っているサーバが作る。コアはそれをファイルに保存する。トランザクションの包み方と止め方も方言の書き方でよい。Oracle では PL/SQL の無名ブロックにし、`SET DEFINE OFF`（値の `&` を置き換えさせない）、UPDATE ごとに `IF SQL%ROWCOUNT <> 1 THEN RAISE_APPLICATION_ERROR(-20001, '…'); END IF;`、`EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;` とする。戻し用は `SET SERVEROUTPUT ON` にして、戻さなかった行と「n / m 行を戻しました」を `DBMS_OUTPUT` に出す。
 - `appliedBy` はサーバが認証から判定した名前。
 
 ### レスポンス（衝突で止めた）
@@ -455,9 +483,11 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 ## 8. 実装メモ
 
 ### Node 版
-- 依存は DB ドライバ（SQL Server は `mssql`）だけを目安に。HTTP は標準の `http` で足りる。
+- 依存は DB ドライバ（SQL Server は `mssql`、Oracle は `oracledb`）だけを目安に。HTTP は標準の `http` で足りる。
 - 既定で `127.0.0.1` にだけ待ち受け、起動時にトークンを出す（[1.4](#14-認証と-csrf)）。`appliedBy` は OS のユーザー名。
 - `decimal` / `bigint` はドライバから文字列で受けて文字列で返す。
+- Oracle のドライバは `oracledb`（node-oracledb）の Thin モード（Oracle Client 不要、12.1 以降）。11g は Thick モード（Oracle Instant Client が要る）。
+- Oracle の NUMBER は文字列で受けて文字列で返し、パラメータも文字列で渡して `TO_NUMBER(:p)`（セッションの `NLS_NUMERIC_CHARACTERS = '.,'`）。DATE / TIMESTAMP は `TO_CHAR(…, 'YYYY-MM-DD"T"HH24:MI:SS.FF9')` で読み、`TO_DATE` / `TO_TIMESTAMP` で渡す（タイムゾーンをドライバに任せない）。
 
 ### C#（.NET Framework、WebForms）版
 - 1つの `.aspx`（例 `Harikit.aspx`）に `[WebMethod]` を3つ置く: `Describe`、`Fetch`、`Apply`。引数は `Dictionary<string, object> req`、戻り値は `Dictionary<string, object>`（`{"d": ...}` は ASP.NET が付ける）。
@@ -468,6 +498,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`（載せ先が匿名を通す設定でログインしていないときは `"(anonymous)"`）。
 - 権限チェックは載せ先の仕組み（`web.config` の `<authorization>`、ロール判定など）に任せる。
 - `maxBytes` と表せない字の確認は `Encoding.GetEncoding(codePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback)` の `GetByteCount` でできる（[文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）。
+- Oracle はこれから。ODP.NET Managed Driver（`Oracle.ManagedDataAccess`、.NET Framework 4.x、Oracle Client 不要）でできる見込み（未確認）。`OracleCommand.BindByName = true`、`NVARCHAR2` は `OracleDbType.NVarchar2`、NUMBER は `OracleDecimal` か文字列で受ける。比べ方、ロック、スクリプトの書き方は Node 版の `oracle.ts` に合わせる。
 
 ### 適合テスト
 - 仕様どおりかを確かめるテスト一式（リクエストと期待するレスポンスの JSON の組）をリポジトリに置き、Node 版・C# 版の両方に同じものを流す。他の言語で作る人もこれで確かめられる。
@@ -483,6 +514,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 | 送る列 | 変わる列だけ | 他の更新とぶつかる範囲を最小に |
 | 値が変わっていないかの比べ方 | 厳密に同じ値（照合順序を使わない）。キーは照合順序 | 後から入った更新を上書きしない |
 | SQL 出力・戻し SQL | サーバが作る | 方言の書き方をサーバが知っている |
+| 人が流す SQL で行が当たらないとき | 全部戻して止まる（戻し SQL は続ける） | 変わっていた行だけ黙って飛ばさない |
 | 数値の精度 | `decimal` / `bigint` は文字列 | JS と .NET の両方で崩れない |
 
 ## 10. 拡張の余地
@@ -490,5 +522,5 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - **INSERT / DELETE**: `rows[].op` に `"insert"`（`after` だけ）、`"delete"`（`before` だけ、全列一致で消す）を足す。許可リストに `insertable` / `deletable` を足す。
 - **複数テーブル**: `changes` に複数のターゲットを並べ、まとめて1トランザクションにする。並び順＝実行順（親→子）。
 - **一部だけ反映**: `onConflict: "skipRow"` を足す（既定は今のまま全部止める）。
-- **Oracle など**: `dialect` を増やす。API の形は変えない。
+- **PostgreSQL、MySQL など**: `dialect` を増やす。API の形は変えない（Oracle はこの形で足した）。
 - **自動で入れる列**: 許可リストに `stamp`（例 `UpdatedAt = 現在時刻`、`UpdatedBy = 実行者`）を足し、サーバが UPDATE に加える。
