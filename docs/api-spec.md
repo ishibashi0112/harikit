@@ -92,7 +92,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | `unknown_target` | 許可リストにないターゲット |
 | `column_not_allowed` | 許可されていない列を読もう・更新しようとした |
 | `key_mismatch` | キーの列がターゲットのキー列と一致しない |
-| `too_many_rows` | 1回の上限（`limits`）を超えた |
+| `too_many_rows` | 1回の上限（`limits`）を超えた。返せる応答の大きさに上限がある実装で、それを超える場合も含む（`details` に上限と長さ） |
 | `conflict` | 変更前値が変わっていたので止めた（apply のみ、[7](#7-apply反映)） |
 | `db_error` | DB がエラーを返した |
 | `internal_error` | それ以外のサーバ側の失敗 |
@@ -348,6 +348,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 ### サーバの処理（実装が守ること）
 
 1. ターゲット・列・キーを許可リストで照合し、値が列の型の形か（`invalid_value`）も確かめる。違えばすぐ失敗（DB に触らない）。戻し SQL に値を埋め込むので、この確認は省けない。
+   返せる応答の大きさに上限がある実装（C# 版の `maxJsonLength` など）は、ここで結果（`script`、`undoScript` を含む）を組み立てて長さを見積もり、超えるなら `too_many_rows` で止める。コミットした後に結果が返せないと、戻し SQL がクライアントに届かないため。fetch も同じ。
 2. トランザクションを開始する。
 3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`）。キーごとに、
    - 行がない → 衝突（`reason: "not_found"`）
@@ -360,7 +361,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
       SET [UnitPrice] = @p1
     WHERE [ProductCode] = @k1
    ```
-   テーブル名と列名は許可リストの値から組み、`[]` で囲む（クライアントの文字列を名前に使わない）。影響行数が1でなければ全体をロールバックして `db_error`。
+   テーブル名と列名は許可リストの値から組み、`[]` で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
 7. コミットする。`check` のときは手順 3〜5 の後でロールバックして終わる（手順 6 は流さず、SQL を組むだけ）。
 8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
 
@@ -435,9 +436,10 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 ### C#（.NET Framework、WebForms）版
 - 1つの `.aspx`（例 `Harikit.aspx`）に `[WebMethod]` を3つ置く: `Describe`、`Fetch`、`Apply`。引数は `Dictionary<string, object> req`、戻り値は `Dictionary<string, object>`（`{"d": ...}` は ASP.NET が付ける）。
 - 例外は WebMethod の中で捕まえて `ok:false` に直す（[1.5](#15-結果とエラーの返し方)）。
-- `JavaScriptSerializer` の既定の上限（約 2MB）では足りないことがあるので、`web.config` の `jsonSerialization maxJsonLength` を上げる手順を README に書く。
+- WebMethod の受け取りと返しの両方に効くのは `web.config` の `system.web.extensions/scripting/webServices/jsonSerialization` の `maxJsonLength`（Mono の既定は 2097152）。超えると HTTP 500（`Maximum length exceeded`）になるので、上げる手順を README に書き、apply と fetch は DB を変える前に結果の長さを見て `too_many_rows`（`details.maxJsonLength`、`details.length`）で止める（[7](#7-apply反映) の手順 1）。
+- `application/json` でない POST は WebMethod に届かずページそのものが動くので、ページ側で 415 を返す（GET は 404）。
 - 日付は `DateTime` をそのまま返すと `"\/Date(...)\/"` になるので、必ず [1.3](#13-値の書き方json-と-db-型の対応) の文字列に変換して返す。`decimal` も文字列で返す。
-- 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`。
+- 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`（載せ先が匿名を通す設定でログインしていないときは `"(anonymous)"`）。
 - 権限チェックは載せ先の仕組み（`web.config` の `<authorization>`、ロール判定など）に任せる。
 - `maxBytes` と表せない字の確認は `Encoding.GetEncoding(codePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback)` の `GetByteCount` でできる（[文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）。
 
