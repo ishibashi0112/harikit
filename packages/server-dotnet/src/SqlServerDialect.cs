@@ -257,7 +257,8 @@ namespace Harikit.Server
             var nv = "CAST(" + QuoteName(col.Name) + " AS nvarchar(max))";
             var cond = nv + " COLLATE Latin1_General_BIN2 = " + expr;
             if (col.BaseType == "char" || col.BaseType == "nchar") return cond;
-            return cond + " AND DATALENGTH(" + nv + ") = DATALENGTH(" + expr + ")";
+            // 戻し SQL の文面を Node 版とそろえるため、括弧で包む。
+            return "(" + cond + " AND DATALENGTH(" + nv + ") = DATALENGTH(" + expr + "))";
         }
 
         SqlConnection Open()
