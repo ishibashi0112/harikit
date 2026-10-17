@@ -147,6 +147,7 @@ before(async () => {
         },
         kind: { table: "Kind", access: "read", readable: ["KindCode"] },
       },
+      lockWaitSeconds: 1,
     }),
   );
 
@@ -255,7 +256,7 @@ test("Excel 相当の取込から反映、衝突、戻しまで（監査トリ�
   const check = await client.apply({ ...req, mode: "check" });
   assert.equal(check.ok, true, JSON.stringify(check));
   assert.deepEqual(check.results, [{ target: "item", updated: 0 }]);
-  assert.match(check.script, /実行予定\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\n/);
+  assert.match(check.script, /実行予定\n-- [^\n]*何も反映せずに止まる[^\n]*\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\n/);
   assert.equal((await q(`SELECT COUNT(*) AS n FROM dbo.ItemAudit`))[0].n, 0);
 
   const done = await client.apply(req);
@@ -357,6 +358,63 @@ test("値が変わっていないかは厳密に比べ、キーは照合順序�
   assert.equal(await memo(), "ボールペン");
   assert.equal((await q(`SELECT Grade FROM dbo.Item WHERE Code = 'A001'`))[0].Grade, "A  ");
   await q(`UPDATE dbo.Item SET Memo = N'メモ' WHERE Code = 'A001'`);
+});
+
+test("出力した script は、後から行が変わっていたら何も反映せずに止まる。undoScript は飛ばして続ける", { skip }, async () => {
+  const qty = async () => Object.fromEntries((await q(`SELECT Code, Qty FROM dbo.Item WHERE Code IN ('A001', 'A002', 'O''K')`)).map((r) => [r.Code, r.Qty]));
+  await q(`INSERT INTO dbo.Item (Code, Name) VALUES ('O''K', N'x')`);
+  try {
+    const res = await client.apply(
+      applyReq([
+        { key: { Code: "A001" }, before: { Qty: 5 }, after: { Qty: 6 } },
+        { key: { Code: "O'K" }, before: { Qty: null }, after: { Qty: 7 } },
+      ]),
+    );
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.ok(res.script.includes("IF @@ROWCOUNT <> 1 THROW 50001, N'harikit: 行が見つからないか、値が変わっています（Code=O''K）。何も反映していません', 1;"), res.script);
+    // check の後に別の人が 2 行目を変えた。流しても 1 行目も含めて何も変わらない（監査トリガーがあっても止まり方は同じ）。
+    await q(`UPDATE dbo.Item SET Qty = 1 WHERE Code = 'O''K'`);
+    await assert.rejects(q(res.script), (e) => e.number === 50001 && e.message.includes("Code=O'K"));
+    assert.deepEqual(await qty(), { A001: 5, A002: null, "O'K": 1 });
+    // 元に戻せば流せる。
+    await q(`UPDATE dbo.Item SET Qty = NULL WHERE Code = 'O''K'`);
+    await q(res.script);
+    assert.deepEqual(await qty(), { A001: 6, A002: null, "O'K": 7 });
+    // 戻しは、後から変わった行（A001）を飛ばして残りを戻す。
+    await q(`UPDATE dbo.Item SET Qty = 9 WHERE Code = 'A001'`);
+    await q(res.undoScript);
+    assert.deepEqual(await qty(), { A001: 9, A002: null, "O'K": null });
+  } finally {
+    await q(`DELETE FROM dbo.Item WHERE Code = 'O''K'; UPDATE dbo.Item SET Qty = 5 WHERE Code = 'A001'`);
+  }
+});
+
+test("ほかのセッションが行をロックしたままなら、lockWaitSeconds で待つのをやめて何も変えない", { skip }, async () => {
+  const tx = new sql.Transaction(admin);
+  await tx.begin();
+  let res;
+  const started = Date.now();
+  try {
+    await new sql.Request(tx).query(`UPDATE dbo.Item SET Qty = Qty WHERE Code = 'A001'`);
+    res = await client.apply(applyReq([{ key: { Code: "A001" }, before: { Qty: 5 }, after: { Qty: 6 } }], { mode: "execute" }));
+  } finally {
+    await tx.rollback();
+  }
+  assert.ok(Date.now() - started < 8000, `${Date.now() - started} ms`);
+  assert.equal(res.ok, false, JSON.stringify(res));
+  assert.equal(res.error.code, "db_error");
+  assert.match(res.error.message, /ほかのセッションにロックされています/);
+  assert.equal((await q(`SELECT Qty FROM dbo.Item WHERE Code = 'A001'`))[0].Qty, 5);
+  // 待つ設定は接続に残さない（プールに戻った接続を使う fetch や載せ先の処理が、知らずに 1 秒で止まらないように）。
+  const tx2 = new sql.Transaction(admin);
+  await tx2.begin();
+  await new sql.Request(tx2).query(`UPDATE dbo.Item SET Qty = Qty WHERE Code = 'A001'`);
+  const t0 = Date.now();
+  const released = new Promise((resolve) => setTimeout(resolve, 2000)).then(() => tx2.rollback());
+  const f = await client.fetch({ target: "item", keys: [{ Code: "A001" }], columns: ["Qty"] });
+  await released;
+  assert.equal(f.rows[0].values.Qty, 5);
+  assert.ok(Date.now() - t0 >= 1500, `${Date.now() - t0} ms`);
 });
 
 test("real の列は fetch した値を before に送り返しても衝突しない", { skip }, async () => {

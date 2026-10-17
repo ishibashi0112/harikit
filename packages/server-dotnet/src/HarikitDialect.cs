@@ -101,8 +101,21 @@ namespace Harikit.Server
     /// <summary>DB がエラーを返したとき。Message は生のエラー文。</summary>
     public class HarikitDbException : Exception
     {
+        /// <summary>
+        /// 人が次に何をすればよいか分かるエラー（ロック待ちの時間切れなど）に、DB の生の文の代わりに返す固定の文（仕様 1.5）。
+        /// </summary>
+        public string PublicMessage;
+
         public HarikitDbException(string message) : base(message) { }
         public HarikitDbException(string message, Exception inner) : base(message, inner) { }
+    }
+
+    /// <summary>人が読む SQL の UPDATE 1 本分。Key で行を探し（照合順序）、Expect は「この値のときだけ」の条件（厳密に比べる）。</summary>
+    public sealed class ScriptUpdate
+    {
+        public Row Set;
+        public Row Key;
+        public Row Expect;
     }
 
     public interface IHarikitDialect
@@ -122,9 +135,10 @@ namespace Harikit.Server
         /// </summary>
         List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items);
         /// <summary>
-        /// 人が読む UPDATE 文を 1 本作る。key はどの行か（照合順序で比べる）、values は「この値のときだけ」の条件
-        /// （厳密に比べる。仕様 1.6）。
+        /// 人が流せる SQL（値を埋め込んだもの）を作る。head は先頭のコメント行。人が流しても 1 トランザクションになる形に包む。
+        /// kind が "apply" なら反映する SQL（どれかの行が 1 行でなければ全部戻して止まる）、
+        /// "undo" なら戻し SQL（今の値が Expect のままの行だけ戻し、ほかは飛ばして続ける）。
         /// </summary>
-        string RenderUpdate(TableMeta meta, Row set, Row key, Row values);
+        string RenderScript(TableMeta meta, string head, IList<ScriptUpdate> updates, string kind);
     }
 }
