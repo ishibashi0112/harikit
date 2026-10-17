@@ -2,7 +2,7 @@
 
 import type { DiffResult, DiffStatus } from "./diff.js";
 import type { Value } from "./types.js";
-import type { Issue } from "./validate.js";
+import type { Issue, Reading } from "./validate.js";
 
 const STATUS_LABEL: Record<DiffStatus, string> = { change: "変わる", same: "同じ", not_found: "キーなし" };
 
@@ -37,4 +37,9 @@ export function issuesToCsv(issues: Issue[]): string {
     ["種類", "セル", "行", "列", "内容"],
     ...issues.map((i) => [i.severity === "error" ? "エラー" : "警告", i.cell ?? "", i.row === undefined ? "" : i.row + 1, i.column ?? "", i.message]),
   ]);
+}
+
+/** Excel の表示の形から読み替えたセルの一覧。 */
+export function readingsToCsv(readings: readonly Reading[]): string {
+  return toCsv([["セル", "行", "列", "取り込んだ値", "読み替えた値"], ...readings.map((r) => [r.cell, r.row + 1, r.column, r.text, r.value])]);
 }

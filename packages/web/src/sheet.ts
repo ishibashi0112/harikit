@@ -10,6 +10,7 @@ import {
   type DiffResult,
   type DiffStatus,
   type PrepareResult,
+  type Reading,
   type Sheet,
   type TableDescription,
   type Value,
@@ -60,6 +61,8 @@ export interface CellMark {
   notes: string[];
   warn: boolean;
   kind?: MarkKind;
+  /** Excel の表示の形（2024/4/1、¥1,200 など）から読み替えたセル。 */
+  read?: boolean;
 }
 
 /** 行の id と列の文字（"B"）で引く。 */
@@ -84,9 +87,20 @@ function markAt(marks: Marks, rows: readonly GridRow[], row: number, col: number
   return m;
 }
 
+/** 読み替えたセルのメモ。 */
+export function readingNote(r: Pick<Reading, "text" | "value">): string {
+  return `「${r.text}」を ${display(r.value)} として読みました`;
+}
+
 /** 検証と差分の結果をセルの印にする。rows は検証に渡したときのグリッドの行。 */
 export function buildMarks(rows: readonly GridRow[], result: PrepareResult): Marks {
   const marks: Marks = new Map();
+  for (const r of result.validation.readings) {
+    const m = markAt(marks, rows, r.row, r.col);
+    if (!m) continue;
+    m.read = true;
+    m.notes.push(readingNote(r));
+  }
   for (const i of result.issues) {
     if (i.row === undefined || i.col === undefined) continue;
     const m = markAt(marks, rows, i.row, i.col);
@@ -139,7 +153,7 @@ export function addConflictMarks(marks: Marks, rows: readonly GridRow[], result:
       if (!row) continue;
       const key = markKey(row.id, columnLetter(col));
       const m = next.get(key);
-      next.set(key, { text: cellText(row, columnLetter(col)), errors: m?.errors ?? [], notes: [...(m?.notes ?? []), message], warn: m?.warn ?? false, kind: "conflict" });
+      next.set(key, { ...m, text: cellText(row, columnLetter(col)), errors: m?.errors ?? [], notes: [...(m?.notes ?? []), message], warn: m?.warn ?? false, kind: "conflict" });
     }
   }
   return next;
@@ -176,14 +190,22 @@ export interface DiffGridRow {
   status: string;
   /** 変わる列の名前。 */
   changed: string[];
+  /** 列名 → Excel の表示の形から読み替えたときの、貼った文字列。 */
+  pasted: Record<string, string>;
   [col: string]: unknown;
 }
 
 export const STATUS_LABEL: Record<DiffStatus, string> = { change: "変わる", same: "同じ", not_found: "キーなし" };
 
-export function diffGridRows(d: DiffResult): DiffGridRow[] {
+export function diffGridRows(d: DiffResult, readings: readonly Reading[] = []): DiffGridRow[] {
+  const pasted = new Map<number, Record<string, string>>();
+  for (const r of readings) {
+    let p = pasted.get(r.row);
+    if (!p) pasted.set(r.row, (p = {}));
+    p[r.column] = r.text;
+  }
   return d.rows.map((r, i) => {
-    const out: DiffGridRow = { id: i, row: r.row + 1, status: STATUS_LABEL[r.status], changed: r.changes.map((c) => c.column) };
+    const out: DiffGridRow = { id: i, row: r.row + 1, status: STATUS_LABEL[r.status], changed: r.changes.map((c) => c.column), pasted: pasted.get(r.row) ?? {} };
     for (const k of d.keyColumns) out[`k:${k}`] = r.key[k] ?? null;
     for (const c of d.updateColumns) {
       // キーなしの行は DB の値が無いので undefined（空と区別する）。

@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./values.js";
 export { byteCount, type ByteCount } from "./encoding.js";
+export * from "./display.js";
 export * from "./table.js";
 export { readXlsx, serialToIso } from "./xlsx.js";
 export * from "./validate.js";

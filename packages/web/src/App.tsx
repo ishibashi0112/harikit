@@ -8,10 +8,12 @@ import {
   buildPlan,
   columnLetter,
   diffToCsv,
+  groupReadings,
   HarikitApiError,
   HarikitHttpError,
   issuesToCsv,
   prepare,
+  readingsToCsv,
   type ApplyMode,
   type ApplyResponse,
   type DiffResult,
@@ -19,6 +21,7 @@ import {
   type HarikitClient,
   type Issue,
   type PrepareResult,
+  type Reading,
   type TableDescription,
   type TargetSummary,
 } from "@harikit/core";
@@ -33,6 +36,7 @@ import {
   headerInfo,
   issuePlace,
   liveMark,
+  readingNote,
   stamp,
   toSheet,
   type DiffGridRow,
@@ -174,7 +178,7 @@ export function App() {
           }
           const m = liveMark(marks, row, letter);
           if (!m) return undefined;
-          return [m.kind && `hk-${m.kind}`, m.warn && "hk-warn"].filter(Boolean).join(" ") || undefined;
+          return [m.kind && `hk-${m.kind}`, m.warn && "hk-warn", m.read && "hk-read"].filter(Boolean).join(" ") || undefined;
         },
         cellNote: ({ row, sourceRowIndex }) => {
           if (sourceRowIndex === 0) return desc ? headerInfo(desc, cellText(row, letter))?.note : undefined;
@@ -202,7 +206,7 @@ export function App() {
     requestAnimationFrame(() => gridRef.current?.selectCell(1, col, { scrollIntoView: true }));
   };
 
-  const jump = (i: Issue) => {
+  const jump = (i: { row?: number; col?: number }) => {
     if (i.row === undefined || i.col === undefined) return;
     setTab("input");
     requestAnimationFrame(() => gridRef.current?.selectCell(i.row!, i.col!, { scrollIntoView: true }));
@@ -354,7 +358,7 @@ export function App() {
           </div>
           {diff && (
             <div className="hk-grid" hidden={tab !== "diff"}>
-              <DiffGrid diff={diff} />
+              <DiffGrid diff={diff} readings={prepared!.result.validation.readings} />
             </div>
           )}
         </section>
@@ -379,6 +383,11 @@ export function App() {
                   {prepared.result.issues.length > 0 && (
                     <button type="button" className="hk-button hk-button--small" onClick={() => download(`${base}-issues.csv`, issuesToCsv(prepared.result.issues), "text/csv;charset=utf-8")}>
                       問題の一覧 CSV
+                    </button>
+                  )}
+                  {prepared.result.validation.readings.length > 0 && (
+                    <button type="button" className="hk-button hk-button--small" onClick={() => download(`${base}-readings.csv`, readingsToCsv(prepared.result.validation.readings), "text/csv;charset=utf-8")}>
+                      読み替えの一覧 CSV
                     </button>
                   )}
                   {diff && prepared.result.ok && diff.counts.change > 0 && (
@@ -448,7 +457,7 @@ function ColumnsCard({ desc, target, onAdd }: { desc: TableDescription | null; t
   return (
     <Card step="1" title="表に貼り付ける">
       <p className="hk-help">
-        1 行目は列名です。キーの列と、変える列だけを貼ってください（列の順は自由）。貼っていない列は変わりません。
+        1 行目は列名です。キーの列と、変える列だけを貼ってください（列の順は自由）。貼っていない列は変わりません。日付や数は Excel の表示のまま（2024/4/1、¥1,200 など）で貼れます。
       </p>
       <ul className="hk-columns">
         {cols.map((c) => {
@@ -476,7 +485,7 @@ function ColumnsCard({ desc, target, onAdd }: { desc: TableDescription | null; t
 
 const STATUS_TEXT = { change: "変わる", same: "同じ", not_found: "キーなし" } as const;
 
-function PrepareSummary({ result, onJump }: { result: PrepareResult; onJump: (i: Issue) => void }) {
+function PrepareSummary({ result, onJump }: { result: PrepareResult; onJump: (at: { row?: number; col?: number }) => void }) {
   const errors = result.issues.filter((i) => i.severity === "error").length;
   const warnings = result.issues.length - errors;
   const d = result.diff;
@@ -517,6 +526,33 @@ function PrepareSummary({ result, onJump }: { result: PrepareResult; onJump: (i:
           {result.issues.length > 200 && <p className="hk-muted">…ほか {result.issues.length - 200} 件（CSV を見てください）</p>}
         </>
       )}
+      <Readings readings={result.validation.readings} onJump={onJump} />
+    </div>
+  );
+}
+
+/** Excel の表示の形から読み替えたセルを、列ごとに 1 行で見せる。 */
+function Readings({ readings, onJump }: { readings: readonly Reading[]; onJump: (at: { row?: number; col?: number }) => void }) {
+  const groups = useMemo(() => groupReadings(readings), [readings]);
+  if (groups.length === 0) return null;
+  return (
+    <div className="hk-readings">
+      <p className="hk-muted">Excel の表示から読み替えたセル: {readings.length} 個</p>
+      <ul className="hk-issues">
+        {groups.map((g) => (
+          <li key={g.column}>
+            <button type="button" className="hk-issue hk-issue--read" title={readingNote(g.first)} onClick={() => onJump(g.first)}>
+              <span className="hk-issue-place">{g.column}</span>
+              <span>
+                {g.count} 個。例: {g.first.text} → {String(g.first.value)}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="hk-muted hk-small">
+        表では<span className="hk-read-sample">点線の下線</span>のセルです。表示で丸めた数や秒は丸めたまま読むので、元の桁が要るときは Excel の表示形式を変えてからコピーしてください。
+      </p>
     </div>
   );
 }
@@ -648,13 +684,18 @@ function emptyIfChanged(column: string) {
     value === null && row.changed.includes(column) ? "（空）" : value === null || value === undefined ? "" : String(value);
 }
 
-function DiffGrid({ diff }: { diff: DiffResult }) {
-  const rows = useMemo(() => diffGridRows(diff), [diff]);
+/** 読み替えたセルに、貼った文字列のメモを付ける。 */
+function pastedNote(column: string) {
+  return ({ row }: { row: DiffGridRow }) => (row.pasted[column] !== undefined ? `貼った値: ${row.pasted[column]}` : undefined);
+}
+
+function DiffGrid({ diff, readings }: { diff: DiffResult; readings: readonly Reading[] }) {
+  const rows = useMemo(() => diffGridRows(diff, readings), [diff, readings]);
   const columns = useMemo<GridColumn<DiffGridRow>[]>(
     () => [
       { key: "row", title: "行", width: 64, align: "right", pinned: "left" },
       { key: "status", title: "状態", width: 104, pinned: "left", filterType: "set", conditionalFormat: { chips: { 変わる: "info", 同じ: "neutral", キーなし: "warning" } } },
-      ...diff.keyColumns.map((k): GridColumn<DiffGridRow> => ({ key: `k:${k}`, title: k, width: 120, pinned: "left" })),
+      ...diff.keyColumns.map((k): GridColumn<DiffGridRow> => ({ key: `k:${k}`, title: k, width: 120, pinned: "left", cellNote: pastedNote(k) })),
       ...diff.updateColumns.flatMap((c): GridColumn<DiffGridRow>[] => [
         {
           key: `b:${c}`,
@@ -669,6 +710,7 @@ function DiffGrid({ diff }: { diff: DiffResult }) {
           width: 150,
           valueFormatter: emptyIfChanged(c),
           cellClassName: ({ row }) => (row.changed.includes(c) ? "hk-change" : undefined),
+          cellNote: pastedNote(c),
         },
       ]),
     ],
