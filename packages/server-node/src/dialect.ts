@@ -63,9 +63,12 @@ export interface ScriptUpdate {
   expect: Row;
 }
 
-/** 人が読む SQL のメッセージに入れるキー（"Code=A001, Seq=1"）。長いキーは 200 文字で切る。引用はしないので、呼ぶ側で直す。 */
+/**
+ * 人が読む SQL のメッセージに入れるキー（"Code=A001, Seq=1"）。改行は空白にし（SQL*Plus は行ごとに読むため）、長いキーは 200 文字で切る。
+ * 引用はしないので、呼ぶ側で直す。
+ */
 export function scriptKeyText(key: Row): string {
-  const chars = [...Object.entries(key).map(([k, v]) => `${k}=${String(v)}`).join(", ")];
+  const chars = [...Object.entries(key).map(([k, v]) => `${k}=${String(v).replace(/[\r\n]+/g, " ")}`).join(", ")];
   return chars.length > 200 ? chars.slice(0, 200).join("") + "…" : chars.join("");
 }
 

@@ -113,3 +113,34 @@ test("人が読む SQL: PL/SQL のブロックにし、N'' で書けない字は
   assert.match(undo, /IF SQL%ROWCOUNT = 1 THEN n := n \+ 1; ELSE DBMS_OUTPUT.PUT_LINE\('harikit: 戻していない行（後から別の更新が入った）: CODE=A1'\); END IF;/);
   assert.match(undo, /DBMS_OUTPUT.PUT_LINE\('harikit: ' \|\| n \|\| ' \/ 1 行を戻しました'\);/);
 });
+
+test("人が読む SQL: 改行は値の中に書かず、長い値は行を分ける（SQL*Plus が / や # で始まる行をコマンドとして読まないように）", () => {
+  const charsets = { db: "AL32UTF8", nchar: "AL16UTF16" };
+  const meta = {
+    table: "APP.T",
+    owner: "APP",
+    name: "T",
+    collate: true,
+    dbEncoding: "utf-8",
+    columns: [
+      oracleColumn(dict({ name: "CD", dataType: "CHAR", dataLength: 6, charLength: 6, nullable: false }), charsets),
+      oracleColumn(dict({ name: "NOTE", dataType: "VARCHAR2", dataLength: 400, charLength: 400 }), charsets),
+      oracleColumn(dict({ name: "KANA", dataType: "NCHAR", dataLength: 8, charLength: 4, charUsed: "C" }), charsets),
+    ],
+    primaryKey: ["CD"],
+    foreignKeys: [],
+  } as TableMeta;
+  const d = new OracleDialect({ dialect: "oracle", connectString: "x", user: "x" });
+  const long = "あ".repeat(150);
+  const script = d.renderScript(meta, "-- harikit x", [{ key: { CD: "A\n1" }, set: { NOTE: "a\r\n/\n#host rm x\n.\nb", KANA: "ア\nイ" }, expect: { NOTE: long, KANA: null } }], "apply");
+  const lines = script.split("\n");
+  // 最後の / のほかに、/ や . だけの行、# で始まる行がない。
+  assert.deepEqual(lines.filter((l) => /^\s*[/.]\s*$/.test(l) || /^\s*#/.test(l)), ["/"]);
+  assert.ok(lines.every((l) => l.length < 1000));
+  assert.match(script, /\n {2}UPDATE "APP"."T"\n {5}SET "NOTE" = 'a'\n {6}\|\| CHR\(13\)\n {6}\|\| CHR\(10\)\n {6}\|\| '\/'\n/);
+  assert.match(script, /"KANA" = CAST\(N'ア'\n {6}\|\| UNISTR\('\\000A'\)\n {6}\|\| N'イ' AS NCHAR\(4\)\)/);
+  assert.match(script, /\n {3}WHERE "CD" = CAST\('A'\n {6}\|\| CHR\(10\)\n {6}\|\| '1' AS CHAR\(6 BYTE\)\)\n {5}AND "NOTE" COLLATE BINARY = '(あ){100}'\n {6}\|\| '(あ){50}'\n {5}AND "KANA" IS NULL;/);
+  // メッセージのキーの改行は空白にする。
+  assert.match(script, /（CD=A 1）/);
+});
+

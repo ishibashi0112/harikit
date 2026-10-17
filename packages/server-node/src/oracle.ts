@@ -277,11 +277,17 @@ function bindValue(binds: Binds, name: string, col: OraColumn, v: Value): string
 
 const quoteString = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
+/** リテラルの一続き。literal は '' / N'' の文字列のリテラルか（CHR や UNISTR は関数の値で、型が VARCHAR2 / NVARCHAR2 になる）。 */
+interface Piece {
+  text: string;
+  literal: boolean;
+}
+
 /**
- * NVARCHAR2 / NCHAR のリテラル。N'' の中身は DB の文字コードを通るので、DB の文字コードで表せない字があれば
- * UNISTR の \XXXX で書く（表せる字はそのまま残して読めるようにする）。
+ * NVARCHAR2 / NCHAR のリテラル（改行を含まない一続き）。N'' の中身は DB の文字コードを通るので、DB の文字コードで表せない字があれば
+ * UNISTR の \XXXX で書く（表せる字はそのまま残して読めるようにする）。UNISTR は NVARCHAR2 を返す。
  */
-function nationalLiteral(col: OraColumn, s: string, dbEncoding: string | undefined): string {
+function nationalPiece(s: string, dbEncoding: string | undefined): Piece {
   const plain = (ch: string) => {
     if (ch.codePointAt(0)! < 0x80) return true;
     if (!dbEncoding || dbEncoding === "utf-16le") return false;
@@ -289,7 +295,7 @@ function nationalLiteral(col: OraColumn, s: string, dbEncoding: string | undefin
     return n !== null && "bytes" in n;
   };
   const chars = [...s];
-  if (chars.every(plain)) return `N${quoteString(s)}`;
+  if (chars.every(plain)) return { text: `N${quoteString(s)}`, literal: true };
   let body = "";
   for (const ch of chars) {
     if (ch === "\\") body += "\\005C";
@@ -297,8 +303,41 @@ function nationalLiteral(col: OraColumn, s: string, dbEncoding: string | undefin
     else if (plain(ch)) body += ch;
     else for (let i = 0; i < ch.length; i++) body += "\\" + ch.charCodeAt(i).toString(16).toUpperCase().padStart(4, "0");
   }
-  const u = `UNISTR('${body}')`;
-  return col.castType ? `CAST(${u} AS ${col.castType})` : u;
+  return { text: `UNISTR('${body}')`, literal: false };
+}
+
+/**
+ * 人が流す SQL で、1 つのリテラルに書く長さ（文字数）。SQL*Plus は 1 行が 2499 文字（23ai は 4999）を超えると読まないので、
+ * 長い値は分けて || でつなぐ。UNISTR の \XXXX は 1 字が 10 文字まで膨らむ。
+ */
+const LITERAL_CHUNK = 100;
+
+/**
+ * 文字列の列のリテラル。改行は値の中に書かず CHR(10) / UNISTR('\000A') にする。SQL*Plus は文字列の中でも、
+ * / や . だけの行を文の終わりとして、# で始まる行を SQL*Plus のコマンドとして読んでしまうため。
+ * 分けてつないだ値は VARCHAR2 / NVARCHAR2 になるので、CHAR / NCHAR の列では列の型に CAST する（末尾の空白を見ない比べ方のまま）。
+ */
+function stringLiteral(col: OraColumn, s: string, dbEncoding: string | undefined): string {
+  const national = col.baseType === "NVARCHAR2" || col.baseType === "NCHAR";
+  const pieces: Piece[] = [];
+  for (const token of s.split(/(\r|\n)/)) {
+    if (token === "") continue;
+    if (token === "\r" || token === "\n") {
+      const code = token === "\n" ? 10 : 13;
+      pieces.push({ text: national ? `UNISTR('\\${code.toString(16).toUpperCase().padStart(4, "0")}')` : `CHR(${code})`, literal: false });
+      continue;
+    }
+    const chars = [...token];
+    for (let i = 0; i < chars.length; i += LITERAL_CHUNK) {
+      const part = chars.slice(i, i + LITERAL_CHUNK).join("");
+      pieces.push(national ? nationalPiece(part, dbEncoding) : { text: quoteString(part), literal: true });
+    }
+  }
+  // 文字列のリテラル（'' と N''）はそのままで CHAR / NCHAR の列と末尾の空白を見ずに比べられる。
+  if (pieces.length === 0) return quoteString(s);
+  if (pieces.length === 1 && pieces[0]!.literal) return pieces[0]!.text;
+  const joined = pieces.map((p) => p.text).join("\n      || ");
+  return col.castType ? `CAST(${joined} AS ${col.castType})` : joined;
 }
 
 /** 人が読む SQL 用の値の書き方。値は checkValue で形を確かめた後のものだけが来る。 */
@@ -307,11 +346,10 @@ export function literal(col: OraColumn, v: Value, dbEncoding?: string): string {
   switch (col.baseType) {
     case "VARCHAR2":
     case "CHAR":
-      // 文字列のリテラルは CHAR 扱いなので、CHAR の列とは末尾の空白を見ずに比べ、VARCHAR2 の列とは厳密に比べる。
-      return quoteString(String(v));
     case "NVARCHAR2":
     case "NCHAR":
-      return nationalLiteral(col, String(v), dbEncoding);
+      // 文字列のリテラルは CHAR 扱いなので、CHAR の列とは末尾の空白を見ずに比べ、VARCHAR2 の列とは厳密に比べる。
+      return stringLiteral(col, String(v), dbEncoding);
     case "NUMBER":
     case "FLOAT":
       if (!DECIMAL_RE.test(String(v))) throw new Error(`数値ではない値: ${String(v)}`);
@@ -693,7 +731,11 @@ export class OracleDialect implements Dialect {
     const assigns = cols(m, Object.keys(u.set)).map((c) => `${quoteName(c.name)} = ${lit(c, u.set[c.name]!)}`);
     const keyConds = cols(m, Object.keys(u.key)).map((c) => keyCondition(c, lit(c, u.key[c.name]!)));
     const valueConds = cols(m, Object.keys(u.expect)).map((c) => sameCondition(c, u.expect[c.name] === null ? null : lit(c, u.expect[c.name]!), m.collate));
-    return `UPDATE ${quoteTable(m)} SET ${assigns.join(", ")} WHERE ${[...keyConds, ...valueConds].join(" AND ")}`;
+    const conds = [...keyConds, ...valueConds];
+    const one = `UPDATE ${quoteTable(m)} SET ${assigns.join(", ")} WHERE ${conds.join(" AND ")}`;
+    // SQL*Plus の 1 行の上限より十分短く。長い文や、分けてつないだ値を含む文は、列と条件ごとに行を分ける。
+    if (one.length <= 1000 && !one.includes("\n")) return one;
+    return [`UPDATE ${quoteTable(m)}`, `     SET ${assigns.join(",\n         ")}`, `   WHERE ${conds.join("\n     AND ")}`].join("\n");
   }
 
   /**
