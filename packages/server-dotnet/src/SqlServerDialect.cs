@@ -41,11 +41,24 @@ namespace Harikit.Server
         static readonly Regex CollationRe = new Regex(@"\A[A-Za-z0-9_]+\z");
         static readonly Regex TablePartRe = new Regex(@"\G\s*(?:\[((?:[^\]]|\]\])*)\]|([^.\[\]]+))\s*(?:\.|\z)");
 
-        readonly string connectionString;
+        const string LockedMessage = "対象の行がほかのセッションにロックされています。コミットしていない更新が残っていないか確かめてから、もう一度試してください";
 
-        public SqlServerDialect(string connectionString)
+        readonly string connectionString;
+        readonly int lockWaitSeconds;
+
+        /// <param name="lockWaitSeconds">反映で行のロックを待つ秒数（SET LOCK_TIMEOUT）。過ぎたら db_error で何も変えない。</param>
+        public SqlServerDialect(string connectionString, int lockWaitSeconds = 10)
         {
             this.connectionString = connectionString;
+            this.lockWaitSeconds = lockWaitSeconds;
+        }
+
+        /// <summary>SqlException を HarikitDbException にする。ロック待ちの時間切れ（1222）には、人向けの固定の文を付ける。</summary>
+        static HarikitDbException DbError(SqlException e)
+        {
+            var error = new HarikitDbException(e.Message, e);
+            if (e.Number == 1222) error.PublicMessage = LockedMessage;
+            return error;
         }
 
         public string Name
@@ -271,7 +284,7 @@ namespace Harikit.Server
             catch (SqlException e)
             {
                 conn.Dispose();
-                throw new HarikitDbException(e.Message, e);
+                throw DbError(e);
             }
             return conn;
         }
@@ -293,7 +306,7 @@ namespace Harikit.Server
             }
             catch (SqlException e)
             {
-                throw new HarikitDbException(e.Message, e);
+                throw DbError(e);
             }
             return rows;
         }
@@ -528,7 +541,7 @@ namespace Harikit.Server
                 }
                 catch (SqlException e)
                 {
-                    throw new HarikitDbException(e.Message, e);
+                    throw DbError(e);
                 }
                 return last;
             }
@@ -542,10 +555,12 @@ namespace Harikit.Server
                 try
                 {
                     tx = conn.BeginTransaction(IsolationLevel.ReadCommitted);
+                    // ほかのセッションが行をロックしたままでも、待ち続けずに止める（仕様 7 の手順 3、lockWaitSeconds）。
+                    Execute(conn, tx, "SET LOCK_TIMEOUT " + (lockWaitSeconds * 1000L).ToString(CultureInfo.InvariantCulture) + ";");
                 }
                 catch (SqlException e)
                 {
-                    throw new HarikitDbException(e.Message, e);
+                    throw DbError(e);
                 }
                 try
                 {
@@ -557,7 +572,7 @@ namespace Harikit.Server
                     }
                     catch (SqlException e)
                     {
-                        throw new HarikitDbException(e.Message, e);
+                        throw DbError(e);
                     }
                 }
                 catch
@@ -572,7 +587,24 @@ namespace Harikit.Server
                     }
                     throw;
                 }
+                finally
+                {
+                    // 接続はプールに戻って載せ先アプリの処理にも使われうるので、既定（待ち続ける）に戻しておく。
+                    try
+                    {
+                        Execute(conn, null, "SET LOCK_TIMEOUT -1;");
+                    }
+                    catch
+                    {
+                        // 接続が切れているなら、プールにも戻らない。
+                    }
+                }
             }
+        }
+
+        static void Execute(SqlConnection conn, SqlTransaction tx, string text)
+        {
+            using (var cmd = new SqlCommand(text, conn, tx)) cmd.ExecuteNonQuery();
         }
 
         public List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items)
@@ -624,7 +656,52 @@ namespace Harikit.Server
             return output;
         }
 
-        public string RenderUpdate(TableMeta meta, Row set, Row key, Row values)
+        public string RenderScript(TableMeta meta, string head, IList<ScriptUpdate> updates, string kind)
+        {
+            var lines = new List<string> { head };
+            if (kind == "apply") lines.Add("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（エラー 50001）。");
+            else lines.Add("-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。");
+            lines.Add("SET XACT_ABORT ON;");
+            lines.Add("BEGIN TRANSACTION;");
+            foreach (var u in updates)
+            {
+                lines.Add(RenderUpdate(meta, u.Set, u.Key, u.Expect) + ";");
+                // 後から人が流したときに、変わっていた行だけ黙って飛ばさない。XACT_ABORT ON なので THROW で全部戻る。
+                // @@ROWCOUNT はトリガーがあっても UPDATE 文そのものの行数。
+                if (kind == "apply")
+                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " + NString("harikit: 行が見つからないか、値が変わっています（" + KeyText(u.Key) + "）。何も反映していません") + ", 1;");
+            }
+            lines.Add("COMMIT;");
+            return string.Join("\n", lines) + "\n";
+        }
+
+        static string NString(string s)
+        {
+            return "N'" + s.Replace("'", "''") + "'";
+        }
+
+        /// <summary>止めたときの文に入れるキーの値（Node 版と同じ「列=値, …」、長ければ 200 文字で切る）。</summary>
+        static string KeyText(Row key)
+        {
+            var parts = new List<string>();
+            foreach (var kv in key)
+            {
+                var v = kv.Value;
+                string text;
+                if (v == null) text = "null";
+                else if (v is string) text = (string)v;
+                else if (v is bool) text = (bool)v ? "true" : "false";
+                else if (HarikitJson.IsNumber(v)) text = HarikitJson.FormatDouble(HarikitJson.ToDouble(v));
+                else text = Convert.ToString(v, CultureInfo.InvariantCulture);
+                parts.Add(kv.Key + "=" + text);
+            }
+            var s = string.Join(", ", parts);
+            if (s.Length <= 200) return s;
+            var cut = char.IsHighSurrogate(s[199]) ? 199 : 200;
+            return s.Substring(0, cut) + "…";
+        }
+
+        static string RenderUpdate(TableMeta meta, Row set, Row key, Row values)
         {
             var assigns = new List<string>();
             foreach (var c in meta.ColumnsOf(set.Keys)) assigns.Add(QuoteName(c.Name) + " = " + Literal(c, set[c.Name]));
