@@ -38,6 +38,7 @@ namespace Harikit.Server
 
         static readonly Regex NumberLiteralRe = new Regex(@"\A-?[0-9]+(\.[0-9]+)?\z");
         static readonly Regex DateLiteralRe = new Regex(@"\A[0-9:T.-]+\z");
+        static readonly Regex CollationRe = new Regex(@"\A[A-Za-z0-9_]+\z");
         static readonly Regex TablePartRe = new Regex(@"\G\s*(?:\[((?:[^\]]|\]\])*)\]|([^.\[\]]+))\s*(?:\.|\z)");
 
         readonly string connectionString;
@@ -282,7 +283,7 @@ namespace Harikit.Server
             {
                 var cmd = new SqlCommand(@"SELECT c.name, TYPE_NAME(c.system_type_id) AS base_type, c.max_length, c.precision, c.scale,
                     c.is_nullable, c.is_identity, c.is_computed, c.default_object_id,
-                    CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page
+                    CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page, c.collation_name
                     FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id", conn);
                 cmd.Parameters.Add("@name", SqlDbType.NVarChar, 512).Value = qualified;
                 var colRows = Query(cmd);
@@ -320,6 +321,7 @@ namespace Harikit.Server
                             if (CodePages.TryGetValue(codePage, out name)) col.Encoding = name;
                             col.ByteEncoding = ByteEncoding(codePage);
                         }
+                        if (!national && r[10] is string) col.Collation = (string)r[10];
                     }
                     if (type == "decimal")
                     {
@@ -548,6 +550,55 @@ namespace Harikit.Server
                     throw;
                 }
             }
+        }
+
+        public List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items)
+        {
+            var output = new List<StringCheck>();
+            var byColumn = new Dictionary<string, List<int>>();
+            for (var i = 0; i < items.Count; i++)
+            {
+                output.Add(null);
+                var col = meta.Column(items[i].Key);
+                // 照合順序の名前は DB の定義から来るが、SQL に書くので形を確かめる。
+                if (col.Collation == null || !CollationRe.IsMatch(col.Collation)) continue;
+                List<int> list;
+                if (!byColumn.TryGetValue(col.Name, out list)) byColumn[col.Name] = list = new List<int>();
+                list.Add(i);
+            }
+            if (byColumn.Count == 0) return output;
+            using (var conn = Open())
+            {
+                foreach (var kv in byColumn)
+                {
+                    var col = meta.Column(kv.Key);
+                    for (var start = 0; start < kv.Value.Count; start += 1000)
+                    {
+                        var count = Math.Min(1000, kv.Value.Count - start);
+                        var cmd = new SqlCommand { Connection = conn };
+                        var values = new List<string>();
+                        for (var j = 0; j < count; j++)
+                        {
+                            cmd.Parameters.Add("@s" + j, SqlDbType.NVarChar, -1).Value = items[kv.Value[start + j]].Value;
+                            values.Add("(" + j + ", @s" + j + ")");
+                        }
+                        // 列の照合順序で varchar にして戻し、元と同じか（表せない字は「?」になる）とバイト数を見る。
+                        var asVarchar = "CAST(v.[s] COLLATE " + col.Collation + " AS varchar(max))";
+                        cmd.CommandText = "SELECT v.[j], CASE WHEN CAST(" + asVarchar + " AS nvarchar(max)) COLLATE Latin1_General_BIN2 = v.[s] COLLATE Latin1_General_BIN2 THEN 1 ELSE 0 END AS [ok], "
+                            + "DATALENGTH(" + asVarchar + ") AS [bytes] FROM (VALUES " + string.Join(", ", values) + ") AS v([j], [s])";
+                        foreach (var r in Query(cmd))
+                        {
+                            var i = kv.Value[start + Convert.ToInt32(r[0], CultureInfo.InvariantCulture)];
+                            output[i] = new StringCheck
+                            {
+                                Encodable = Convert.ToInt32(r[1], CultureInfo.InvariantCulture) == 1,
+                                Bytes = r[2] is DBNull ? 0 : Convert.ToInt32(r[2], CultureInfo.InvariantCulture),
+                            };
+                        }
+                    }
+                }
+            }
+            return output;
         }
 
         public string RenderUpdate(TableMeta meta, Row set, Row where)

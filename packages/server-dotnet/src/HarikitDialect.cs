@@ -31,6 +31,8 @@ namespace Harikit.Server
         /// null なら UTF-16（nchar / nvarchar）か、確かめられない文字コード。
         /// </summary>
         public System.Text.Encoding ByteEncoding;
+        /// <summary>方言の内部用。char / varchar の列の照合順序（DB で文字コードを確かめるのに使う）。</summary>
+        public string Collation;
         /// <summary>方言の内部用。SQL Server なら TYPE_NAME の結果（"varchar" など）。</summary>
         public string BaseType;
         /// <summary>方言の内部用。CAST に使う型（"decimal(9,2)" など）。</summary>
@@ -80,6 +82,14 @@ namespace Harikit.Server
         public Row DbKey;
     }
 
+    /// <summary>文字列を列の文字コードで書いた結果（DB 自身に確かめたもの）。</summary>
+    public sealed class StringCheck
+    {
+        /// <summary>列の文字コードで表せるか（表せない字は DB が「?」に置き換える）。</summary>
+        public bool Encodable;
+        public int Bytes;
+    }
+
     public interface IHarikitTransaction
     {
         /// <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。</summary>
@@ -105,6 +115,12 @@ namespace Harikit.Server
         List<Row> FetchRows(TableMeta meta, IList<string> keyColumns, IList<string> columns, IList<Row> keys);
         /// <summary>fn の後、fn が true を返せばコミット、false ならロールバックする。例外でもロールバック。</summary>
         void RunTransaction(Func<IHarikitTransaction, bool> fn);
+        /// <summary>
+        /// 文字列の値（列名と値の組）が列の文字コードで表せるか、何バイトになるかを DB 自身に確かめる。
+        /// HarikitValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、これが最後の確認。
+        /// 確かめない列（nvarchar など）の値には null を返す。
+        /// </summary>
+        List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items);
         /// <summary>人が読む UPDATE 文を 1 本作る。where は「この値のときだけ」の条件。</summary>
         string RenderUpdate(TableMeta meta, Row set, Row where);
     }

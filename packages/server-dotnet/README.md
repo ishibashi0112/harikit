@@ -76,7 +76,7 @@
 - `char` / `nchar` の列は DB が末尾を空白で埋めるので、末尾の空白だけの違いは「同じ値」とみなす。
 - SQL の文面と戻し SQL はトランザクションの前に作り、コミットした後にログが書けなくても結果を返す。
 - `real` の列は float のまま double にして返す（0.1 に丸めると、送り返された `before` が DB の値と合わず衝突になる）。
-- 文字列の列のバイト数（`maxBytes`）と、列の文字コードで表せない字は、反映の前にサーバが `invalid_value` で止める（SQL Server は黙って「?」に置き換えるため）。文字コードは書いて読み戻して同じになるかで確かめる。
+- 文字列の列のバイト数（`maxBytes`）と、列の文字コードで表せない字は、反映の前にサーバが `invalid_value` で止める（SQL Server は黙って「?」に置き換えるため）。まず .NET の文字コードで書いて読み戻して確かめ（どの字かを示せる）、最後に DB 自身に列の照合順序で varchar にして戻させて確かめる（.NET の表と DB のコードページは完全には一致しないため）。
 
 ## C# 版で足した注意
 
@@ -94,7 +94,7 @@ Linux でも、Mono の ASP.NET で `Harikit.aspx` を動かして、実際の S
 HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 ```
 
-- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、監査トリガー、文字コードとバイト数、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
+- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、監査トリガー、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
 - [test/TestHost.cs](test/TestHost.cs): テスト用の小さな ASP.NET ホスト（Ubuntu の `xsp4` は今の Mono では起動しないため）。
 - CI では加えて、Windows で .NET Framework 付属の `csc`（C# 5）と `aspnet_compiler`（`App_Code` に置いた形）でビルドを確かめる。
 

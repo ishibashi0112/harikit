@@ -109,6 +109,7 @@ before(async () => {
   await mkdir(join(root, "App_Data"));
   for (const f of ["Harikit.Server.dll", "Harikit.TestHost.exe"]) await copyFile(join(pkg, "bin", f), join(root, "bin", f));
   await copyFile(join(pkg, "web", "Harikit.aspx"), join(root, "Harikit.aspx"));
+  await copyFile(join(pkg, "test", "Probe.aspx"), join(root, "Probe.aspx"));
   const cs = `Server=${conn.server},${conn.port ?? 1433};Database=${DB};User Id=${conn.user};Password=${conn.password};Encrypt=false`;
   await writeFile(
     join(root, "Web.config"),
@@ -372,6 +373,32 @@ test("サーバの値の確認: バイト数、列の文字コードで表せな
       [9, "column_not_allowed", "RowId", "列 RowId は更新が許可されていません"],
       [10, "bad_request", "Price", "before と after が同じです"],
       [11, "key_mismatch", "Name", "キーに列 Name は使えません"],
+    ],
+  );
+});
+
+test("文字コードの最後の確認は DB で行う（.NET の文字コードで見逃しても止まる）", { skip }, async () => {
+  // Probe.aspx は .NET の文字コードでの確認を外した方言で apply を流す。
+  const res = await fetch(`${url}/Probe.aspx/Apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({
+      req: applyReq([
+        { key: { Code: "A001" }, before: { Grade: null }, after: { Grade: "あ" } },
+        { key: { Code: "A002" }, before: { Memo: null }, after: { Memo: "あいうえおかきくけこさ" } },
+        { key: { Code: "Z1" }, before: { Memo: null }, after: { Memo: "𠮷野家" } },
+        { key: { Code: "Z2" }, before: { Memo: null }, after: { Memo: "ボールペン（黒）" } },
+      ]),
+    }),
+  });
+  const body = (await res.json()).d;
+  assert.equal(body.error?.message, "3 行に誤りがあります", JSON.stringify(body));
+  assert.deepEqual(
+    body.rowErrors.map((e) => [e.index, e.code, e.column, e.message]),
+    [
+      [0, "invalid_value", "Grade", "after: 列の文字コード（windows-1252）で表せない字があります"],
+      [1, "invalid_value", "Memo", "after: 20 バイトを超えています（22 バイト）"],
+      [2, "invalid_value", "Memo", "after: 列の文字コード（shift_jis）で表せない字があります"],
     ],
   );
 });

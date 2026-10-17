@@ -481,6 +481,7 @@ namespace Harikit.Server
             // 1. 許可リストとの照合。行ごとの誤りはまとめて返す。
             var rowErrors = new List<object>();
             var rows = new List<ApplyRow>();
+            var rowIndexes = new List<int>();
             var seenKeys = new Dictionary<string, int>(StringComparer.Ordinal);
             for (var index = 0; index < rawRows.Count; index++)
             {
@@ -578,7 +579,9 @@ namespace Harikit.Server
                 }
                 seenKeys[id] = index;
                 rows.Add(new ApplyRow { Key = k.Key, Before = before, After = after });
+                rowIndexes.Add(index);
             }
+            if (rowErrors.Count == 0) rowErrors.AddRange(CheckStrings(r, rows, rowIndexes));
             if (rowErrors.Count > 0)
             {
                 var indexes = new HashSet<int>();
@@ -714,6 +717,48 @@ namespace Harikit.Server
             // コミットした後なので、ログが書けなくても結果（戻し SQL）は返す。
             SafeLog(logEntry(mode == "execute" ? "applied" : "checked"));
             return result;
+        }
+
+        /// <summary>
+        /// 書き込む文字列が列の文字コードで表せるか、バイト数に収まるかを DB で確かめる。
+        /// HarikitValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、最後はここで見る。
+        /// </summary>
+        List<object> CheckStrings(Resolved r, List<ApplyRow> rows, List<int> rowIndexes)
+        {
+            var errors = new List<object>();
+            var items = new List<KeyValuePair<string, string>>();
+            var itemRows = new List<int>();
+            for (var i = 0; i < rows.Count; i++)
+            {
+                foreach (var kv in rows[i].After)
+                {
+                    var s = kv.Value as string;
+                    if (s == null || r.Meta.Column(kv.Key).Type != "string") continue;
+                    items.Add(new KeyValuePair<string, string>(kv.Key, s));
+                    itemRows.Add(rowIndexes[i]);
+                }
+            }
+            if (items.Count == 0) return errors;
+            var results = o.Dialect.CheckStrings(r.Meta, items);
+            for (var i = 0; i < items.Count; i++)
+            {
+                var res = results[i];
+                if (res == null) continue;
+                var col = r.Meta.Column(items[i].Key);
+                string message = null;
+                if (!res.Encodable) message = "after: 列の文字コード" + (col.Encoding != null ? "（" + col.Encoding + "）" : "") + "で表せない字があります";
+                else if (col.MaxBytes.HasValue && res.Bytes > col.MaxBytes.Value) message = "after: " + col.MaxBytes.Value + " バイトを超えています（" + res.Bytes + " バイト）";
+                if (message == null) continue;
+                errors.Add(new Dictionary<string, object>
+                {
+                    { "target", r.Name },
+                    { "index", itemRows[i] },
+                    { "code", "invalid_value" },
+                    { "column", col.Name },
+                    { "message", message },
+                });
+            }
+            return errors;
         }
 
         void SafeLog(Dictionary<string, object> entry)
