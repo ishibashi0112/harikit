@@ -97,3 +97,36 @@ test("差分: DB 上で同じ行を指す 2 行はエラー", () => {
   ]);
   assert.deepEqual(d.issues.map((i) => [i.cell, i.message]), [["A3", "2 行目と DB 上で同じ行を指しています"]]);
 });
+
+test("差分: 文字列は厳密に比べる（全角半角、かな、大文字小文字、末尾の空白）。char の詰め物の空白だけは見ない", () => {
+  const desc: TableDescription = {
+    ...product,
+    columns: [...product.columns, { name: "Grade", type: "string", dbType: "char(3)", maxLength: 3, nullable: true, updatable: true }],
+  };
+  const v = validate(
+    desc,
+    sheet([
+      ["ProductCode", "ProductName", "Grade"],
+      ["A001", "ボールペン", "A"],
+      ["A002", "ぼーるぺん", "A"],
+      ["A003", "pen", "A"],
+      ["A004", "Pen", "A"],
+      ["A005", "Pen", "A"],
+    ]),
+  );
+  assert.ok(v.ok, JSON.stringify(v.issues));
+  const d = diff(desc, v, [
+    { index: 0, found: true, values: { ProductCode: "A001", ProductName: "ﾎﾞｰﾙﾍﾟﾝ", Grade: "A  " } },
+    { index: 1, found: true, values: { ProductCode: "A002", ProductName: "ボールペン", Grade: "A  " } },
+    { index: 2, found: true, values: { ProductCode: "A003", ProductName: "Pen", Grade: "A  " } },
+    { index: 3, found: true, values: { ProductCode: "A004", ProductName: "Pen ", Grade: "A  " } },
+    { index: 4, found: true, values: { ProductCode: "A005", ProductName: "Pen", Grade: "A  " } },
+  ]);
+  assert.deepEqual(d.rows.map((r) => [r.status, r.changes.map((c) => c.column)]), [
+    ["change", ["ProductName"]],
+    ["change", ["ProductName"]],
+    ["change", ["ProductName"]],
+    ["change", ["ProductName"]],
+    ["same", []],
+  ]);
+});

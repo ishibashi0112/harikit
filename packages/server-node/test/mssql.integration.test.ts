@@ -221,3 +221,35 @@ test("varchar の桁はバイトで数え、列の文字コードで表せない
   })) as Failure;
   assert.deepEqual(res.rowErrors!.map((e) => [e.code, e.column]), [["invalid_value", "KindCode"]]);
 });
+
+test("値が変わっていないかは厳密に比べる。全角半角、かな、大文字小文字、末尾の空白だけの後からの更新も上書きしない（行はキーを照合順序で探す）", { skip }, async () => {
+  await q(`UPDATE dbo.Item SET Memo = N'ボールペン', Name = N'Pen', Grade = 'B' WHERE Code = 'A002'`);
+  // キーは照合順序で探すので、小文字の a002 でも A002 の行に当たる。
+  const p = await prepare(client, "item", { name: "s", rows: [["Code", "Memo", "Name", "Grade"], ["a002", "ボールペン替芯", "Pencil", "C"]] });
+  assert.ok(p.ok, JSON.stringify(p.issues));
+  assert.deepEqual(p.diff!.rows[0]!.changes.map((c) => c.column), ["Name", "Memo", "Grade"]);
+  const req = buildApplyRequest(p.diff!, { mode: "execute" });
+
+  // 差分を取った後に、照合順序では同じになる値へ直された（Japanese_CI_AS の半角カナ、nvarchar の末尾の空白）。
+  await q(`UPDATE dbo.Item SET Memo = N'ﾎﾞｰﾙﾍﾟﾝ', Name = N'Pen ' WHERE Code = 'A002'`);
+  const conflict = (await client.apply(req)) as Failure;
+  assert.equal(conflict.error.code, "conflict");
+  assert.deepEqual(conflict.conflicts!.map((c) => [c.columns, c.current]), [[["Name", "Memo"], { Memo: "ﾎﾞｰﾙﾍﾟﾝ", Name: "Pen ", Grade: "B  " }]]);
+
+  // 元に戻せば通る。char の詰め物の空白（'B  ' と 'B'）は違いにしない。
+  await q(`UPDATE dbo.Item SET Memo = N'ボールペン', Name = N'Pen' WHERE Code = 'A002'`);
+  const done = (await client.apply({ ...req, requestId: crypto.randomUUID() })) as ApplyResponse;
+  assert.equal(done.ok, true, JSON.stringify(done));
+
+  // 反映の後に、かなと大文字小文字だけ違う値へ直された行は、戻し SQL が上書きしない。
+  await q(`UPDATE dbo.Item SET Memo = N'ぼーるぺん替芯', Name = N'PENCIL' WHERE Code = 'A002'`);
+  await q(done.undoScript);
+  const kept = await q(`SELECT Memo, Name, Grade FROM dbo.Item WHERE Code = 'A002'`);
+  assert.deepEqual({ ...kept[0] }, { Memo: "ぼーるぺん替芯", Name: "PENCIL", Grade: "C  " });
+
+  // harikit で入れた値のままなら戻す。
+  await q(`UPDATE dbo.Item SET Memo = N'ボールペン替芯', Name = N'Pencil' WHERE Code = 'A002'`);
+  await q(done.undoScript);
+  const undone = await q(`SELECT Memo, Name, Grade FROM dbo.Item WHERE Code = 'A002'`);
+  assert.deepEqual({ ...undone[0] }, { Memo: "ボールペン", Name: "Pen", Grade: "B  " });
+});

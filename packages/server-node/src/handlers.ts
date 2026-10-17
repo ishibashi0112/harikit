@@ -461,10 +461,10 @@ export class Handlers {
     const wrap = (lines: string[]) => ["SET XACT_ABORT ON;", "BEGIN TRANSACTION;", ...lines, "COMMIT;"].join("\n") + "\n";
     const script =
       `${head} ${mode === "check" ? "実行予定" : "実行済み"}\n` +
-      wrap(rows.map((row) => d.renderUpdate(r.meta, row.after, { ...row.key, ...row.before }) + ";"));
+      wrap(rows.map((row) => d.renderUpdate(r.meta, row.after, row.key, row.before) + ";"));
     const undoScript =
       `${head} の戻し\n-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。\n` +
-      wrap(rows.map((row) => d.renderUpdate(r.meta, row.before, { ...row.key, ...row.after }) + ";"));
+      wrap(rows.map((row) => d.renderUpdate(r.meta, row.before, row.key, row.after) + ";"));
     return { script, undoScript };
   }
 }
