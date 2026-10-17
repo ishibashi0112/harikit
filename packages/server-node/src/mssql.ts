@@ -5,7 +5,7 @@ import sql from "mssql";
 import type { ColumnType, Row, Value } from "@harikit/core";
 import { canonical } from "@harikit/core";
 import type { SqlServerConnection } from "./config.js";
-import { DbError, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type TableMeta, type Transaction } from "./dialect.js";
+import { DbError, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
 
 /** 内部で使う列の情報。sqlType は CAST に使う型（DB の定義から作る）。 */
 interface MsColumn extends ColumnMeta {
@@ -469,6 +469,12 @@ export class SqlServerDialect implements Dialect {
     const keyConds = cols(meta, Object.keys(key)).map((c) => condition(c, key[c.name] === null ? null : literal(c, key[c.name]!)));
     const valueConds = cols(meta, Object.keys(expect)).map((c) => sameCondition(c, expect[c.name] === null ? null : literal(c, expect[c.name]!)));
     return `UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${[...keyConds, ...valueConds].join(" AND ")}`;
+  }
+
+  renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[], kind: "apply" | "undo"): string {
+    const note = kind === "undo" ? "\n-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。" : "";
+    const lines = updates.map((u) => this.renderUpdate(meta, u.set, u.key, u.expect) + ";");
+    return `${head}${note}\n` + ["SET XACT_ABORT ON;", "BEGIN TRANSACTION;", ...lines, "COMMIT;"].join("\n") + "\n";
   }
 
   async close(): Promise<void> {

@@ -16,7 +16,8 @@ const BIGINT_MAX = 2n ** 63n - 1n;
 export const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
 export const BIGINT_RE = /^-?\d+$/;
 export const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-export const DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,7})?$/;
+// 秒の小数は Oracle の TIMESTAMP(9) まで。桁の上限は列の scale で見る。
+export const DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?$/;
 export const TIME_RE = /^(\d{2}):(\d{2}):(\d{2})(\.\d{1,7})?$/;
 
 /** dbType の先頭の型名（"decimal(9,2)" → "decimal"）。 */
@@ -44,6 +45,7 @@ export function checkValue(col: ColumnDef, v: Value): string | null {
   switch (col.type) {
     case "string": {
       if (typeof v !== "string") return "文字列ではありません";
+      if (v === "" && col.emptyIsNull) return "この列では空文字は NULL になります（空にするなら null）";
       if (col.maxLength !== undefined && col.maxLength >= 0) {
         const len = [...v].length;
         if (len > col.maxLength) return `${col.maxLength} 文字を超えています（${len} 文字）`;

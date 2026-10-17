@@ -30,6 +30,8 @@ export interface ColumnDef {
   maxBytes?: number;
   /** 文字列の列の文字コード（WHATWG の名前。"shift_jis"、"windows-1252"、"utf-8"、"utf-16le" など）。 */
   encoding?: string;
+  /** 空文字を入れると NULL になる列（Oracle の文字列の列）。取込の空文字は NULL として扱う。 */
+  emptyIsNull?: boolean;
   precision?: number;
   scale?: number;
   identity?: boolean;

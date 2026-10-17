@@ -107,7 +107,7 @@ export class Handlers {
       extra = rest;
     } else if (e instanceof DbError) {
       this.deps.logError?.(e);
-      error = { code: "db_error", message: this.deps.config.exposeDbErrors ? e.message : "DB がエラーを返しました（詳細はサーバのログ）" };
+      error = { code: "db_error", message: this.deps.config.exposeDbErrors ? e.message : (e.publicMessage ?? "DB がエラーを返しました（詳細はサーバのログ）") };
     } else {
       this.deps.logError?.(e);
       error = { code: "internal_error", message: "サーバでエラーが起きました（詳細はサーバのログ）" };
@@ -162,7 +162,7 @@ export class Handlers {
           nullable: c.nullable,
           updatable: updatable.has(c.name) && !key.includes(c.name) && c.type !== "other" && !c.identity && !c.computed,
         };
-        for (const k of ["maxLength", "maxBytes", "encoding", "precision", "scale", "identity", "computed", "hasDefault"] as const) {
+        for (const k of ["maxLength", "maxBytes", "encoding", "emptyIsNull", "precision", "scale", "identity", "computed", "hasDefault"] as const) {
           if (c[k] !== undefined) (col as unknown as Record<string, unknown>)[k] = c[k];
         }
         return col;
@@ -200,15 +200,17 @@ export class Handlers {
     return res as unknown as Result;
   }
 
-  /** 参照先テーブルを、キーがちょうど参照先の列になっている読めるターゲットから探す。 */
+  /**
+   * 参照先テーブルを、キーがちょうど参照先の列になっている読めるターゲットから探す。
+   * テーブルは DB で引いた名前で比べる（Oracle のシノニムや既定のスキーマで書いたターゲットも当たるように）。
+   */
   private async findReferenceTarget(table: string, columns: string[]): Promise<string | null> {
     const want = this.deps.dialect.normalizeTable(table);
     const cols = new Set(columns.map((c) => c.toLowerCase()));
     for (const name of Object.keys(this.deps.config.targets)) {
-      const t = this.deps.config.targets[name]!;
-      if (this.deps.dialect.normalizeTable(t.table) !== want) continue;
       try {
         const r = await this.resolve(name);
+        if (this.deps.dialect.normalizeTable(r.meta.table) !== want) continue;
         if (r.key.length === cols.size && r.key.every((k) => cols.has(k.toLowerCase()))) return name;
       } catch {
         // 参照先の設定がおかしいときは「確認できない」扱いにする。
@@ -458,13 +460,8 @@ export class Handlers {
   private renderScripts(r: Resolved, requestId: string, mode: ApplyMode, rows: { key: Row; before: Row; after: Row }[]) {
     const d = this.deps.dialect;
     const head = `-- harikit ${requestId} ${r.name} (${r.meta.table}) ${rows.length}行`;
-    const wrap = (lines: string[]) => ["SET XACT_ABORT ON;", "BEGIN TRANSACTION;", ...lines, "COMMIT;"].join("\n") + "\n";
-    const script =
-      `${head} ${mode === "check" ? "実行予定" : "実行済み"}\n` +
-      wrap(rows.map((row) => d.renderUpdate(r.meta, row.after, row.key, row.before) + ";"));
-    const undoScript =
-      `${head} の戻し\n-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。\n` +
-      wrap(rows.map((row) => d.renderUpdate(r.meta, row.before, row.key, row.after) + ";"));
+    const script = d.renderScript(r.meta, `${head} ${mode === "check" ? "実行予定" : "実行済み"}`, rows.map((row) => ({ set: row.after, key: row.key, expect: row.before })), "apply");
+    const undoScript = d.renderScript(r.meta, `${head} の戻し`, rows.map((row) => ({ set: row.before, key: row.key, expect: row.after })), "undo");
     return { script, undoScript };
   }
 }

@@ -23,9 +23,29 @@ export interface SqlServerConnection {
   options?: { encrypt?: boolean; trustServerCertificate?: boolean; instanceName?: string };
 }
 
+export interface OracleConnection {
+  dialect: "oracle";
+  /** つなぐ先。"host:1521/サービス名"（Easy Connect）か、tnsnames.ora の別名。 */
+  connectString: string;
+  user: string;
+  /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
+  password?: string;
+  /** tnsnames.ora を置いたフォルダ（別名でつなぐとき）。 */
+  configDir?: string;
+  /**
+   * Oracle Client（Instant Client）を使う Thick モードにする。既定は Client の要らない Thin モードで、
+   * Thin モードでつながらない古い DB（11g など）のときだけ使う。libDir は Windows と macOS での Client のフォルダ。
+   */
+  thick?: boolean | { libDir?: string };
+  /** 反映のとき、ほかのセッションがロックしている行を待つ秒数。既定は 10。 */
+  lockWaitSeconds?: number;
+}
+
+export type DatabaseConnection = SqlServerConnection | OracleConnection;
+
 export interface ServerConfig {
   listen?: { host?: string; port?: number };
-  database: SqlServerConnection;
+  database: DatabaseConnection;
   targets: Record<string, TargetConfig>;
   limits?: Partial<Limits>;
   /** 反映ログ（JSON Lines）を置くフォルダ。既定は ./harikit-log。 */
@@ -43,7 +63,13 @@ export function checkConfig(config: ServerConfig): void {
   const fail = (m: string): never => {
     throw new Error(`設定の誤り: ${m}`);
   };
-  if (!config.database || config.database.dialect !== "sqlserver") fail("database.dialect は今のところ \"sqlserver\" だけです");
+  const db = config.database;
+  if (!db || (db.dialect !== "sqlserver" && db.dialect !== "oracle")) fail("database.dialect は \"sqlserver\" か \"oracle\" です");
+  if (db.dialect === "oracle") {
+    if (typeof db.connectString !== "string" || !db.connectString) fail("database.connectString がありません（例 \"localhost:1521/FREEPDB1\"）");
+    if (typeof db.user !== "string" || !db.user) fail("database.user がありません");
+    if (db.lockWaitSeconds !== undefined && !(Number.isInteger(db.lockWaitSeconds) && db.lockWaitSeconds >= 1)) fail("database.lockWaitSeconds は 1 以上の整数です");
+  }
   if (!config.targets || typeof config.targets !== "object") fail("targets がありません");
   for (const [name, t] of Object.entries(config.targets)) {
     if (!/^[A-Za-z0-9_-]+$/.test(name)) fail(`ターゲット名 ${name} に使えない文字があります`);

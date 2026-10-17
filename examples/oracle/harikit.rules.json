@@ -1,0 +1,9 @@
+{
+  "targets": {
+    "product": [
+      { "column": "UnitPrice", "greaterThan": 0, "message": "価格は 0 より大きくしてください" },
+      { "column": "UnitPrice", "maxChangePercent": 50, "severity": "warning" },
+      { "column": "ProductCode", "pattern": "^[A-Z][0-9]{3}$" }
+    ]
+  }
+}

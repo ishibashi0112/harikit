@@ -44,10 +44,20 @@ export interface Transaction {
 
 /** DB がエラーを返したとき。message は生のエラー文。 */
 export class DbError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  /** 利用者に見せてよい説明（接続先や SQL を含まない）。あれば db_error の message にこれを出す。 */
+  readonly publicMessage?: string;
+  constructor(message: string, options?: { cause?: unknown; publicMessage?: string }) {
     super(message, options);
     this.name = "DbError";
+    if (options?.publicMessage) this.publicMessage = options.publicMessage;
   }
+}
+
+/** 人が読む SQL の UPDATE 1 本分。key で行を探し（照合順序）、expect は「この値のときだけ」の条件（厳密に比べる）。 */
+export interface ScriptUpdate {
+  set: Row;
+  key: Row;
+  expect: Row;
 }
 
 export interface Dialect {
@@ -65,8 +75,9 @@ export interface Dialect {
    */
   checkStrings?(meta: TableMeta, items: { column: string; value: string }[]): Promise<({ encodable: boolean; bytes: number } | null)[]>;
   /**
-   * 人が読む UPDATE 文を 1 本作る。key で行を探し（照合順序）、expect は「この値のときだけ」の条件（厳密に比べる）。
+   * 人が流せる SQL（値を埋め込んだもの）を作る。head は先頭のコメント行。人が流しても 1 トランザクションになる形に包む。
+   * apply は反映する SQL、undo は戻し SQL（今の値が expect のままの行だけ戻す）。
    */
-  renderUpdate(meta: TableMeta, set: Row, key: Row, expect: Row): string;
+  renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[], kind: "apply" | "undo"): string;
   close(): Promise<void>;
 }

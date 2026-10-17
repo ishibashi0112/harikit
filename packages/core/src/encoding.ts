@@ -24,6 +24,12 @@ function buildTable(encoding: string): Map<number, number> | null {
   if (DOUBLE_BYTE.has(encoding)) {
     for (let lead = 0x81; lead <= 0xfe; lead++) for (let trail = 0x40; trail <= 0xfe; trail++) add([lead, trail]);
   }
+  if (encoding === "euc-jp") {
+    // 2 バイト（JIS X 0208 と半角カナ）を先に入れ、3 バイト（JIS X 0212）は残りの字だけにする。
+    for (let a = 0xa1; a <= 0xfe; a++) for (let b = 0xa1; b <= 0xfe; b++) add([a, b]);
+    for (let b = 0xa1; b <= 0xdf; b++) add([0x8e, b]);
+    for (let a = 0xa1; a <= 0xfe; a++) for (let b = 0xa1; b <= 0xfe; b++) add([0x8f, a, b]);
+  }
   return table;
 }
 
