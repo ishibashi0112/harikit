@@ -119,3 +119,13 @@ test("セルのルールと変動率のルール", () => {
     ],
   );
 });
+
+test("知らない文字コードの列は確かめず、警告を出す", () => {
+  const desc: TableDescription = {
+    ...product,
+    columns: product.columns.map((c) => (c.name === "Memo" ? { ...c, encoding: "x-unknown" } : c)),
+  };
+  const v = validate(desc, { name: "s", rows: [["ProductCode", "Memo"], ["A001", "ボールペン（黒）替芯"]] });
+  assert.ok(v.ok);
+  assert.deepEqual(v.issues.map((i) => [i.severity, i.message]), [["warning", "列「Memo」の文字コード（x-unknown）を確認できないので、バイト数と表せない字は見ていません"]]);
+});

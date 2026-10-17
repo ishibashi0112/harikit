@@ -1,6 +1,7 @@
 // 検証。取込データを DB の定義（describe の結果）で全行チェックし、型をそろえた値にする。
 // 入力の揺れ（全角半角、前後の空白）は直さない。前後の空白は警告だけ出す。
 
+import { byteCount } from "./encoding.js";
 import { checkRule, type CompiledRule } from "./rules.js";
 import { cellRef, type Cell, type Sheet } from "./table.js";
 import type { ColumnDef, Row, TableDescription, Value } from "./types.js";
@@ -163,6 +164,12 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
 
   const result: ValidationResult = { ok: false, keyColumns, updateColumns, columnIndex, rows: [], issues };
   if (issues.length > 0) return result;
+  for (const name of [...keyColumns, ...updateColumns]) {
+    const col = byName.get(name.toLowerCase())!;
+    if (col.encoding && byteCount("", col.encoding) === null) {
+      issues.push({ severity: "warning", message: `列「${name}」の文字コード（${col.encoding}）を確認できないので、バイト数と表せない字は見ていません`, column: name });
+    }
+  }
 
   const colDefs = new Map(desc.columns.map((c) => [c.name, c]));
   const seen = new Map<string, number>();

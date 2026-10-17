@@ -30,7 +30,7 @@ before(async () => {
   await master.close();
   admin = await new sql.ConnectionPool({ ...base, database: DB }).connect();
   // 前の回のテーブルは別のバッチで消す（同じバッチだと古い定義で INSERT がコンパイルされる）。
-  await q(`DROP TABLE IF EXISTS dbo.Item; DROP TABLE IF EXISTS dbo.Kind;`);
+  await q(`DROP TABLE IF EXISTS dbo.Item; DROP TABLE IF EXISTS dbo.Kind; DROP TABLE IF EXISTS dbo.ItemAudit;`);
   await q(`CREATE TABLE dbo.Kind (KindCode varchar(4) NOT NULL PRIMARY KEY);
     CREATE TABLE dbo.Item (
       Code varchar(10) NOT NULL PRIMARY KEY,
@@ -51,9 +51,13 @@ before(async () => {
       Grade char(3) NULL
     );
     INSERT INTO dbo.Kind VALUES ('K1'), ('K2');
+    CREATE TABLE dbo.ItemAudit (Code varchar(10), Note nvarchar(20));
     INSERT INTO dbo.Item (Code, Name, KindCode, Price, Cost, Big, Qty, Released, Stamp, Legacy, OpenAt, Memo, Grade) VALUES
       ('A001', N'ペン', 'K1', 120.00, 80.5, 9007199254740993, 5, '2024-04-01', '2026-10-17T09:30:00.123', '2026-10-17T09:30:00', '09:00', N'メモ', 'A'),
       ('A002', N'ノート', 'K1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);`);
+  // 監査ログを 2 行書く UPDATE トリガー（SET NOCOUNT ON なし）。業務 DB によくある形。
+  await q(`CREATE TRIGGER dbo.TrItem ON dbo.Item AFTER UPDATE AS
+    INSERT INTO dbo.ItemAudit SELECT Code, N'new' FROM inserted UNION ALL SELECT Code, N'old' FROM deleted;`);
   const config: ServerConfig = {
     listen: { port: 0 },
     database: { dialect: "sqlserver", server: conn.server, port: conn.port ?? 1433, database: DB, user: conn.user, password: conn.password, options: { encrypt: false, trustServerCertificate: true } },
@@ -147,9 +151,12 @@ test("Excel 相当の取込から反映、衝突、戻しまで", { skip }, asyn
 
   const check = (await client.apply({ ...req, mode: "check" })) as ApplyResponse;
   assert.equal(check.ok, true);
+  // Item には監査を 2 行ずつ書くトリガーがある。影響行数がトリガーの行数に引きずられないこと。
+  await q(`DELETE FROM dbo.ItemAudit`);
   const done = (await client.apply(req)) as ApplyResponse;
   assert.equal(done.ok, true, JSON.stringify(done));
   assert.deepEqual(done.results, [{ target: "item", updated: 2 }]);
+  assert.equal((await q(`SELECT COUNT(*) AS n FROM dbo.ItemAudit`))[0]!.n, 4);
   const [a] = await q(`SELECT CONVERT(varchar(30), Price) AS Price, CONVERT(varchar(20), Big) AS Big, CONVERT(varchar(30), Stamp, 126) AS Stamp, KindCode, CONVERT(varchar(8), OpenAt) AS OpenAt FROM dbo.Item WHERE Code = 'A001'`);
   assert.deepEqual({ ...a }, { Price: "130.00", Big: "9007199254740995", Stamp: "2026-10-18T08:00:00", KindCode: "K2", OpenAt: "10:30:00" });
 

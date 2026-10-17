@@ -11,6 +11,8 @@ import { DbError, type ColumnMeta, type Dialect, type ForeignKeyMeta, type Locke
 interface MsColumn extends ColumnMeta {
   baseType: string;
   sqlType: string;
+  /** 列の照合順序（char / varchar だけ）。 */
+  collation?: string;
 }
 
 type Executor = { request(): sql.Request };
@@ -256,9 +258,12 @@ class MsTransaction implements Transaction {
     const res = await run(this.tx, (req) => {
       const assigns = setCols.map((c, i) => `${quoteName(c.name)} = ${bindValue(req, `p${i}`, c, set[c.name]!)}`);
       const where = keyCols.map((c, i) => condition(c, bindValue(req, `k${i}`, c, key[c.name]!)));
-      return `UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${where.join(" AND ")}`;
+      // rowsAffected にはトリガーの文の行数も入るので、UPDATE 本体の行数は @@ROWCOUNT で読む。
+      return `UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${where.join(" AND ")}; SELECT @@ROWCOUNT AS [n];`;
     });
-    return res.rowsAffected[0] ?? 0;
+    // トリガーが結果セットを返すこともあるので、最後の結果セットを読む。
+    const sets = res.recordsets as sql.IRecordSet<{ n: number }>[];
+    return Number(sets[sets.length - 1]?.[0]?.n ?? 0);
   }
 }
 
@@ -292,7 +297,7 @@ export class SqlServerDialect implements Dialect {
       req.input("name", sql.NVarChar(512), qualified);
       return `SELECT c.name, TYPE_NAME(c.system_type_id) AS base_type, c.max_length, c.precision, c.scale,
                 c.is_nullable, c.is_identity, c.is_computed, c.default_object_id,
-                CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page
+                c.collation_name, CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page
                 FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id`;
     });
     if (colRes.recordset.length === 0) throw new DbError(`テーブル ${table} が見つかりません`);
@@ -318,6 +323,7 @@ export class SqlServerDialect implements Dialect {
         const encoding = base.startsWith("n") ? "utf-16le" : CODE_PAGES[Number(r.code_page)];
         if (encoding) col.encoding = encoding;
         if (bytes !== -1) col.maxBytes = bytes;
+        if (!base.startsWith("n") && typeof r.collation_name === "string") col.collation = r.collation_name;
       }
       if (type === "decimal") {
         col.precision = precision;
@@ -414,6 +420,35 @@ export class SqlServerDialect implements Dialect {
       }
       throw e;
     }
+  }
+
+  async checkStrings(meta: TableMeta, items: { column: string; value: string }[]): Promise<({ encodable: boolean; bytes: number } | null)[]> {
+    const out: ({ encodable: boolean; bytes: number } | null)[] = items.map(() => null);
+    const byColumn = new Map<MsColumn, number[]>();
+    items.forEach((it, i) => {
+      const [col] = cols(meta, [it.column]) as MsColumn[];
+      // 照合順序の名前は DB の定義から来るが、SQL に書くので形を確かめる。
+      if (!col!.collation || !/^[A-Za-z0-9_]+$/.test(col!.collation)) return;
+      byColumn.set(col!, [...(byColumn.get(col!) ?? []), i]);
+    });
+    const pool = await this.pool();
+    for (const [col, indexes] of byColumn) {
+      for (let start = 0; start < indexes.length; start += 1000) {
+        const part = indexes.slice(start, start + 1000);
+        const res = await run(pool, (req) => {
+          const values = part.map((i, j) => {
+            req.input(`s${j}`, sql.NVarChar(sql.MAX), items[i]!.value);
+            return `(${j}, @s${j})`;
+          });
+          // 列の照合順序で varchar にして戻し、元と同じか（表せない字は「?」になる）とバイト数を見る。
+          const asVarchar = `CAST(v.[s] COLLATE ${col.collation} AS varchar(max))`;
+          return `SELECT v.[j], CASE WHEN CAST(${asVarchar} AS nvarchar(max)) COLLATE Latin1_General_BIN2 = v.[s] COLLATE Latin1_General_BIN2 THEN 1 ELSE 0 END AS [ok],
+                    DATALENGTH(${asVarchar}) AS [bytes] FROM (VALUES ${values.join(", ")}) AS v([j], [s])`;
+        });
+        for (const r of res.recordset) out[part[Number(r.j)]!] = { encodable: r.ok === 1, bytes: Number(r.bytes) };
+      }
+    }
+    return out;
   }
 
   renderUpdate(meta: TableMeta, set: Row, where: Row): string {

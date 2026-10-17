@@ -289,6 +289,7 @@ export class Handlers {
     // 1. 許可リストとの照合。行ごとの誤りはまとめて返す。
     const rowErrors: RowError[] = [];
     const rows: { key: Row; before: Row; after: Row }[] = [];
+    const rowIndexes: number[] = [];
     const seenKeys = new Map<string, number>();
     change.rows.forEach((raw: unknown, index: number) => {
       const rowErr = (code: string, message: string, column?: string) =>
@@ -338,7 +339,9 @@ export class Handlers {
       if (seenKeys.has(id)) return rowErr("duplicate_key", `${seenKeys.get(id)} 番目の行とキーが同じです`);
       seenKeys.set(id, index);
       rows.push({ key: k.key!, before, after });
+      rowIndexes.push(index);
     });
+    if (rowErrors.length === 0) rowErrors.push(...(await this.checkStrings(r, rows, rowIndexes)));
     if (rowErrors.length > 0) {
       const n = new Set(rowErrors.map((e) => e.index)).size;
       throw new Fail("bad_request", `${n} 行に誤りがあります`, { rowErrors });
@@ -414,6 +417,34 @@ export class Handlers {
     // コミットした後なので、ログが書けなくても結果（戻し SQL）は返す。
     await this.safeLog({ ...logBase, outcome: mode === "execute" ? "applied" : "checked" });
     return result;
+  }
+
+  /**
+   * 書き込む文字列が列の文字コードで表せるか、バイト数に収まるかを DB で確かめる。
+   * checkValue の表（WHATWG）は DB のコードページより広いことがある（big5 と cp950 など）ので、最後はここで見る。
+   */
+  private async checkStrings(r: Resolved, rows: { after: Row }[], rowIndexes: number[]): Promise<RowError[]> {
+    if (!this.deps.dialect.checkStrings) return [];
+    const items: { column: string; value: string; index: number }[] = [];
+    rows.forEach((row, i) => {
+      for (const [column, value] of Object.entries(row.after)) {
+        if (typeof value === "string" && r.byName.get(column.toLowerCase())?.type === "string") items.push({ column, value, index: rowIndexes[i]! });
+      }
+    });
+    if (items.length === 0) return [];
+    const results = await this.deps.dialect.checkStrings(r.meta, items);
+    const errors: RowError[] = [];
+    results.forEach((res, i) => {
+      if (!res) return;
+      const { column, index } = items[i]!;
+      const col = r.byName.get(column.toLowerCase())!;
+      const enc = col.encoding ? `（${col.encoding}）` : "";
+      if (!res.encodable) errors.push({ target: r.name, index, code: "invalid_value", column, message: `after: 列の文字コード${enc}で表せない字があります` });
+      else if (col.maxBytes !== undefined && res.bytes > col.maxBytes) {
+        errors.push({ target: r.name, index, code: "invalid_value", column, message: `after: ${col.maxBytes} バイトを超えています（${res.bytes} バイト）` });
+      }
+    });
+    return errors;
   }
 
   private async safeLog(entry: ApplyLogEntry): Promise<void> {

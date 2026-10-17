@@ -56,6 +56,11 @@ export interface Dialect {
   fetchRows(meta: TableMeta, keyColumns: string[], columns: string[], keys: Row[]): Promise<(Row | null)[]>;
   /** fn の後、commit が true ならコミット、false ならロールバックする。例外でもロールバック。 */
   transaction<T>(fn: (tx: Transaction) => Promise<{ commit: boolean; value: T }>): Promise<T>;
+  /**
+   * 文字列の値が列の文字コードで表せるか、何バイトになるかを DB 自身に確かめる（コアの表は目安なので、これが最後の確認）。
+   * 確かめない列（nvarchar など）の値には null を返す。
+   */
+  checkStrings?(meta: TableMeta, items: { column: string; value: string }[]): Promise<({ encodable: boolean; bytes: number } | null)[]>;
   /** 人が読む UPDATE 文を 1 本作る。where は「この値のときだけ」の条件。 */
   renderUpdate(meta: TableMeta, set: Row, where: Row): string;
   close(): Promise<void>;

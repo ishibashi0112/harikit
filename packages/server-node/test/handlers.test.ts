@@ -33,6 +33,7 @@ class FakeDialect implements Dialect {
     "dbo.m_category": [{ CategoryCode: "C01" }],
   };
   updates = 0;
+  checkStrings?: Dialect["checkStrings"];
   normalizeTable(t: string) {
     return (t.includes(".") ? t : `dbo.${t}`).toLowerCase();
   }
@@ -270,4 +271,27 @@ test("apply: コミットした後にログが書けなくても、結果と戻�
   assert.match(res.undoScript as string, /120.00/);
   assert.equal(dialect.tables["dbo.m_product"]![0]!.UnitPrice, "130.00");
   assert.equal(errors.length, 1);
+});
+
+test("apply: DB に確かめた文字コードの結果で弾く（コアの表より DB が正しい）", async () => {
+  const dialect = new FakeDialect();
+  const checked: { column: string; value: string }[][] = [];
+  dialect.checkStrings = async (_meta, items) => {
+    checked.push(items);
+    return items.map((it) => (it.column === "CategoryCode" ? { encodable: it.value !== "C9X", bytes: it.value.length * 2 } : null));
+  };
+  const handlers = new Handlers({ config: CONFIG, dialect, whoAmI: () => "tester", log: async () => {} });
+  const res = await handlers.handle("apply", applyReq([
+    { key: { ProductCode: "A001" }, before: { CategoryCode: "C01" }, after: { CategoryCode: "C9X" } },
+    { key: { ProductCode: "A002" }, before: { CategoryCode: "C01", ProductName: "ボールペン赤" }, after: { CategoryCode: "C02", ProductName: "x" } },
+  ]));
+  assert.deepEqual(
+    (res.rowErrors as { index: number; code: string; column: string; message: string }[]).map((e) => [e.index, e.code, e.column, e.message]),
+    [
+      [0, "invalid_value", "CategoryCode", "after: 列の文字コード（windows-1252）で表せない字があります"],
+      [1, "invalid_value", "CategoryCode", "after: 4 バイトを超えています（6 バイト）"],
+    ],
+  );
+  assert.deepEqual(checked[0]!.map((i) => i.column), ["CategoryCode", "CategoryCode", "ProductName"]);
+  assert.equal(dialect.updates, 0);
 });
