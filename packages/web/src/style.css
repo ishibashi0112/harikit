@@ -1,0 +1,586 @@
+/* harikit の画面。色はここの変数だけで決め、ダークは OS の設定に合わせる。 */
+
+:root {
+  --hk-bg: #f6f7f9;
+  --hk-surface: #ffffff;
+  --hk-border: #dde1e6;
+  --hk-text: #1f2328;
+  --hk-muted: #66707a;
+  --hk-accent: #1f6feb;
+  --hk-accent-text: #ffffff;
+  --hk-danger: #c62828;
+  --hk-danger-bg: #fdecec;
+  --hk-ok: #1a7f37;
+  --hk-ok-bg: #e9f6ec;
+  --hk-warn: #9a6700;
+  --hk-warn-bg: #fff4d6;
+  --hk-change-bg: #e3eeff;
+  --hk-before-bg: #f1f2f4;
+  --hk-notfound-bg: #fff4d6;
+  --hk-head-bg: #eef1f5;
+  --hk-key: #6639ba;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hk-bg: #15181c;
+    --hk-surface: #1d2126;
+    --hk-border: #343a42;
+    --hk-text: #e6e9ec;
+    --hk-muted: #9aa4ae;
+    --hk-accent: #4c8dff;
+    --hk-accent-text: #0b1220;
+    --hk-danger: #ff7b72;
+    --hk-danger-bg: #3a1d1d;
+    --hk-ok: #56d364;
+    --hk-ok-bg: #16301d;
+    --hk-warn: #e3b341;
+    --hk-warn-bg: #3a2e12;
+    --hk-change-bg: #1c2f4d;
+    --hk-before-bg: #262a30;
+    --hk-notfound-bg: #3a2e12;
+    --hk-head-bg: #262b33;
+    --hk-key: #b392f0;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+.hk-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 10px 16px;
+  background: var(--hk-surface);
+  border-bottom: 1px solid var(--hk-border);
+}
+
+.hk-bar h1 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.hk-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hk-field > span:first-child {
+  color: var(--hk-muted);
+}
+
+.hk-field select {
+  min-width: 220px;
+  padding: 4px 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 6px;
+  background: var(--hk-surface);
+}
+
+.hk-rules {
+  display: inline-flex;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.hk-server {
+  margin-left: auto;
+  color: var(--hk-muted);
+  font-size: 12px;
+}
+
+.hk-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.hk-sheet {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 12px 16px;
+}
+
+.hk-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.hk-tabs [role="tab"] {
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.hk-tabs [role="tab"][aria-selected="true"] {
+  background: var(--hk-surface);
+  border-color: var(--hk-border);
+  font-weight: 600;
+}
+
+.hk-tabs [role="tab"]:disabled {
+  color: var(--hk-muted);
+  cursor: default;
+}
+
+.hk-tabs-hint {
+  flex: 1;
+  margin-left: 8px;
+  color: var(--hk-muted);
+  font-size: 12px;
+}
+
+.hk-grid {
+  flex: 1;
+  min-height: 0;
+}
+
+.hk-grid[hidden] {
+  display: none;
+}
+
+.hk-side {
+  width: 360px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hk-card {
+  background: var(--hk-surface);
+  border: 1px solid var(--hk-border);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hk-card h2 {
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hk-step {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--hk-accent);
+  color: var(--hk-accent-text);
+  font-size: 12px;
+}
+
+.hk-help,
+.hk-muted {
+  color: var(--hk-muted);
+  font-size: 12px;
+}
+
+.hk-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--hk-border);
+  border-radius: 6px;
+  background: var(--hk-surface);
+  color: var(--hk-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hk-button:hover:not(:disabled) {
+  border-color: var(--hk-muted);
+}
+
+.hk-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.hk-button--primary {
+  background: var(--hk-accent);
+  border-color: var(--hk-accent);
+  color: var(--hk-accent-text);
+  font-weight: 600;
+}
+
+.hk-button--danger {
+  background: var(--hk-danger);
+  border-color: var(--hk-danger);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.hk-button--small {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.hk-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--hk-accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.hk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hk-columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hk-columns li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--hk-border);
+  line-height: 1.3;
+}
+
+.hk-columns li:last-child {
+  border-bottom: none;
+}
+
+.hk-columns .hk-tag {
+  grid-row: span 2;
+}
+
+.hk-columns .hk-muted {
+  grid-column: 2;
+  font-size: 11px;
+}
+
+.hk-columns .hk-link {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.hk-colname {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hk-summary + .hk-actions {
+  margin-top: 8px;
+}
+
+.hk-tag {
+  display: inline-block;
+  min-width: 40px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--hk-before-bg);
+  color: var(--hk-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.hk-tag--key {
+  background: var(--hk-key);
+  color: #ffffff;
+}
+
+.hk-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.hk-counts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.hk-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  border-radius: 6px;
+  background: var(--hk-before-bg);
+}
+
+.hk-count strong {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.hk-count span {
+  font-size: 12px;
+  color: var(--hk-muted);
+}
+
+.hk-count--change {
+  background: var(--hk-change-bg);
+}
+
+.hk-count--not_found {
+  background: var(--hk-notfound-bg);
+}
+
+.hk-status {
+  font-size: 13px;
+}
+
+.hk-status--ok {
+  color: var(--hk-ok);
+}
+
+.hk-status--error {
+  color: var(--hk-danger);
+}
+
+.hk-status ul,
+.hk-plain {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.hk-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-border);
+  border-radius: 6px;
+}
+
+.hk-issue {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-bottom: 1px solid var(--hk-border);
+  background: none;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hk-issues li:last-child .hk-issue {
+  border-bottom: none;
+}
+
+.hk-issue:disabled {
+  cursor: default;
+}
+
+.hk-issue:hover:not(:disabled) {
+  background: var(--hk-before-bg);
+}
+
+.hk-issue-place {
+  flex-shrink: 0;
+  min-width: 36px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 600;
+}
+
+.hk-issue--error .hk-issue-place {
+  color: var(--hk-danger);
+}
+
+.hk-issue--warning .hk-issue-place {
+  color: var(--hk-warn);
+}
+
+.hk-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--hk-muted);
+}
+
+.hk-note input {
+  padding: 5px 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 6px;
+  background: var(--hk-surface);
+  color: var(--hk-text);
+  font-size: 14px;
+}
+
+.hk-confirm {
+  padding: 10px;
+  border: 1px solid var(--hk-danger);
+  border-radius: 6px;
+  background: var(--hk-danger-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hk-banner {
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hk-card .hk-banner {
+  margin: 0;
+  font-size: 13px;
+}
+
+.hk-banner--error {
+  background: var(--hk-danger-bg);
+  color: var(--hk-danger);
+}
+
+.hk-banner--stale {
+  background: var(--hk-warn-bg);
+  color: var(--hk-warn);
+}
+
+.hk-dim {
+  opacity: 0.5;
+}
+
+.hk-center {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.hk-connect {
+  width: min(420px, 100%);
+}
+
+.hk-connect form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* グリッドのセル。.ssg-body-cell と連ねて基底のスタイルに勝たせる。 */
+
+.ssg-body-cell.hk-head {
+  background: var(--hk-head-bg);
+  font-weight: 600;
+}
+
+.ssg-body-cell.hk-head--key {
+  color: var(--hk-key);
+}
+
+.ssg-body-cell.hk-head--unknown,
+.ssg-body-cell.hk-head--readonly {
+  color: var(--hk-danger);
+  text-decoration: underline wavy;
+}
+
+.ssg-body-cell.hk-change {
+  background: var(--hk-change-bg);
+}
+
+.ssg-body-cell.hk-before {
+  background: var(--hk-before-bg);
+  color: var(--hk-muted);
+}
+
+.ssg-body-cell.hk-not_found {
+  background: var(--hk-notfound-bg);
+}
+
+.ssg-body-cell.hk-warn {
+  box-shadow: inset 0 -2px 0 var(--hk-warn);
+}
+
+.ssg-body-cell.hk-conflict {
+  background: var(--hk-danger-bg);
+}
+
+@media (max-width: 860px) {
+  .hk-main {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .hk-sheet {
+    min-height: 70vh;
+    padding: 12px 16px;
+  }
+
+  .hk-side {
+    width: auto;
+    overflow: visible;
+  }
+}

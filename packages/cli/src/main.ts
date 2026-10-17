@@ -8,7 +8,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { parseArgs } from "node:util";
 import {
-  buildApplyRequest,
+  buildPlan,
   diffToCsv,
   HarikitApiError,
   HarikitClient,
@@ -16,19 +16,11 @@ import {
   prepare,
   readCsv,
   readXlsx,
+  type ApplyPlan,
   type ApplyRequest,
   type RulesConfig,
   type Sheet,
 } from "@harikit/core";
-
-interface Plan {
-  harikitPlan: 1;
-  createdAt: string;
-  source: string;
-  target: string;
-  counts: Record<string, number>;
-  request: ApplyRequest;
-}
 
 const USAGE = `使い方:
   harikit targets
@@ -125,8 +117,7 @@ async function cmdDiff(file: string | undefined): Promise<number> {
   }
   const d = result.diff;
   await writeFile(join(out, "diff.csv"), diffToCsv(d));
-  const request = buildApplyRequest(d, { mode: "check" });
-  const plan: Plan = { harikitPlan: 1, createdAt: new Date().toISOString(), source: basename(file), target: d.target, counts: d.counts, request };
+  const plan = buildPlan(d, basename(file));
   await writeFile(join(out, "plan.json"), JSON.stringify(plan, null, 2) + "\n");
   console.log(`\n変わる ${d.counts.change} 行、同じ ${d.counts.same} 行、キーなし ${d.counts.not_found} 行${warnings.length ? `（警告 ${warnings.length} 件）` : ""}`);
   console.log(`差分: ${join(out, "diff.csv")}`);
@@ -137,7 +128,7 @@ async function cmdDiff(file: string | undefined): Promise<number> {
 
 async function cmdApply(planFile: string | undefined): Promise<number> {
   if (!planFile) throw new Error(USAGE);
-  const plan = JSON.parse(await readFile(planFile, "utf8")) as Plan;
+  const plan = JSON.parse(await readFile(planFile, "utf8")) as ApplyPlan;
   if (plan.harikitPlan !== 1) throw new Error(`${planFile} は harikit の反映計画ではありません`);
   const rows = plan.request.changes[0]?.rows.length ?? 0;
   if (rows === 0) {

@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sameValue, type Row } from "@harikit/core";
-import { Handlers, createHttpServer, type ApplyLogEntry, type Dialect, type ServerConfig, type TableMeta, type Transaction } from "../src/index.js";
+import { Handlers, createHttpServer, loadWebFiles, type ApplyLogEntry, type Dialect, type ServerConfig, type TableMeta, type Transaction } from "../src/index.js";
 
 const META: TableMeta = {
   table: "dbo.M_Product",
@@ -251,6 +254,40 @@ test("HTTP: トークン、X-Harikit、Content-Type を求める", async () => {
     assert.equal(((await broken.json()) as { error: { code: string } }).error.code, "bad_request");
   } finally {
     server.close();
+  }
+});
+
+test("HTTP: 画面のファイルを GET で配る。API はトークンが要るまま", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "harikit-web-"));
+  await mkdir(join(dir, "assets"));
+  await writeFile(join(dir, "index.html"), "<!doctype html><title>harikit</title>");
+  await writeFile(join(dir, "main.js"), "console.log(1)");
+  await writeFile(join(dir, "assets", "a.css"), "body{}");
+  await writeFile(join(dir, "notes.md"), "配らない");
+  const files = await loadWebFiles(dir);
+  assert.ok(files);
+  assert.deepEqual([...files.keys()].sort(), ["/", "/assets/a.css", "/index.html", "/main.js"]);
+  assert.equal(await loadWebFiles(join(dir, "nothing")), null);
+
+  const { handlers } = setup();
+  const server = createHttpServer(handlers, { token: "t0ken", files });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address() as { port: number };
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    const page = await fetch(`${base}/?x=1`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-type")!, /^text\/html/);
+    assert.match(page.headers.get("content-security-policy")!, /connect-src 'self'/);
+    assert.equal(await page.text(), "<!doctype html><title>harikit</title>");
+    assert.equal((await fetch(`${base}/assets/a.css`)).headers.get("content-type"), "text/css; charset=utf-8");
+    assert.equal((await fetch(`${base}/notes.md`)).status, 404);
+    assert.equal((await fetch(`${base}/../package.json`)).status, 404);
+    assert.equal((await fetch(`${base}/describe`)).status, 404);
+    assert.equal((await fetch(`${base}/describe`, { method: "POST", headers: { "X-Harikit": "1", "Content-Type": "application/json" }, body: '{"v":1}' })).status, 401);
+  } finally {
+    server.close();
+    await rm(dir, { recursive: true, force: true });
   }
 });
 

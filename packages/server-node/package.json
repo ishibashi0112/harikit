@@ -17,6 +17,7 @@
   ],
   "dependencies": {
     "@harikit/core": "0.0.0",
+    "@harikit/web": "0.0.0",
     "mssql": "^12.7.9"
   }
 }

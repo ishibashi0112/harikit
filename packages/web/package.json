@@ -1,0 +1,21 @@
+{
+  "name": "@harikit/web",
+  "version": "0.0.0",
+  "description": "harikit の画面。spreadsheet-grid に貼り付けて、検証・差分・反映をブラウザで行う。",
+  "license": "MIT",
+  "type": "module",
+  "exports": { "./package.json": "./package.json" },
+  "files": ["dist/app"],
+  "scripts": {
+    "bundle": "node build.mjs"
+  },
+  "devDependencies": {
+    "@harikit/core": "0.0.0",
+    "@ishibashi0112/spreadsheet-grid": "^0.51.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

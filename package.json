@@ -4,13 +4,14 @@
   "type": "module",
   "workspaces": [
     "packages/core",
+    "packages/web",
     "packages/server-node",
     "packages/cli"
   ],
   "scripts": {
-    "build": "tsc -b packages/core packages/server-node packages/cli",
+    "build": "tsc -b packages/core packages/web packages/server-node packages/cli && npm run bundle -w @harikit/web",
     "test": "npm run build && node --test \"packages/*/dist/test/**/*.test.js\"",
-    "clean": "tsc -b --clean packages/core packages/server-node packages/cli",
+    "clean": "tsc -b --clean packages/core packages/web packages/server-node packages/cli",
     "test:dotnet": "npm run build && node --test packages/server-dotnet/test/webmethod.integration.test.mjs"
   },
   "devDependencies": {
