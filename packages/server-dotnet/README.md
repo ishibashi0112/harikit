@@ -83,6 +83,8 @@
 - **トリガーのあるテーブル**: `ExecuteNonQuery` の戻り値はトリガーの中の行数も足すので、UPDATE そのものの行数を同じバッチの `SELECT @@ROWCOUNT` で読む（監査トリガーがあるテーブルで「影響行数が 1 でない」と止まらないように）。
 - **返せる JSON の長さ**: 結果が `maxJsonLength` を超えると ASP.NET は HTTP 500 を返し、反映した後なら戻し SQL が届かない。apply は DB を変える前に結果の長さを見積もり、超えるなら `too_many_rows`（`details.maxJsonLength`）で止める。fetch も同じ。
 - **数値と日付**: カルチャに依らない書き方（`InvariantCulture`）で読み書きする。正規表現は `\d`（全角数字にも当たる）と `$`（末尾の改行の前にも当たる）を使わない。`requestId` に改行が入るとスクリプトのコメントを抜けられるため。
+- **real / float の値**: `JavaScriptSerializer` は指数のない数を decimal で読むが、`Convert.ToDouble(decimal)` は最も近い double にならないことがある（real の 0.11 である 0.10999999940395355 など）。送り返された `before` が DB の値とずれて毎回衝突するので、文字列を通して読む。返すときも、.NET Framework の `"R"` が x64 で読み戻せない形を返すことがあるため、読み戻せることを確かめた decimal にして渡す。
+- **パラメータの長さ**: SqlClient は `Size` より長い値を黙って切る（先頭に 0 が並ぶ長い数の文字列が 0 になる、など）。列や既定の長さより長い値は長いまま渡し、DB に読ませるか弾かせる。
 - **CSRF**: `X-Harikit: 1` がなければ 403。`application/json` でない呼び出しは WebMethod に届かず、ページが 415 を返す（GET は 404）。
 - **ソースの文字コード**: `.cs` と `.aspx` は BOM 付きの UTF-8 にしてある。BOM がないと ASP.NET が OS の既定の文字コード（日本語の Windows なら Shift_JIS）で読むことがあり、日本語のコメントで壊れうるため。
 
@@ -94,7 +96,7 @@ Linux でも、Mono の ASP.NET で `Harikit.aspx` を動かして、実際の S
 HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 ```
 
-- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、監査トリガー、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
+- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
 - [test/TestHost.cs](test/TestHost.cs): テスト用の小さな ASP.NET ホスト（Ubuntu の `xsp4` は今の Mono では起動しないため）。
 - CI では加えて、Windows で .NET Framework 付属の `csc`（C# 5）と `aspnet_compiler`（`App_Code` に置いた形）でビルドを確かめる。
 
