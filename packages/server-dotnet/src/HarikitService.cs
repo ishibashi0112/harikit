@@ -120,7 +120,7 @@ namespace Harikit.Server
             if (v == null) return "null";
             if (v is string) return HarikitJson.Stringify(v);
             if (v is bool) return (bool)v ? "true" : "false";
-            if (HarikitJson.IsNumber(v)) return HarikitJson.ToDouble(v).ToString("R", CultureInfo.InvariantCulture);
+            if (HarikitJson.IsNumber(v)) return HarikitJson.FormatDouble(HarikitJson.ToDouble(v));
             return HarikitJson.Stringify(v);
         }
 

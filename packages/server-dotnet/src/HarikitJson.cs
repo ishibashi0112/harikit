@@ -32,7 +32,33 @@ namespace Harikit.Server
 
         public static double ToDouble(object x)
         {
+            // decimal から double への Convert は最も近い値にならないことがある（0.10999999940395355 など）。
+            // JavaScriptSerializer は指数のない数を decimal で返すので、文字列を通して読む（JS の読み方と同じになる）。
+            if (x is decimal) return double.Parse(((decimal)x).ToString(CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture);
             return Convert.ToDouble(x, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// 読み戻すと同じ double になる形で書く。.NET Framework の "R" は x64 で読み戻せない形を返すことがあるので、
+        /// 確かめて駄目なら 17 桁で書く。
+        /// </summary>
+        public static string FormatDouble(double d)
+        {
+            var s = d.ToString("R", CultureInfo.InvariantCulture);
+            if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != d) s = d.ToString("G17", CultureInfo.InvariantCulture);
+            return s;
+        }
+
+        /// <summary>
+        /// 返す JSON に載せる数。JavaScriptSerializer は double を "R" で書くので（上と同じ問題）、
+        /// 読み戻せる形の decimal にして渡す。decimal で表せない大きさのときは double のまま。
+        /// </summary>
+        public static object JsonNumber(double d)
+        {
+            decimal m;
+            if (decimal.TryParse(FormatDouble(d), NumberStyles.Float, CultureInfo.InvariantCulture, out m)
+                && ToDouble(m) == d) return m;
+            return d;
         }
 
         /// <summary>数値を double にそろえる。他はそのまま。</summary>
@@ -57,7 +83,7 @@ namespace Harikit.Server
                 if (v == null) sb.Append("n");
                 else if (v is string) sb.Append("s").Append(((string)v).Length).Append(':').Append((string)v);
                 else if (v is bool) sb.Append((bool)v ? "t" : "f");
-                else if (IsNumber(v)) sb.Append("d").Append(ToDouble(v).ToString("R", CultureInfo.InvariantCulture));
+                else if (IsNumber(v)) sb.Append("d").Append(FormatDouble(ToDouble(v)));
                 else sb.Append("o").Append(Convert.ToString(v, CultureInfo.InvariantCulture));
             }
             return sb.ToString();

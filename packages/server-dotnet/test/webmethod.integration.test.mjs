@@ -326,12 +326,34 @@ test("照合順序が DB の既定と違う varchar 列でも日本語が崩れ�
 });
 
 test("real の列は fetch した値を before に送り返しても衝突しない", { skip }, async () => {
-  const f = await client.fetch({ target: "item", keys: [{ Code: "A001" }], columns: ["Ratio"] });
-  const ratio = f.rows[0].values.Ratio;
-  const res = await client.apply(applyReq([{ key: { Code: "A001" }, before: { Ratio: ratio }, after: { Ratio: 0.25 } }], { mode: "execute" }));
-  assert.equal(res.ok, true, JSON.stringify(res));
-  await q(res.undoScript);
-  assert.equal((await q(`SELECT Ratio FROM dbo.Item WHERE Code = 'A001'`))[0].Ratio, ratio);
+  // 0.11 などは real にすると 0.10999999940395355。JavaScriptSerializer はこれを decimal で読み、
+  // Convert.ToDouble(decimal) だと 1 つ隣の double になって衝突していた。
+  for (const v of [0.1, 0.11, 0.7, 12.34, 98765.43]) {
+    await q(`UPDATE dbo.Item SET Ratio = ${v} WHERE Code = 'A001'`);
+    const f = await client.fetch({ target: "item", keys: [{ Code: "A001" }], columns: ["Ratio"] });
+    const ratio = f.rows[0].values.Ratio;
+    assert.equal(ratio, Math.fround(v));
+    const res = await client.apply(applyReq([{ key: { Code: "A001" }, before: { Ratio: ratio }, after: { Ratio: 0.25 } }], { mode: "execute" }));
+    assert.equal(res.ok, true, `${v}: ${JSON.stringify(res)}`);
+    await q(res.undoScript);
+    assert.equal((await q(`SELECT Ratio FROM dbo.Item WHERE Code = 'A001'`))[0].Ratio, ratio);
+  }
+  await q(`UPDATE dbo.Item SET Ratio = 0.1 WHERE Code = 'A001'`);
+});
+
+test("64 文字より長い数の文字列も切らずに渡す（先頭の 0 が切られて別の値にならない）", { skip }, async () => {
+  const after = "0".repeat(66) + "130.00";
+  const res = await client.apply(applyReq([{ key: { Code: "A002" }, before: { Price: null }, after: { Price: after } }], { mode: "execute" }));
+  // DB が読めれば 130.00 が入り、読めなければ db_error で何も変えない。0.00 などの別の値は入らない。
+  const price = (await q(`SELECT Price FROM dbo.Item WHERE Code = 'A002'`))[0].Price;
+  if (res.ok) {
+    assert.equal(price, 130);
+    await q(res.undoScript);
+    assert.equal((await q(`SELECT Price FROM dbo.Item WHERE Code = 'A002'`))[0].Price, null);
+  } else {
+    assert.equal(res.error.code, "db_error", JSON.stringify(res));
+    assert.equal(price, null);
+  }
 });
 
 test("サーバの値の確認: バイト数、列の文字コードで表せない字、型の形はまとめて invalid_value", { skip }, async () => {

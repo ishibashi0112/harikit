@@ -148,8 +148,8 @@ namespace Harikit.Server
             if (v is string || v is bool) return v;
             if (v is byte || v is short || v is int) return Convert.ToInt32(v, CultureInfo.InvariantCulture);
             // real は float のまま double にする（0.1 を 0.1 にすると、送り返された before が DB の値と合わなくなる）。
-            if (v is float) return (double)(float)v;
-            if (v is double) return v;
+            if (v is float) return HarikitJson.JsonNumber((double)(float)v);
+            if (v is double) return HarikitJson.JsonNumber((double)v);
             return Convert.ToString(v, CultureInfo.InvariantCulture);
         }
 
@@ -168,7 +168,9 @@ namespace Harikit.Server
                 case "nchar":
                 case "nvarchar":
                     p.SqlDbType = SqlDbType.NVarChar;
-                    p.Size = !col.MaxLength.HasValue || col.MaxLength.Value == -1 || col.MaxLength.Value > 4000 ? -1 : col.MaxLength.Value;
+                    // SqlClient は Size より長い値を黙って切るので、列より長い値は長いまま渡して DB に弾かせる。
+                    p.Size = !col.MaxLength.HasValue || col.MaxLength.Value == -1 ? -1 : Math.Max(col.MaxLength.Value, v is string ? ((string)v).Length : 0);
+                    if (p.Size > 4000) p.Size = -1;
                     p.Value = v ?? (object)DBNull.Value;
                     return "@" + name;
                 case "tinyint":
@@ -193,9 +195,13 @@ namespace Harikit.Server
                     p.Value = v ?? (object)DBNull.Value;
                     return "@" + name;
                 default:
-                    p.Size = 64;
-                    p.Value = v == null ? (object)DBNull.Value : Convert.ToString(v, CultureInfo.InvariantCulture);
-                    return "CAST(@" + name + " AS " + col.SqlType + ")";
+                    {
+                        // 64 文字より長い値（先頭に 0 が並ぶ数など）も切らずに渡す。
+                        var s = v == null ? null : Convert.ToString(v, CultureInfo.InvariantCulture);
+                        p.Size = s != null && s.Length > 64 ? -1 : 64;
+                        p.Value = s ?? (object)DBNull.Value;
+                        return "CAST(@" + name + " AS " + col.SqlType + ")";
+                    }
             }
         }
 
@@ -212,7 +218,7 @@ namespace Harikit.Server
                     return (bool)v ? "1" : "0";
                 case "integer":
                 case "float":
-                    return HarikitJson.ToDouble(v).ToString("R", CultureInfo.InvariantCulture);
+                    return HarikitJson.FormatDouble(HarikitJson.ToDouble(v));
                 case "bigint":
                 case "decimal":
                     {
