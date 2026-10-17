@@ -60,3 +60,17 @@ test("char / nchar は末尾の空白を見ない", () => {
   assert.ok(!sameColumnValue({ type: "string", dbType: "varchar(4)" }, "C1  ", "C1"));
   assert.ok(sameColumnValue({ type: "decimal", dbType: "decimal(9,2)" }, "1.0", "1"));
 });
+
+test("空文字が NULL になる列では、空文字は値の形として通さない", () => {
+  const c = col({ dbType: "VARCHAR2(20 BYTE)", emptyIsNull: true });
+  assert.match(checkValue(c, "")!, /空文字は NULL になります/);
+  assert.equal(checkValue(c, " "), null);
+  assert.equal(checkValue(col({}), ""), null);
+});
+
+test("日時の秒の小数は 9 桁まで読み、桁は列の scale で見る（Oracle の TIMESTAMP(9)）", () => {
+  assert.equal(checkValue(col({ type: "datetime", dbType: "TIMESTAMP(9)", scale: 9 }), "2026-10-17T09:30:00.123456789"), null);
+  assert.match(checkValue(col({ type: "datetime", dbType: "TIMESTAMP(6)", scale: 6 }), "2026-10-17T09:30:00.123456789")!, /6 桁まで/);
+  assert.match(checkValue(col({ type: "datetime", dbType: "DATE", scale: 0 }), "2026-10-17T09:30:00.5")!, /0 桁まで/);
+  assert.equal(checkValue(col({ type: "datetime", dbType: "DATE", scale: 0 }), "2026-10-17T09:30:00.000"), null);
+});

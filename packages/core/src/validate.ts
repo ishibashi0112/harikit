@@ -71,7 +71,8 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
   const date = typeof cell === "object" && cell.kind === "date" ? cell.iso : undefined;
   switch (col.type) {
     case "string":
-      if (typeof cell === "string") return { value: cell };
+      // Oracle などでは空文字は NULL として入るので、差分も NULL で取る（NOT NULL の列なら「必須」になる）。
+      if (typeof cell === "string") return { value: cell === "" && col.emptyIsNull ? null : cell };
       if (typeof cell === "number") return { value: formatNumber(cell) };
       if (date !== undefined) return { error: "日付として入っています（文字列にしてください）" };
       return { error: "文字列ではありません" };
@@ -107,7 +108,8 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
       if (typeof cell === "string") return { value: cell };
       return { error: "日付ではありません" };
     case "datetime":
-      if (date !== undefined) return { value: date };
+      // Excel の日付は .000 まで付くので、0 だけの小数は落とす（Oracle の DATE などと差分の見た目をそろえる）。
+      if (date !== undefined) return { value: date.replace(/\.0+$/, "") };
       if (typeof cell === "string") {
         if (DATE_RE.test(cell)) return { value: `${cell}T00:00:00` };
         return { value: cell.replace(/^(\d{4}-\d{2}-\d{2}) (?=\d)/, "$1T") };

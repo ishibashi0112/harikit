@@ -2,7 +2,7 @@
 
 Excel やグリッドの値を、検証してから DB に貼り替える道具。
 
-> 作りはじめの段階です。今動くのは「SQL Server、1 テーブル、UPDATE だけ」の細い道で、入口は表への貼り付け（画面）と Excel / CSV 取込（CLI）です。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
+> 作りはじめの段階です。今動くのは「SQL Server と Oracle、1 テーブル、UPDATE だけ」の細い道で、入口は表への貼り付け（画面）と Excel / CSV 取込（CLI）です。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
 
 ## 何をするものか
 
@@ -36,7 +36,7 @@ Excel やグリッドの値を、検証してから DB に貼り替える道具�
 
 ## 最初に通す道
 
-SQL Server で「1 テーブル、UPDATE だけ、Excel 取込」。Oracle、PostgreSQL、MySQL はその後。
+SQL Server と Oracle で「1 テーブル、UPDATE だけ、Excel 取込」。PostgreSQL、MySQL はその後。Oracle は今のところ Node 版サーバだけ（C# 版は SQL Server だけ）。
 
 ## 試し方（SQL Server）
 
@@ -83,7 +83,9 @@ node $H apply harikit-out/product-.../plan.json --execute  # 反映する
 - `diff.csv` は承認資料。行ごとに「変わる」「同じ」「キーなし」と、列ごとの前後の値が並ぶ。
 - `apply` は 1 トランザクションで、差分を取った後に DB の値が変わっていたら何も反映せずに止まる。
 - 反映すると、実行した SQL（`applied.sql`）と戻し用 SQL（`undo.sql`）がファイルに残る。戻し SQL は「今の値が harikit で入れた値のままの行だけ戻す」形。サーバ側にも反映ログ（`harikit-log/`）が残る。
+- `check` で出した SQL（`check.sql`）を後から人が SSMS などで流すときも、1 行でも見つからないか値が変わっていれば、全部取り消して止まる（エラー 50001）。
 - 許可リスト（どのテーブルのどの列を読めて、どの列を更新できるか）は `harikit.config.json` の `targets` に書く。
+- ほかのセッションがロックしている行は、`database.lockWaitSeconds`（既定 10 秒）待ってから「ほかのセッションにロックされています」と出して止まる。
 
 ### 業務ルール
 
@@ -114,17 +116,56 @@ DB の定義ではわからない決まりは、`harikit.rules.json` に書く�
 
 桁や NOT NULL、型、外部キーは DB の定義から自動で確かめるので、ここには書かない。varchar の桁は列の照合順序の文字コードでバイト数を数え、その文字コードで表せない字（Latin1 の列に日本語など）もエラーにする。
 
+## 試し方（Oracle）
+
+Oracle 12c 以降なら、Oracle Client（Instant Client）は要らない（node-oracledb の Thin モード）。手元で試すなら、コンテナの Oracle Free が手軽。
+
+```sh
+docker run -d -p 1521:1521 -e ORACLE_PASSWORD=... -e APP_USER=harikit -e APP_USER_PASSWORD=... gvenzl/oracle-free:23-slim
+
+# 例のテーブルを作る（harikit のスキーマに M_PRODUCT と M_CATEGORY）
+sqlplus harikit/...@localhost:1521/FREEPDB1 @examples/oracle/setup.sql
+
+cd examples/oracle
+HARIKIT_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c harikit.config.json
+```
+
+画面と CLI の使い方は SQL Server と同じ。Excel の見本は SQL Server の例のものがそのまま使える（`node $H diff ../sqlserver/price-update.xlsx -t product`）。
+
+接続先は `harikit.config.json` の `database` に書く。
+
+```json
+{ "dialect": "oracle", "connectString": "dbhost:1521/ORCLPDB1", "user": "app" }
+```
+
+- `connectString` は `ホスト:ポート/サービス名` か、tnsnames.ora の別名（そのときは `configDir` に tnsnames.ora のフォルダ）。
+- Thin モードでつながらない古い DB（11g など）は、Instant Client を入れて `"thick": true`（Windows と macOS は `"thick": { "libDir": "C:\\oracle\\instantclient_19_25" }`）。
+- `lockWaitSeconds`: 反映のとき、ほかのセッションがロックしている行を待つ秒数（既定 10）。
+
+### Oracle で気をつけること
+
+harikit が合わせているところ:
+
+- **テーブル名と列名**: `"` で囲まない名前は大文字として探す（Oracle と同じ）。スキーマを省くとつないだユーザーのスキーマで、なければシノニムをたどる。列名は大文字小文字を区別しないので、Excel の見出しは `ProductCode` でも `PRODUCTCODE` でもよい。
+- **空文字は NULL**: Oracle では空文字を入れると NULL になる。取込の空文字（CSV の `""` など）は NULL として扱うので、NOT NULL の列では「必須です」のエラーになる。
+- **DATE は時刻つき**: 差分には `2024-04-01T00:00:00` のように出る。秒の小数は入れられない。
+- **桁**: `NUMBER(9,2)` は整数部 7 桁・小数 2 桁で確かめる。`VARCHAR2(10 BYTE)` はバイト、`VARCHAR2(10 CHAR)` は文字数で数える。
+- **CHAR のキー**: `CHAR(6)` のコードも、末尾の空白を詰めずに `A001` と書けば当たる。
+- **ロック**: SQL Developer などで COMMIT していない更新が対象の行に残っていると、反映は `lockWaitSeconds` 待って止まる（画面には「ほかのセッションにロックされています」と出る）。
+- **出力する SQL**: PL/SQL のブロックで、SQL*Plus、SQLcl、SQL Developer で流せる。反映 SQL は 1 行でも合わなければ全部取り消して止まり、戻し SQL は合わない行（後から別の更新が入った行）を飛ばして、DBMS_OUTPUT にその行を出す。先頭で `ALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY'` をする（キーを大文字小文字を区別して比べるため。流したセッションはその後もこの設定のまま）。
+- **扱えない型**: CLOB、BLOB、RAW、TIMESTAMP WITH TIME ZONE などは読めるが更新できない。
+
 ## 中身
 
 | パッケージ | 役割 |
 | --- | --- |
 | [packages/core](packages/core) | コア。Excel / CSV の読み込み、DB 定義での検証、差分、API クライアント。依存なしで、ブラウザでも Node でも動く |
-| [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server、`mssql` を使う） |
+| [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server は `mssql`、Oracle は `oracledb` を使う） |
 | [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server） |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
 | [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配る |
 
-テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`。
+テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`、Oracle は `HARIKIT_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"harikit","password":"..."}' npm test`（そのユーザーのスキーマにテスト用のテーブルを作り直す）。
 C# 版は `HARIKIT_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。
 
 ## ライセンス

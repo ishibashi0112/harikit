@@ -31,6 +31,11 @@ test("バイト数: shift_jis、windows-1252、UTF-8、UTF-16", () => {
   assert.equal(byteCount("x", "no-such-encoding"), null);
 });
 
+test("バイト数: euc-jp（Oracle の JA16EUC）", () => {
+  assert.deepEqual(byteCount("Aあ鍵ｱ", "euc-jp"), { bytes: 1 + 2 + 2 + 2 });
+  assert.deepEqual(byteCount("𠮷", "euc-jp"), { unencodable: "𠮷" });
+});
+
 test("varchar の桁はバイトで数え、表せない字は弾く", () => {
   const memo = product.columns[1]!;
   assert.equal(checkValue(memo, "ボールペン"), null);
