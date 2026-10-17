@@ -139,3 +139,11 @@ export function canonical(type: ColumnType, v: Value): Value {
 export function sameValue(type: ColumnType, a: Value, b: Value): boolean {
   return canonical(type, a) === canonical(type, b);
 }
+
+/** 列の定義に沿って比べる。固定長の char / nchar は DB が末尾を空白で埋めるので、末尾の空白は見ない。 */
+export function sameColumnValue(col: Pick<ColumnDef, "type" | "dbType">, a: Value, b: Value): boolean {
+  if (col.type === "string" && typeof a === "string" && typeof b === "string" && /^n?char$/.test(baseDbType(col.dbType))) {
+    return a.replace(/ +$/, "") === b.replace(/ +$/, "");
+  }
+  return sameValue(col.type, a, b);
+}

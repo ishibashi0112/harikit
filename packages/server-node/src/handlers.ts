@@ -3,7 +3,7 @@
 import {
   canonical,
   checkValue,
-  sameValue,
+  sameColumnValue,
   type ApiError,
   type ApplyMode,
   type ColumnDef,
@@ -325,7 +325,7 @@ export class Handlers {
           bad = true;
           continue;
         }
-        if (sameValue(col.type, bv as Value, av)) {
+        if (sameColumnValue(col, bv as Value, av)) {
           rowErr("bad_request", "before と after が同じです", col.name);
           bad = true;
           continue;
@@ -347,6 +347,9 @@ export class Handlers {
     const appliedBy = this.deps.whoAmI();
     const appliedAt = localIso(this.deps.now?.() ?? new Date());
     const logBase = { requestId, mode, ...(note !== undefined && { note }), appliedBy, appliedAt, target: r.name, table: r.meta.table, rows };
+
+    // SQL の文面は先に作る（コミットした後に失敗して戻し SQL が返らない、を避ける）。
+    const { script, undoScript } = this.renderScripts(r, requestId, mode, rows);
 
     // 2〜6. トランザクションの中で、ロックを掛けて今の値を確かめてから流す。
     type Outcome = { conflicts: Conflict[]; updated: number; duplicate?: [number, number] };
@@ -379,7 +382,7 @@ export class Handlers {
         return { commit: true, value: { conflicts, updated } };
       });
     } catch (e) {
-      await this.deps.log({ ...logBase, outcome: "error", error: e instanceof Error ? e.message : String(e) });
+      await this.safeLog({ ...logBase, outcome: "error", error: e instanceof Error ? e.message : String(e) });
       throw e;
     }
 
@@ -390,14 +393,12 @@ export class Handlers {
       });
     }
     if (outcome.conflicts.length > 0) {
-      await this.deps.log({ ...logBase, outcome: "conflict", conflicts: outcome.conflicts });
+      await this.safeLog({ ...logBase, outcome: "conflict", conflicts: outcome.conflicts });
       throw new Fail("conflict", `${outcome.conflicts.length} 行が差分を取った後に変わっていたため、何も反映していません`, {
         conflicts: outcome.conflicts,
       });
     }
 
-    const { script, undoScript } = this.renderScripts(r, requestId, mode, rows);
-    await this.deps.log({ ...logBase, outcome: mode === "execute" ? "applied" : "checked" });
     const result: Result = {
       ok: true,
       v: 1,
@@ -410,7 +411,17 @@ export class Handlers {
       undoScript,
     };
     if (mode === "execute") this.applied.set(requestId, result);
+    // コミットした後なので、ログが書けなくても結果（戻し SQL）は返す。
+    await this.safeLog({ ...logBase, outcome: mode === "execute" ? "applied" : "checked" });
     return result;
+  }
+
+  private async safeLog(entry: ApplyLogEntry): Promise<void> {
+    try {
+      await this.deps.log(entry);
+    } catch (e) {
+      this.deps.logError?.(e);
+    }
   }
 
   private renderScripts(r: Resolved, requestId: string, mode: ApplyMode, rows: { key: Row; before: Row; after: Row }[]) {

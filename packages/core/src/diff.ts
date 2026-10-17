@@ -3,7 +3,7 @@
 import { cellRef } from "./table.js";
 import type { ApplyMode, ApplyRequest, FetchedRow, Row, TableDescription, Value } from "./types.js";
 import type { Issue, ParsedRow, ValidationResult } from "./validate.js";
-import { canonical, sameValue } from "./values.js";
+import { canonical, sameColumnValue } from "./values.js";
 
 export type DiffStatus = "change" | "same" | "not_found";
 
@@ -42,7 +42,7 @@ export function validRows(validation: ValidationResult): ParsedRow[] {
 
 /** fetch の結果（validRows と同じ順）と取込の行を比べる。 */
 export function diff(desc: TableDescription, validation: ValidationResult, fetched: FetchedRow[]): DiffResult {
-  const types = new Map(desc.columns.map((c) => [c.name, c.type]));
+  const cols = new Map(desc.columns.map((c) => [c.name, c]));
   const counts: Record<DiffStatus, number> = { change: 0, same: 0, not_found: 0 };
   const issues: Issue[] = [];
   const byDbKey = new Map<string, ParsedRow>();
@@ -54,7 +54,7 @@ export function diff(desc: TableDescription, validation: ValidationResult, fetch
       return { row: p.row, key: p.key, status: "not_found", input: p.values, changes: [] };
     }
     // DB の照合順序で同じ行に当たる 2 行（大文字小文字違いなど）は、どちらが勝つか決まらないので止める。
-    const dbKey = JSON.stringify(validation.keyColumns.map((k) => canonical(types.get(k)!, f.values[k] ?? null)));
+    const dbKey = JSON.stringify(validation.keyColumns.map((k) => canonical(cols.get(k)!.type, f.values[k] ?? null)));
     const other = byDbKey.get(dbKey);
     if (other) {
       for (const k of validation.keyColumns) {
@@ -69,7 +69,7 @@ export function diff(desc: TableDescription, validation: ValidationResult, fetch
       const before = f.values[col] ?? null;
       const after = p.values[col] ?? null;
       current[col] = before;
-      if (!sameValue(types.get(col)!, before, after)) changes.push({ column: col, before, after });
+      if (!sameColumnValue(cols.get(col)!, before, after)) changes.push({ column: col, before, after });
     }
     const status: DiffStatus = changes.length > 0 ? "change" : "same";
     counts[status]++;

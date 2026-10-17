@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkValue, sameValue, type ColumnDef } from "../src/index.js";
+import { checkValue, sameColumnValue, sameValue, type ColumnDef } from "../src/index.js";
 
 const col = (c: Partial<ColumnDef>): ColumnDef => ({ name: "c", type: "string", dbType: "varchar(10)", nullable: true, updatable: true, ...c });
 
@@ -52,4 +52,11 @@ test("型に沿った比較", () => {
   assert.ok(sameValue("string", null, null));
   assert.ok(!sameValue("string", null, ""));
   assert.ok(!sameValue("string", "a", "A"));
+});
+
+test("char / nchar は末尾の空白を見ない", () => {
+  assert.ok(sameColumnValue({ type: "string", dbType: "char(4)" }, "C1  ", "C1"));
+  assert.ok(sameColumnValue({ type: "string", dbType: "nchar(4)" }, "C1  ", "C1"));
+  assert.ok(!sameColumnValue({ type: "string", dbType: "varchar(4)" }, "C1  ", "C1"));
+  assert.ok(sameColumnValue({ type: "decimal", dbType: "decimal(9,2)" }, "1.0", "1"));
 });

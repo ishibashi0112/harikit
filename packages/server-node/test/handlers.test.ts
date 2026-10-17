@@ -250,3 +250,22 @@ test("HTTP: トークン、X-Harikit、Content-Type を求める", async () => {
     server.close();
   }
 });
+
+test("apply: コミットした後にログが書けなくても、結果と戻し SQL は返す", async () => {
+  const dialect = new FakeDialect();
+  const errors: unknown[] = [];
+  const handlers = new Handlers({
+    config: CONFIG,
+    dialect,
+    whoAmI: () => "tester",
+    log: async () => {
+      throw new Error("disk full");
+    },
+    logError: (e) => errors.push(e),
+  });
+  const res = await handlers.handle("apply", applyReq([{ key: { ProductCode: "A001" }, before: { UnitPrice: "120.00" }, after: { UnitPrice: "130.00" } }]));
+  assert.equal(res.ok, true);
+  assert.match(res.undoScript as string, /120.00/);
+  assert.equal(dialect.tables["dbo.m_product"]![0]!.UnitPrice, "130.00");
+  assert.equal(errors.length, 1);
+});

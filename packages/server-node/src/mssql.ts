@@ -115,24 +115,20 @@ function readValue(col: MsColumn, v: unknown): Value {
 }
 
 /**
- * 値を渡す式を作り、パラメータを足す。文字列の列は同じ型のパラメータで渡して
- * 列の索引を活かし、それ以外は文字列で渡して DB の型へ CAST する（精度を崩さない）。
+ * 値を渡す式を作り、パラメータを足す。文字列は列が varchar でも nvarchar で渡す
+ * （varchar で渡すと DB の既定の照合順序のコードページで送られ、列の照合順序が違うと
+ * 日本語が「?」になる）。数値と日時以外は文字列で渡して DB の型へ CAST する（精度を崩さない）。
  */
 function bindValue(req: sql.Request, name: string, col: MsColumn, v: Value): string {
-  const len = col.maxLength === -1 || col.maxLength === undefined ? sql.MAX : col.maxLength;
   switch (col.baseType) {
     case "char":
-      req.input(name, sql.Char(len), v);
-      return `@${name}`;
     case "varchar":
-      req.input(name, sql.VarChar(len), v);
-      return `@${name}`;
     case "nchar":
-      req.input(name, sql.NChar(len), v);
-      return `@${name}`;
-    case "nvarchar":
+    case "nvarchar": {
+      const len = col.maxLength === undefined || col.maxLength === -1 || col.maxLength > 4000 ? sql.MAX : col.maxLength;
       req.input(name, sql.NVarChar(len), v);
       return `@${name}`;
+    }
     case "tinyint":
       req.input(name, sql.TinyInt, v);
       return `@${name}`;
@@ -160,8 +156,8 @@ export function literal(col: MsColumn, v: Value): string {
   if (v === null) return "NULL";
   switch (col.type) {
     case "string": {
-      const s = `'${String(v).replace(/'/g, "''")}'`;
-      return col.baseType.startsWith("n") ? `N${s}` : s;
+      // varchar の列にも N'' で書く（列の照合順序で変換され、DB の既定と違っても崩れない）。
+      return `N'${String(v).replace(/'/g, "''")}'`;
     }
     case "boolean":
       return v ? "1" : "0";

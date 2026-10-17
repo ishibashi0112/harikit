@@ -25,11 +25,13 @@ before(async () => {
   if (!conn) return;
   const base = { server: conn.server, port: conn.port ?? 1433, user: conn.user, password: conn.password, options: { encrypt: false, trustServerCertificate: true } };
   const master = await new sql.ConnectionPool({ ...base, database: "master" }).connect();
-  await master.request().query(`IF DB_ID('${DB}') IS NULL CREATE DATABASE ${DB}`);
+  // 既定の照合順序は日本語以外にしておき、列だけ Japanese_CI_AS の varchar を混ぜる（照合順序の違いで文字が崩れないか見る）。
+  await master.request().query(`IF DB_ID('${DB}') IS NULL CREATE DATABASE ${DB} COLLATE SQL_Latin1_General_CP1_CI_AS`);
   await master.close();
   admin = await new sql.ConnectionPool({ ...base, database: DB }).connect();
-  await q(`DROP TABLE IF EXISTS dbo.Item; DROP TABLE IF EXISTS dbo.Kind;
-    CREATE TABLE dbo.Kind (KindCode varchar(4) NOT NULL PRIMARY KEY);
+  // 前の回のテーブルは別のバッチで消す（同じバッチだと古い定義で INSERT がコンパイルされる）。
+  await q(`DROP TABLE IF EXISTS dbo.Item; DROP TABLE IF EXISTS dbo.Kind;`);
+  await q(`CREATE TABLE dbo.Kind (KindCode varchar(4) NOT NULL PRIMARY KEY);
     CREATE TABLE dbo.Item (
       Code varchar(10) NOT NULL PRIMARY KEY,
       Name nvarchar(50) NOT NULL,
@@ -44,12 +46,14 @@ before(async () => {
       Legacy datetime NULL,
       OpenAt time(0) NULL,
       Guid uniqueidentifier NULL,
-      RowId int IDENTITY(1,1) NOT NULL
+      RowId int IDENTITY(1,1) NOT NULL,
+      Memo varchar(20) COLLATE Japanese_CI_AS NULL,
+      Grade char(3) NULL
     );
     INSERT INTO dbo.Kind VALUES ('K1'), ('K2');
-    INSERT INTO dbo.Item (Code, Name, KindCode, Price, Cost, Big, Qty, Released, Stamp, Legacy, OpenAt) VALUES
-      ('A001', N'ペン', 'K1', 120.00, 80.5, 9007199254740993, 5, '2024-04-01', '2026-10-17T09:30:00.123', '2026-10-17T09:30:00', '09:00'),
-      ('A002', N'ノート', 'K1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);`);
+    INSERT INTO dbo.Item (Code, Name, KindCode, Price, Cost, Big, Qty, Released, Stamp, Legacy, OpenAt, Memo, Grade) VALUES
+      ('A001', N'ペン', 'K1', 120.00, 80.5, 9007199254740993, 5, '2024-04-01', '2026-10-17T09:30:00.123', '2026-10-17T09:30:00', '09:00', N'メモ', 'A'),
+      ('A002', N'ノート', 'K1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);`);
   const config: ServerConfig = {
     listen: { port: 0 },
     database: { dialect: "sqlserver", server: conn.server, port: conn.port ?? 1433, database: DB, user: conn.user, password: conn.password, options: { encrypt: false, trustServerCertificate: true } },
@@ -57,8 +61,8 @@ before(async () => {
       item: {
         table: "dbo.Item",
         access: "update",
-        readable: ["Code", "Name", "KindCode", "Price", "Cost", "Big", "Qty", "Active", "Released", "Stamp", "Legacy", "OpenAt", "Guid", "RowId"],
-        updatable: ["Name", "KindCode", "Price", "Cost", "Big", "Qty", "Active", "Released", "Stamp", "Legacy", "OpenAt", "Guid", "RowId"],
+        readable: ["Code", "Name", "KindCode", "Price", "Cost", "Big", "Qty", "Active", "Released", "Stamp", "Legacy", "OpenAt", "Guid", "RowId", "Memo", "Grade"],
+        updatable: ["Name", "KindCode", "Price", "Cost", "Big", "Qty", "Active", "Released", "Stamp", "Legacy", "OpenAt", "Guid", "RowId", "Memo", "Grade"],
       },
       kind: { table: "Kind", access: "read", readable: ["KindCode"] },
     },
@@ -108,6 +112,8 @@ test("fetch: 値は仕様の形で返り、キーは DB の照合順序で引く
     Legacy: "2026-10-17T09:30:00",
     OpenAt: "09:00:00",
     RowId: 1,
+    Memo: "メモ",
+    Grade: "A  ",
   });
 });
 
@@ -167,4 +173,20 @@ test("名前に ] や ' を含む値もパラメータで安全に通る", { ski
   await q(res.undoScript);
   assert.equal((await q(`SELECT Name FROM dbo.Item WHERE Code = 'A002'`))[0]!.Name, "ノート");
   assert.equal((await q(`SELECT COUNT(*) AS n FROM dbo.Kind`))[0]!.n, 2);
+});
+
+test("照合順序が DB の既定と違う varchar 列でも日本語が崩れない。char 列の埋め空白は差分にしない", { skip }, async () => {
+  const p = await prepare(client, "item", { name: "s", rows: [["Code", "Memo", "Grade"], ["A001", "ボールペン（黒）", "A"]] });
+  assert.ok(p.ok, JSON.stringify(p.issues));
+  assert.deepEqual(p.diff!.rows[0]!.changes.map((c) => c.column), ["Memo"]);
+  const res = (await client.apply(buildApplyRequest(p.diff!, { mode: "execute" }))) as ApplyResponse;
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.equal((await q(`SELECT Memo FROM dbo.Item WHERE Code = 'A001'`))[0]!.Memo, "ボールペン（黒）");
+  const again = await prepare(client, "item", { name: "s", rows: [["Code", "Memo"], ["A001", "ボールペン（黒）"]] });
+  assert.deepEqual(again.diff!.counts, { change: 0, same: 1, not_found: 0 });
+  // 出力した SQL を流しても崩れない。
+  await q(res.undoScript);
+  assert.equal((await q(`SELECT Memo FROM dbo.Item WHERE Code = 'A001'`))[0]!.Memo, "メモ");
+  await q(res.script);
+  assert.equal((await q(`SELECT Memo FROM dbo.Item WHERE Code = 'A001'`))[0]!.Memo, "ボールペン（黒）");
 });
