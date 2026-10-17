@@ -74,6 +74,7 @@
 
 - 文字列は varchar の列でも nvarchar のパラメータで渡し、出力する SQL も `N'...'` で書く（列と DB の既定の照合順序が違うと日本語が「?」になるため）。
 - `char` / `nchar` の列は DB が末尾を空白で埋めるので、末尾の空白だけの違いは「同じ値」とみなす。
+- どの行か（キー）は列の照合順序で探し、値が変わっていないか（apply の `before`、戻し SQL と反映 SQL の値の条件）は厳密に比べる（仕様 1.6）。`CAST([列] AS nvarchar(max)) COLLATE Latin1_General_BIN2 = 値` に、固定長でない列は `DATALENGTH` の一致も付ける。Japanese_CI_AS の `=` は 'ボールペン' と 'ﾎﾞｰﾙﾍﾟﾝ' を同じとみなすので、そのままだと後から別の人が直した行を上書きする。varchar の列に直接 BIN2 を当てると日本語が「?」に崩れるので、先に nvarchar に直す。
 - SQL の文面と戻し SQL はトランザクションの前に作り、コミットした後にログが書けなくても結果を返す。
 - `real` の列は float のまま double にして返す（0.1 に丸めると、送り返された `before` が DB の値と合わず衝突になる）。
 - 文字列の列のバイト数（`maxBytes`）と、列の文字コードで表せない字は、反映の前にサーバが `invalid_value` で止める（SQL Server は黙って「?」に置き換えるため）。まず .NET の文字コードで書いて読み戻して確かめ（どの字かを示せる）、最後に DB 自身に列の照合順序で varchar にして戻させて確かめる（.NET の表と DB のコードページは完全には一致しないため）。
@@ -96,7 +97,7 @@ Linux でも、Mono の ASP.NET で `Harikit.aspx` を動かして、実際の S
 HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 ```
 
-- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
+- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、値の厳密な比べ方（全角半角・かな・末尾の空白）、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
 - [test/TestHost.cs](test/TestHost.cs): テスト用の小さな ASP.NET ホスト（Ubuntu の `xsp4` は今の Mono では起動しないため）。
 - CI では加えて、Windows で .NET Framework 付属の `csc`（C# 5）と `aspnet_compiler`（`App_Code` に置いた形）でビルドを確かめる。
 

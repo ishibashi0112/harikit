@@ -325,6 +325,40 @@ test("照合順序が DB の既定と違う varchar 列でも日本語が崩れ�
   await q(res.undoScript);
 });
 
+test("値が変わっていないかは厳密に比べ、キーは照合順序で探す（仕様 1.6）", { skip }, async () => {
+  const memo = async () => (await q(`SELECT Memo FROM dbo.Item WHERE Code = 'A001'`))[0].Memo;
+  await q(`UPDATE dbo.Item SET Memo = N'ボールペン' WHERE Code = 'A001'`);
+  // Japanese_CI_AS の = なら同じとみなす値は、before としては「変わっていた」。
+  for (const before of ["ﾎﾞｰﾙﾍﾟﾝ", "ぼーるぺん", "ボールペン "]) {
+    const res = await client.apply(applyReq([{ key: { Code: "A001" }, before: { Memo: before }, after: { Memo: "ノート" } }], { mode: "execute" }));
+    assert.equal(res.ok, false, before);
+    assert.equal(res.error.code, "conflict", before);
+    assert.deepEqual(res.conflicts[0].columns, ["Memo"]);
+  }
+  // char の埋め空白は区別しないが、大文字小文字は区別する（列は SQL_Latin1_General_CP1_CI_AS）。
+  const lower = await client.apply(applyReq([{ key: { Code: "A001" }, before: { Grade: "a" }, after: { Grade: "B" } }]));
+  assert.equal(lower.error?.code, "conflict", JSON.stringify(lower));
+  // キーは照合順序のまま（a001 で A001 を指せる）。
+  const res = await client.apply(
+    applyReq([{ key: { Code: "a001" }, before: { Memo: "ボールペン", Grade: "A" }, after: { Memo: "ノート", Grade: "B" } }], { mode: "execute" }),
+  );
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.equal(await memo(), "ノート");
+  // 反映の後に別の人が半角に直した行は、戻し SQL で上書きしない。
+  await q(`UPDATE dbo.Item SET Memo = N'ﾉｰﾄ' WHERE Code = 'A001'`);
+  await q(res.undoScript);
+  assert.equal(await memo(), "ﾉｰﾄ");
+  await q(`UPDATE dbo.Item SET Memo = N'ノート ' WHERE Code = 'A001'`);
+  await q(res.undoScript);
+  assert.equal(await memo(), "ノート ");
+  // harikit で入れた値のままなら戻す。
+  await q(`UPDATE dbo.Item SET Memo = N'ノート' WHERE Code = 'A001'`);
+  await q(res.undoScript);
+  assert.equal(await memo(), "ボールペン");
+  assert.equal((await q(`SELECT Grade FROM dbo.Item WHERE Code = 'A001'`))[0].Grade, "A  ");
+  await q(`UPDATE dbo.Item SET Memo = N'メモ' WHERE Code = 'A001'`);
+});
+
 test("real の列は fetch した値を before に送り返しても衝突しない", { skip }, async () => {
   // 0.11 などは real にすると 0.10999999940395355。JavaScriptSerializer はこれを decimal で読み、
   // Convert.ToDouble(decimal) だと 1 つ隣の double になって衝突していた。

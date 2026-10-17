@@ -782,8 +782,8 @@ namespace Harikit.Server
             var undoLines = new List<string>();
             foreach (var row in rows)
             {
-                lines.Add(d.RenderUpdate(r.Meta, row.After, Merge(row.Key, row.Before)) + ";");
-                undoLines.Add(d.RenderUpdate(r.Meta, row.Before, Merge(row.Key, row.After)) + ";");
+                lines.Add(d.RenderUpdate(r.Meta, row.After, row.Key, row.Before) + ";");
+                undoLines.Add(d.RenderUpdate(r.Meta, row.Before, row.Key, row.After) + ";");
             }
             script = head + " " + (mode == "check" ? "実行予定" : "実行済み") + "\n" + Wrap(lines);
             undoScript = head + " の戻し\n-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。\n" + Wrap(undoLines);
@@ -795,13 +795,6 @@ namespace Harikit.Server
             all.AddRange(lines);
             all.Add("COMMIT;");
             return string.Join("\n", all) + "\n";
-        }
-
-        static Row Merge(Row a, Row b)
-        {
-            var m = new Row(a);
-            foreach (var kv in b) m[kv.Key] = kv.Value;
-            return m;
         }
     }
 }
