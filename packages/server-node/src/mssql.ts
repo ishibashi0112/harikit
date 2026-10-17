@@ -5,7 +5,7 @@ import sql from "mssql";
 import type { ColumnType, Row, Value } from "@harikit/core";
 import { canonical } from "@harikit/core";
 import type { SqlServerConnection } from "./config.js";
-import { DbError, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
+import { DbError, LOCKED_MESSAGE, scriptKeyText, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
 
 /** 内部で使う列の情報。sqlType は CAST に使う型（DB の定義から作る）。 */
 interface MsColumn extends ColumnMeta {
@@ -224,18 +224,36 @@ function cols(meta: TableMeta, names: string[]): MsColumn[] {
   });
 }
 
+function toDbError(e: unknown): DbError {
+  const message = e instanceof Error ? e.message : String(e);
+  // 1222: ロック待ちが LOCK_TIMEOUT を超えた。
+  const locked = (e as { number?: number } | undefined)?.number === 1222;
+  return new DbError(message, { cause: e, ...(locked && { publicMessage: LOCKED_MESSAGE }) });
+}
+
 async function run(exec: Executor, build: (req: sql.Request) => string): Promise<sql.IResult<Record<string, unknown>>> {
   const req = exec.request();
   const text = build(req);
   try {
     return await req.query(text);
   } catch (e) {
-    throw new DbError(e instanceof Error ? e.message : String(e), { cause: e });
+    throw toDbError(e);
   }
 }
 
 class MsTransaction implements Transaction {
-  constructor(private readonly tx: sql.Transaction) {}
+  /**
+   * ほかのセッションがロックしている行は lockWaitSeconds だけ待つ（仕様 7 章の手順 3）。
+   * mssql の query は sp_executesql で流れ、SET はその中でだけ効くので、文ごとに先頭に付ける。
+   */
+  private readonly lockTimeout: string;
+
+  constructor(
+    private readonly tx: sql.Transaction,
+    lockWaitMs: number,
+  ) {
+    this.lockTimeout = `SET LOCK_TIMEOUT ${lockWaitMs}; `;
+  }
 
   async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row): Promise<LockedRow> {
     const keyCols = cols(meta, keyColumns);
@@ -248,7 +266,7 @@ class MsTransaction implements Transaction {
         return `CASE WHEN ${cond} THEN 1 ELSE 0 END AS ${quoteName(`__m${i}`)}`;
       });
       const select = [...keyCols, ...beforeCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
-      return `SELECT ${[...select, ...checks].join(", ")} FROM ${quoteTable(meta.table)} WITH (UPDLOCK, HOLDLOCK) WHERE ${where.join(" AND ")}`;
+      return `${this.lockTimeout}SELECT ${[...select, ...checks].join(", ")} FROM ${quoteTable(meta.table)} WITH (UPDLOCK, HOLDLOCK) WHERE ${where.join(" AND ")}`;
     });
     const rows = res.recordset;
     if (rows.length === 0) return { found: false };
@@ -272,7 +290,7 @@ class MsTransaction implements Transaction {
       const assigns = setCols.map((c, i) => `${quoteName(c.name)} = ${bindValue(req, `p${i}`, c, set[c.name]!)}`);
       const where = keyCols.map((c, i) => condition(c, bindValue(req, `k${i}`, c, key[c.name]!)));
       // rowsAffected にはトリガーの文の行数も入るので、UPDATE 本体の行数は @@ROWCOUNT で読む。
-      return `UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${where.join(" AND ")}; SELECT @@ROWCOUNT AS [n];`;
+      return `${this.lockTimeout}UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${where.join(" AND ")}; SELECT @@ROWCOUNT AS [n];`;
     });
     // トリガーが結果セットを返すこともあるので、最後の結果セットを読む。
     const sets = res.recordsets as sql.IRecordSet<{ n: number }>[];
@@ -286,6 +304,10 @@ export class SqlServerDialect implements Dialect {
 
   constructor(private readonly conn: SqlServerConnection) {}
 
+  private get lockWaitSeconds(): number {
+    return this.conn.lockWaitSeconds ?? 10;
+  }
+
   private pool(): Promise<sql.ConnectionPool> {
     this.poolPromise ??= new sql.ConnectionPool({
       server: this.conn.server,
@@ -293,6 +315,8 @@ export class SqlServerDialect implements Dialect {
       database: this.conn.database,
       user: this.conn.user,
       password: this.conn.password,
+      // ロック待ち（LOCK_TIMEOUT）より先に要求のタイムアウト（既定 15 秒）で切れないようにする。
+      requestTimeout: Math.max(15000, (this.lockWaitSeconds + 5) * 1000),
       options: { encrypt: this.conn.options?.encrypt ?? true, trustServerCertificate: this.conn.options?.trustServerCertificate ?? false, instanceName: this.conn.options?.instanceName },
     }).connect();
     return this.poolPromise;
@@ -418,10 +442,10 @@ export class SqlServerDialect implements Dialect {
     try {
       await tx.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
     } catch (e) {
-      throw new DbError(e instanceof Error ? e.message : String(e), { cause: e });
+      throw toDbError(e);
     }
     try {
-      const { commit, value } = await fn(new MsTransaction(tx));
+      const { commit, value } = await fn(new MsTransaction(tx, Math.trunc(this.lockWaitSeconds) * 1000));
       if (commit) await tx.commit();
       else await tx.rollback();
       return value;
@@ -472,9 +496,20 @@ export class SqlServerDialect implements Dialect {
   }
 
   renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[], kind: "apply" | "undo"): string {
-    const note = kind === "undo" ? "\n-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。" : "";
-    const lines = updates.map((u) => this.renderUpdate(meta, u.set, u.key, u.expect) + ";");
-    return `${head}${note}\n` + ["SET XACT_ABORT ON;", "BEGIN TRANSACTION;", ...lines, "COMMIT;"].join("\n") + "\n";
+    const lines = [head];
+    if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（エラー 50001）。");
+    else lines.push("-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。");
+    lines.push("SET XACT_ABORT ON;", "BEGIN TRANSACTION;");
+    for (const u of updates) {
+      lines.push(this.renderUpdate(meta, u.set, u.key, u.expect) + ";");
+      if (kind === "apply") {
+        // トリガーがあっても @@ROWCOUNT は UPDATE 文そのものの行数。XACT_ABORT ON なので THROW で全部戻る。
+        const msg = `harikit: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`;
+        lines.push(`IF @@ROWCOUNT <> 1 THROW 50001, N'${msg.replace(/'/g, "''")}', 1;`);
+      }
+    }
+    lines.push("COMMIT;");
+    return lines.join("\n") + "\n";
   }
 
   async close(): Promise<void> {

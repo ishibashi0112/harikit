@@ -21,6 +21,8 @@ export interface SqlServerConnection {
   /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
   password?: string;
   options?: { encrypt?: boolean; trustServerCertificate?: boolean; instanceName?: string };
+  /** 反映のとき、ほかのセッションがロックしている行を待つ秒数。既定は 10。 */
+  lockWaitSeconds?: number;
 }
 
 export interface OracleConnection {
@@ -68,8 +70,8 @@ export function checkConfig(config: ServerConfig): void {
   if (db.dialect === "oracle") {
     if (typeof db.connectString !== "string" || !db.connectString) fail("database.connectString がありません（例 \"localhost:1521/FREEPDB1\"）");
     if (typeof db.user !== "string" || !db.user) fail("database.user がありません");
-    if (db.lockWaitSeconds !== undefined && !(Number.isInteger(db.lockWaitSeconds) && db.lockWaitSeconds >= 1)) fail("database.lockWaitSeconds は 1 以上の整数です");
   }
+  if (db.lockWaitSeconds !== undefined && !(Number.isInteger(db.lockWaitSeconds) && db.lockWaitSeconds >= 1)) fail("database.lockWaitSeconds は 1 以上の整数です");
   if (!config.targets || typeof config.targets !== "object") fail("targets がありません");
   for (const [name, t] of Object.entries(config.targets)) {
     if (!/^[A-Za-z0-9_-]+$/.test(name)) fail(`ターゲット名 ${name} に使えない文字があります`);

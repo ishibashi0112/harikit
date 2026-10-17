@@ -91,7 +91,9 @@ test("人が読む SQL: PL/SQL のブロックにし、N'' で書けない字は
       "-- harikit x",
       "-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（ORA-20001）。",
       "-- SQL*Plus、SQLcl、SQL Developer で流せる形（値の & を置き換えないよう SET DEFINE OFF にしてある）。",
+      "-- キーを大文字小文字を区別して比べるよう、このセッションの NLS_COMP / NLS_SORT を BINARY にする（流した後もこのセッションに残る）。",
       "SET DEFINE OFF",
+      "ALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY';",
       "BEGIN",
       `  UPDATE "APP"."M_ITEM" SET "NAME" = UNISTR('\\D842\\DFB7野家\\005C'''), "PRICE" = 130.00 WHERE "CODE" = 'A1' AND "NAME" COLLATE BINARY = N'ペン' AND "PRICE" IS NULL;`,
       "  IF SQL%ROWCOUNT <> 1 THEN RAISE_APPLICATION_ERROR(-20001, 'harikit: 行が見つからないか、値が変わっています（CODE=A1）。何も反映していません'); END IF;",
@@ -106,7 +108,7 @@ test("人が読む SQL: PL/SQL のブロックにし、N'' で書けない字は
     ].join("\n"),
   );
   const undo = d.renderScript(meta, "-- harikit x の戻し", [{ key: { CODE: "A1" }, set: { RELEASED: "2024-04-01T00:00:00.000" }, expect: { RELEASED: null } }], "undo");
-  assert.match(undo, /^SET SERVEROUTPUT ON\nDECLARE\n {2}n PLS_INTEGER := 0;\nBEGIN$/m);
+  assert.match(undo, /^SET DEFINE OFF\nALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY';\nSET SERVEROUTPUT ON\nDECLARE\n {2}n PLS_INTEGER := 0;\nBEGIN$/m);
   assert.match(undo, /SET "RELEASED" = TO_DATE\('2024-04-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS'\) WHERE "CODE" = 'A1' AND "RELEASED" IS NULL;/);
   assert.match(undo, /IF SQL%ROWCOUNT = 1 THEN n := n \+ 1; ELSE DBMS_OUTPUT.PUT_LINE\('harikit: 戻していない行（後から別の更新が入った）: CODE=A1'\); END IF;/);
   assert.match(undo, /DBMS_OUTPUT.PUT_LINE\('harikit: ' \|\| n \|\| ' \/ 1 行を戻しました'\);/);

@@ -25,13 +25,14 @@ const q = async (sql: string, binds: oracledb.BindParameters = {}) =>
   (await admin.execute<Record<string, unknown>>(sql, binds, { autoCommit: true, outFormat: oracledb.OUT_FORMAT_OBJECT })).rows ?? [];
 const one = async (sql: string) => (await q(sql))[0]!;
 
-/** 出力した SQL の PL/SQL ブロック（SET の行と、最後の / を除いたところ）を流し、DBMS_OUTPUT の行を返す。 */
+/** 出力した SQL の ALTER SESSION と PL/SQL ブロック（SQL*Plus の SET の行と、最後の / を除いたところ）を流し、DBMS_OUTPUT の行を返す。 */
 async function runScript(script: string): Promise<string[]> {
   const lines = script.split("\n");
   const start = lines.findIndex((l) => l === "BEGIN" || l === "DECLARE");
   const end = lines.lastIndexOf("END;");
   assert.ok(start > 0 && end > start, script);
   assert.equal(lines[end + 1], "/");
+  for (const l of lines.slice(0, start)) if (l.startsWith("ALTER SESSION ")) await admin.execute(l.replace(/;$/, ""));
   await admin.execute(`BEGIN DBMS_OUTPUT.ENABLE(NULL); END;`);
   await admin.execute(lines.slice(start, end + 1).join("\n"));
   const out: string[] = [];
@@ -355,4 +356,26 @@ test("BOOLEAN の列（23ai）", { skip }, async (t) => {
   assert.match(res.script, /"FLAG" = TRUE/);
   await runScript(res.undoScript);
   assert.equal((await one(`SELECT COUNT(*) AS N FROM ITEM WHERE FLAG IS NULL AND CODE = 'A001'`)).N, 1);
+});
+
+test("人が流す SQL は、流す人のセッションが大文字小文字を無視する設定でも、キーを区別して比べる", { skip }, async () => {
+  await q(`INSERT INTO LEGACY VALUES ('Z1', 'up', NULL)`);
+  await q(`INSERT INTO LEGACY VALUES ('z1', 'low', NULL)`);
+  try {
+    const p = await prepare(client, "legacy", sheet([["CD", "NM"], ["Z1", "UP"]]));
+    assert.ok(p.ok, JSON.stringify(p.issues));
+    const done = (await client.apply(buildApplyRequest(p.diff!, { mode: "execute" }))) as ApplyResponse;
+    assert.equal(done.ok, true, JSON.stringify(done));
+    // 小文字のキーの行も、たまたま同じ値になった。NLS_COMP = LINGUISTIC のままだと、戻し SQL がこの行にも当たる。
+    await q(`UPDATE LEGACY SET NM = 'UP' WHERE CD = 'z1'`);
+    await admin.execute(`ALTER SESSION SET NLS_COMP = 'LINGUISTIC' NLS_SORT = 'BINARY_CI'`);
+    assert.deepEqual(await runScript(done.undoScript), ["harikit: 1 / 1 行を戻しました"]);
+    assert.deepEqual(await q(`SELECT CD, NM FROM LEGACY WHERE CD IN ('Z1', 'z1') ORDER BY CD`), [
+      { CD: "Z1    ", NM: "up" },
+      { CD: "z1    ", NM: "UP" },
+    ]);
+  } finally {
+    await admin.execute(`ALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY'`);
+    await q(`DELETE FROM LEGACY WHERE CD IN ('Z1', 'z1')`);
+  }
 });

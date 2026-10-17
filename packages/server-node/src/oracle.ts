@@ -13,7 +13,7 @@ import oracledb from "oracledb";
 import type { ColumnType, Row, Value } from "@harikit/core";
 import { byteCount, canonical, DATETIME_RE, DECIMAL_RE } from "@harikit/core";
 import type { OracleConnection } from "./config.js";
-import { DbError, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
+import { DbError, LOCKED_MESSAGE, scriptKeyText, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
 
 /** 内部で使う列の情報。 */
 export interface OraColumn extends ColumnMeta {
@@ -79,10 +79,10 @@ const CHARSETS: Record<string, string> = {
   VN8MSWIN1258: "windows-1258",
 };
 
+/** 比べ方をそろえる。人が流すスクリプトの先頭にも入れる（数値はリテラルで書くので NLS_NUMERIC_CHARACTERS は要らない）。 */
+const SESSION_SQL_COMPARE = "ALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY'";
 /** つないだセッションの比べ方と数値の書き方をそろえる。 */
-const SESSION_SQL = "ALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY' NLS_NUMERIC_CHARACTERS = '.,'";
-
-const LOCKED_MESSAGE = "対象の行がほかのセッションにロックされています。コミットしていない更新が残っていないか確かめてから、もう一度試してください";
+const SESSION_SQL = `${SESSION_SQL_COMPARE} NLS_NUMERIC_CHARACTERS = '.,'`;
 
 /** 名前を "" で囲む。 */
 export function quoteName(name: string): string {
@@ -702,23 +702,24 @@ export class OracleDialect implements Dialect {
    */
   renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[], kind: "apply" | "undo"): string {
     const m = meta as OraMeta;
-    const keyText = (key: Row) => {
-      const s = Object.entries(key).map(([k, v]) => `${k}=${String(v)}`).join(", ");
-      return s.length > 200 ? s.slice(0, 200) + "…" : s;
-    };
     const lines = [head];
     if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（ORA-20001）。");
     else lines.push("-- 今の値が harikit で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、DBMS_OUTPUT に出す。");
-    lines.push("-- SQL*Plus、SQLcl、SQL Developer で流せる形（値の & を置き換えないよう SET DEFINE OFF にしてある）。", "SET DEFINE OFF");
+    lines.push(
+      "-- SQL*Plus、SQLcl、SQL Developer で流せる形（値の & を置き換えないよう SET DEFINE OFF にしてある）。",
+      "-- キーを大文字小文字を区別して比べるよう、このセッションの NLS_COMP / NLS_SORT を BINARY にする（流した後もこのセッションに残る）。",
+      "SET DEFINE OFF",
+      `${SESSION_SQL_COMPARE};`,
+    );
     if (kind === "undo") lines.push("SET SERVEROUTPUT ON", "DECLARE", "  n PLS_INTEGER := 0;");
     lines.push("BEGIN");
     for (const u of updates) {
       lines.push(`  ${this.renderUpdate(m, u)};`);
       if (kind === "apply") {
-        const msg = quoteString(`harikit: 行が見つからないか、値が変わっています（${keyText(u.key)}）。何も反映していません`);
+        const msg = quoteString(`harikit: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`);
         lines.push(`  IF SQL%ROWCOUNT <> 1 THEN RAISE_APPLICATION_ERROR(-20001, ${msg}); END IF;`);
       } else {
-        const msg = quoteString(`harikit: 戻していない行（後から別の更新が入った）: ${keyText(u.key)}`);
+        const msg = quoteString(`harikit: 戻していない行（後から別の更新が入った）: ${scriptKeyText(u.key)}`);
         lines.push(`  IF SQL%ROWCOUNT = 1 THEN n := n + 1; ELSE DBMS_OUTPUT.PUT_LINE(${msg}); END IF;`);
       }
     }

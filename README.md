@@ -83,7 +83,9 @@ node $H apply harikit-out/product-.../plan.json --execute  # 反映する
 - `diff.csv` は承認資料。行ごとに「変わる」「同じ」「キーなし」と、列ごとの前後の値が並ぶ。
 - `apply` は 1 トランザクションで、差分を取った後に DB の値が変わっていたら何も反映せずに止まる。
 - 反映すると、実行した SQL（`applied.sql`）と戻し用 SQL（`undo.sql`）がファイルに残る。戻し SQL は「今の値が harikit で入れた値のままの行だけ戻す」形。サーバ側にも反映ログ（`harikit-log/`）が残る。
+- `check` で出した SQL（`check.sql`）を後から人が SSMS などで流すときも、1 行でも見つからないか値が変わっていれば、全部取り消して止まる（エラー 50001）。
 - 許可リスト（どのテーブルのどの列を読めて、どの列を更新できるか）は `harikit.config.json` の `targets` に書く。
+- ほかのセッションがロックしている行は、`database.lockWaitSeconds`（既定 10 秒）待ってから「ほかのセッションにロックされています」と出して止まる。
 
 ### 業務ルール
 
@@ -150,7 +152,7 @@ harikit が合わせているところ:
 - **桁**: `NUMBER(9,2)` は整数部 7 桁・小数 2 桁で確かめる。`VARCHAR2(10 BYTE)` はバイト、`VARCHAR2(10 CHAR)` は文字数で数える。
 - **CHAR のキー**: `CHAR(6)` のコードも、末尾の空白を詰めずに `A001` と書けば当たる。
 - **ロック**: SQL Developer などで COMMIT していない更新が対象の行に残っていると、反映は `lockWaitSeconds` 待って止まる（画面には「ほかのセッションにロックされています」と出る）。
-- **出力する SQL**: PL/SQL のブロックで、SQL*Plus、SQLcl、SQL Developer で流せる。反映 SQL は 1 行でも合わなければ全部取り消して止まり、戻し SQL は合わない行（後から別の更新が入った行）を飛ばして、DBMS_OUTPUT にその行を出す。
+- **出力する SQL**: PL/SQL のブロックで、SQL*Plus、SQLcl、SQL Developer で流せる。反映 SQL は 1 行でも合わなければ全部取り消して止まり、戻し SQL は合わない行（後から別の更新が入った行）を飛ばして、DBMS_OUTPUT にその行を出す。先頭で `ALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY'` をする（キーを大文字小文字を区別して比べるため。流したセッションはその後もこの設定のまま）。
 - **扱えない型**: CLOB、BLOB、RAW、TIMESTAMP WITH TIME ZONE などは読めるが更新できない。
 
 ## 中身

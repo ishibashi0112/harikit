@@ -53,11 +53,20 @@ export class DbError extends Error {
   }
 }
 
+/** ロック待ちが lockWaitSeconds を超えたときの db_error の文（仕様 1.5 の固定の文）。 */
+export const LOCKED_MESSAGE = "対象の行がほかのセッションにロックされています。コミットしていない更新が残っていないか確かめてから、もう一度試してください";
+
 /** 人が読む SQL の UPDATE 1 本分。key で行を探し（照合順序）、expect は「この値のときだけ」の条件（厳密に比べる）。 */
 export interface ScriptUpdate {
   set: Row;
   key: Row;
   expect: Row;
+}
+
+/** 人が読む SQL のメッセージに入れるキー（"Code=A001, Seq=1"）。長いキーは 200 文字で切る。引用はしないので、呼ぶ側で直す。 */
+export function scriptKeyText(key: Row): string {
+  const chars = [...Object.entries(key).map(([k, v]) => `${k}=${String(v)}`).join(", ")];
+  return chars.length > 200 ? chars.slice(0, 200).join("") + "…" : chars.join("");
 }
 
 export interface Dialect {
