@@ -124,6 +124,33 @@ test("buildMarks: 誤り、警告、変わるセル、キーなしをセルの�
   );
 });
 
+test("buildMarks と diffGridRows: Excel の表示から読み替えたセルに印と貼った値を残す", async () => {
+  const rows = grid([
+    ["ProductCode", "UnitPrice"],
+    ["A001", "¥1,300"],
+    ["A002", "1,500"],
+  ]);
+  const result = await prepare(client, "product", toSheet(rows, 2));
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  const marks = buildMarks(rows, result);
+  const price = liveMark(marks, rows[1]!, "B")!;
+  assert.equal(price.read, true);
+  assert.equal(price.kind, "change");
+  assert.deepEqual(price.notes, ["「¥1,300」を 1300.00 として読みました", "DB の今の値: 120.00"]);
+  assert.equal(liveMark(marks, rows[1]!, "A"), undefined);
+  // 書き直したら印は消える。
+  assert.equal(liveMark(marks, { ...rows[1]!, B: "1300" }, "B"), undefined);
+
+  const d = diffGridRows(result.diff!, result.validation.readings);
+  assert.deepEqual(
+    d.map((r) => [r["a:UnitPrice"], r.pasted]),
+    [
+      ["1300.00", { UnitPrice: "¥1,300" }],
+      ["1500.00", { UnitPrice: "1,500" }],
+    ],
+  );
+});
+
 test("headerInfo: 見出しの名前がどの列に当たるか", () => {
   assert.equal(headerInfo(product, "productcode")?.kind, "key");
   assert.equal(headerInfo(product, " UnitPrice ")?.kind, "update");

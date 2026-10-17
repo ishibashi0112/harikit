@@ -1,11 +1,13 @@
 // 検証。取込データを DB の定義（describe の結果）で全行チェックし、型をそろえた値にする。
-// 入力の揺れ（全角半角、前後の空白）は直さない。前後の空白は警告だけ出す。
+// 数・日付・時刻・真偽の列は、Excel の表示の形（2024/4/1、1,200 など）も読み、読み替えたセルを readings に残す。
+// 文字列の列は直さない（全角半角も前後の空白もそのまま。前後の空白は警告だけ出す）。
 
+import { readBooleanText, readDateText, readNumberText, readTimeText } from "./display.js";
 import { byteCount } from "./encoding.js";
 import { checkRule, type CompiledRule } from "./rules.js";
 import { cellRef, type Cell, type Sheet } from "./table.js";
 import type { ColumnDef, Row, TableDescription, Value } from "./types.js";
-import { canonical, checkValue, DATE_RE, DECIMAL_RE } from "./values.js";
+import { BIGINT_RE, canonical, checkValue, DATE_RE, DATETIME_RE, DECIMAL_RE, TIME_RE } from "./values.js";
 
 export interface Issue {
   severity: "error" | "warning";
@@ -29,6 +31,21 @@ export interface ParsedRow {
   ok: boolean;
 }
 
+/** Excel の表示の形から読み替えたセル。 */
+export interface Reading {
+  /** シートの行（0 始まり）。 */
+  row: number;
+  /** シートの列（0 始まり）。 */
+  col: number;
+  /** "B3" の形のセル番地。 */
+  cell: string;
+  column: string;
+  /** 取り込んだままの文字列（"2024/4/1"、"¥1,200"）。 */
+  text: string;
+  /** 読み替えた値（DB に送る形）。 */
+  value: Value;
+}
+
 export interface ValidationResult {
   ok: boolean;
   keyColumns: string[];
@@ -38,6 +55,8 @@ export interface ValidationResult {
   /** 誤りのある行も含む。差分に使うのは ok の行だけ。 */
   rows: ParsedRow[];
   issues: Issue[];
+  /** Excel の表示の形から読み替えたセル（誤りのないセルだけ）。 */
+  readings: Reading[];
 }
 
 export interface ValidateOptions {
@@ -47,7 +66,10 @@ export interface ValidateOptions {
   rules?: CompiledRule[];
 }
 
-type Converted = { value: Value } | { error: string };
+/** read は Excel の表示の形から読み替えたこと。 */
+type Converted = { value: Value; read?: true } | { error: string };
+
+const read = (value: Value): Converted => ({ value, read: true });
 
 function formatNumber(n: number): string {
   if (Number.isInteger(n) && Math.abs(n) < 1e21) return n.toFixed(0);
@@ -63,11 +85,25 @@ function padScale(v: string, scale: number | undefined): string {
   return scale === 0 ? int! : `${int}.${frac.padEnd(scale, "0")}`;
 }
 
+/** 数の表示（1,200、¥1,200、▲1,200 など）を読む。整数の列なら小数のある数は断る。 */
+function numberText(text: string, fallback: string, integer: boolean, make: (n: string) => Value): Converted {
+  const r = readNumberText(text);
+  if (r === null) return { error: fallback };
+  if ("error" in r) return r;
+  const n = canonical("decimal", r.ok) as string;
+  if (integer && n.includes(".")) return { error: fallback };
+  return read(make(n));
+}
+
+/** Excel のエラー値。貼り付けや CSV では文字列で届くので、.xlsx のエラーのセルと同じく文字列の列でも断る。 */
+const EXCEL_ERRORS = new Set(["#N/A", "#VALUE!", "#REF!", "#DIV/0!", "#NUM!", "#NAME?", "#NULL!", "#SPILL!", "#CALC!", "#GETTING_DATA", "#FIELD!", "#BLOCKED!", "#BUSY!", "#CONNECT!", "#UNKNOWN!"]);
+
 /** セルの値を列の型の値にする。形の確認は checkValue で別に行う。 */
 export function convertCell(col: ColumnDef, cell: Cell): Converted {
   if (cell === null) return { value: null };
   if (typeof cell === "object" && cell.kind === "error") return { error: `セルがエラー値です（${cell.text}）` };
   if (cell === "" && col.type !== "string") return { value: null };
+  if (typeof cell === "string" && EXCEL_ERRORS.has(cell.trim())) return { error: `セルがエラー値です（${cell.trim()}）` };
   const date = typeof cell === "object" && cell.kind === "date" ? cell.iso : undefined;
   switch (col.type) {
     case "string":
@@ -78,19 +114,31 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
       return { error: "文字列ではありません" };
     case "integer":
       if (typeof cell === "number") return { value: cell };
-      if (typeof cell === "string" && /^-?\d+$/.test(cell)) return { value: Number(cell) };
+      if (typeof cell === "string") {
+        if (/^-?\d+$/.test(cell)) return { value: Number(cell) };
+        return numberText(cell, "整数ではありません", true, Number);
+      }
       return { error: "整数ではありません" };
     case "bigint":
       if (typeof cell === "number") return Number.isSafeInteger(cell) ? { value: String(cell) } : { error: "整数ではありません（精度が足りません）" };
-      if (typeof cell === "string") return { value: cell };
+      if (typeof cell === "string") {
+        if (BIGINT_RE.test(cell)) return { value: cell };
+        return numberText(cell, "整数ではありません", true, String);
+      }
       return { error: "整数ではありません" };
     case "decimal":
       if (typeof cell === "number") return { value: padScale(formatNumber(cell), col.scale) };
-      if (typeof cell === "string") return { value: padScale(cell, col.scale) };
+      if (typeof cell === "string") {
+        if (DECIMAL_RE.test(cell)) return { value: padScale(cell, col.scale) };
+        return numberText(cell, "数値ではありません", false, (n) => padScale(n, col.scale));
+      }
       return { error: "数値ではありません" };
     case "float":
       if (typeof cell === "number") return { value: cell };
-      if (typeof cell === "string" && DECIMAL_RE.test(cell)) return { value: Number(cell) };
+      if (typeof cell === "string") {
+        if (DECIMAL_RE.test(cell)) return { value: Number(cell) };
+        return numberText(cell, "数値ではありません", false, Number);
+      }
       return { error: "数値ではありません" };
     case "boolean":
       if (typeof cell === "boolean") return { value: cell };
@@ -99,20 +147,34 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
         const s = cell.toLowerCase();
         if (s === "true" || s === "1") return { value: true };
         if (s === "false" || s === "0") return { value: false };
+        const b = readBooleanText(cell);
+        if (b !== undefined) return read(b);
       }
       return { error: "true / false ではありません" };
     case "date":
       if (date !== undefined) {
         return date.endsWith("T00:00:00.000") ? { value: date.slice(0, 10) } : { error: "時刻つきの日付です" };
       }
-      if (typeof cell === "string") return { value: cell };
+      if (typeof cell === "string") {
+        if (DATE_RE.test(cell)) return { value: cell };
+        const r = readDateText(cell);
+        if (r === null) return { error: "日付として読めません（2024-04-01 や 2024/4/1 の形で書きます）" };
+        if ("error" in r) return r;
+        if (r.ok.time !== undefined && !/^00:00:00(\.0*)?$/.test(r.ok.time)) return { error: "時刻つきの日付です" };
+        return read(r.ok.date);
+      }
       return { error: "日付ではありません" };
     case "datetime":
       // Excel の日付は .000 まで付くので、0 だけの小数は落とす（Oracle の DATE などと差分の見た目をそろえる）。
       if (date !== undefined) return { value: date.replace(/\.0+$/, "") };
       if (typeof cell === "string") {
         if (DATE_RE.test(cell)) return { value: `${cell}T00:00:00` };
-        return { value: cell.replace(/^(\d{4}-\d{2}-\d{2}) (?=\d)/, "$1T") };
+        const iso = cell.replace(/^(\d{4}-\d{2}-\d{2}) (?=\d)/, "$1T");
+        if (DATETIME_RE.test(iso)) return { value: iso };
+        const r = readDateText(cell);
+        if (r === null) return { error: "日時として読めません（2024-04-01 09:30:00 や 2024/4/1 9:30 の形で書きます）" };
+        if ("error" in r) return r;
+        return read(`${r.ok.date}T${r.ok.time ?? "00:00:00"}`);
       }
       return { error: "日時ではありません" };
     case "time":
@@ -120,7 +182,14 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
         if (/^(1899-12-3[01]|1904-01-01)T/.test(date)) return { value: date.slice(11) };
         return { error: "日付つきの時刻です" };
       }
-      if (typeof cell === "string") return { value: /^\d{2}:\d{2}$/.test(cell) ? `${cell}:00` : cell };
+      if (typeof cell === "string") {
+        if (TIME_RE.test(cell)) return { value: cell };
+        if (/^\d{2}:\d{2}$/.test(cell)) return { value: `${cell}:00` };
+        const r = readTimeText(cell);
+        if (r === null) return { error: "時刻として読めません（09:30:00 や 9:30 の形で書きます）" };
+        if ("error" in r) return r;
+        return read(r.ok);
+      }
       return { error: "時刻ではありません" };
     case "other":
       return { error: "この型の列は扱えません" };
@@ -164,7 +233,8 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
   for (const k of keyColumns) if (columnIndex[k] === undefined) err(`キーの列「${k}」がありません`, undefined, undefined, k);
   if (updateColumns.length === 0) err("更新する列がありません");
 
-  const result: ValidationResult = { ok: false, keyColumns, updateColumns, columnIndex, rows: [], issues };
+  const readings: Reading[] = [];
+  const result: ValidationResult = { ok: false, keyColumns, updateColumns, columnIndex, rows: [], issues, readings };
   if (issues.length > 0) return result;
   for (const name of [...keyColumns, ...updateColumns]) {
     const col = byName.get(name.toLowerCase())!;
@@ -193,6 +263,7 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
         continue;
       }
       const value = (conv as { value: Value }).value;
+      if ("read" in conv) readings.push({ row: r, col: c, cell: cellRef(r, c), column: name, text: String(cells![c]), value });
       for (const rule of options.rules ?? []) {
         if (rule.column !== name) continue;
         const broken = checkRule(rule, value);
@@ -218,4 +289,22 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
   }
   result.ok = !issues.some((i) => i.severity === "error");
   return result;
+}
+
+export interface ReadingGroup {
+  column: string;
+  count: number;
+  /** 列で最初に読み替えたセル（例として見せる）。 */
+  first: Reading;
+}
+
+/** 読み替えたセルを列ごとにまとめる（シートの列の順）。 */
+export function groupReadings(readings: readonly Reading[]): ReadingGroup[] {
+  const groups = new Map<string, ReadingGroup>();
+  for (const r of readings) {
+    const g = groups.get(r.column);
+    if (g) g.count++;
+    else groups.set(r.column, { column: r.column, count: 1, first: r });
+  }
+  return [...groups.values()].sort((a, b) => a.first.col - b.first.col);
 }

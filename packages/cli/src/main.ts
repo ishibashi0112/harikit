@@ -10,11 +10,13 @@ import { parseArgs } from "node:util";
 import {
   buildPlan,
   diffToCsv,
+  groupReadings,
   HarikitApiError,
   HarikitClient,
   issuesToCsv,
   prepare,
   readCsv,
+  readingsToCsv,
   readXlsx,
   type ApplyPlan,
   type ApplyRequest,
@@ -110,6 +112,13 @@ async function cmdDiff(file: string | undefined): Promise<number> {
   if (result.issues.length > 0) await writeFile(join(out, "issues.csv"), issuesToCsv(result.issues));
   for (const i of result.issues.slice(0, 20)) console.log(`${i.severity === "error" ? "エラー" : "警告"}\t${i.cell ?? "-"}\t${i.message}`);
   if (result.issues.length > 20) console.log(`…ほか ${result.issues.length - 20} 件（issues.csv を見てください）`);
+
+  const readings = result.validation.readings;
+  if (readings.length > 0) {
+    await writeFile(join(out, "readings.csv"), readingsToCsv(readings));
+    console.log(`\nExcel の表示から読み替えたセル ${readings.length} 個（${join(out, "readings.csv")}）`);
+    for (const g of groupReadings(readings)) console.log(`  ${g.column}\t${g.count} 個\t例 ${g.first.cell}: ${g.first.text} → ${String(g.first.value)}`);
+  }
 
   if (!result.ok || !result.diff) {
     console.log(`\nエラーが ${errors.length} 件あるので、差分は作っていません: ${join(out, "issues.csv")}`);

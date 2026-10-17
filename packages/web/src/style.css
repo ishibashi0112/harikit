@@ -19,6 +19,7 @@
   --hk-notfound-bg: #fff4d6;
   --hk-head-bg: #eef1f5;
   --hk-key: #6639ba;
+  --hk-read: #0b7a75;
   color-scheme: light;
 }
 
@@ -42,6 +43,7 @@
     --hk-notfound-bg: #3a2e12;
     --hk-head-bg: #262b33;
     --hk-key: #b392f0;
+    --hk-read: #3fb9b1;
     color-scheme: dark;
   }
 }
@@ -458,6 +460,25 @@ select {
   color: var(--hk-warn);
 }
 
+.hk-issue--read .hk-issue-place {
+  color: var(--hk-read);
+}
+
+.hk-readings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hk-read-sample {
+  text-decoration: underline dotted var(--hk-read) 2px;
+  text-underline-offset: 3px;
+}
+
+.hk-small {
+  font-size: 12px;
+}
+
 .hk-note {
   display: flex;
   flex-direction: column;
@@ -562,6 +583,12 @@ select {
 
 .ssg-body-cell.hk-warn {
   box-shadow: inset 0 -2px 0 var(--hk-warn);
+}
+
+/* Excel の表示の形から読み替えたセル。値の色は変えず、下線だけで示す。 */
+.ssg-body-cell.hk-read {
+  text-decoration: underline dotted var(--hk-read) 2px;
+  text-underline-offset: 3px;
 }
 
 .ssg-body-cell.hk-conflict {
