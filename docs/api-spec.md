@@ -59,7 +59,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 ### 1.5 結果とエラーの返し方
 
 - **業務上の結果はすべて HTTP 200** で返し、本文の `ok` で成否を表す。WebMethod は例外を投げると 500 で中身が読みにくいので、例外は捕まえてこの形に直す。
-- HTTP 200 以外は「届かなかった」場合だけ: 401/403（載せ先の認証）、404、413（大きすぎ）、5xx（サーバが落ちた）。
+- HTTP 200 以外は「届かなかった」場合だけ: 401（未ログイン、Node 版のトークン違い）、403（権限なし、`X-Harikit` ヘッダなし）、404、413（大きすぎ）、415（`Content-Type` が `application/json` でない）、5xx（サーバが落ちた）。
 
 成功:
 ```json
@@ -96,6 +96,15 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | `conflict` | 変更前値が変わっていたので止めた（apply のみ、[7](#7-apply反映)） |
 | `db_error` | DB がエラーを返した |
 | `internal_error` | それ以外のサーバ側の失敗 |
+
+行単位の結果（`rowErrors[].code`）だけで使うコード:
+
+| code | 意味 |
+| --- | --- |
+| `invalid_value` | `key` / `before` / `after` の値が列の型の形でない（`decimal` に数値でない文字列、NOT NULL に `null`、桁あふれなど）。`column` で列を示す |
+| `duplicate_key` | 照合順序のうえで、前の行と同じ DB 行を指している（`"a001"` と `"A001"` など） |
+
+`column_not_allowed`、`key_mismatch`、`bad_request` も行単位で使える。
 
 ## 2. 許可リスト（サーバ側の設定）
 
@@ -194,7 +203,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 ```
 
 - `columns` は `readable` に載った列だけ。並びは DB の列順。
-- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `precision`, `scale`, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
+- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
 - `foreignKeys[].referencedTarget` は、参照先が許可リストに読めるターゲットとして載っていればその名前、なければ `null`。`null` のときコアは存在確認を飛ばし、「確認できない」と警告を出す。
 - 業務ルール（価格は0より大きい等）は describe に含めない。コア側の設定で持つ。
 
@@ -228,7 +237,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 }
 ```
 - `keys` の各要素は、キー列ちょうどを持つオブジェクト（複合キーにもそのまま対応）。足りない・余計な列は `key_mismatch`。
-- `columns` は `readable` の中から。省くと `readable` 全部。キー列は常に返るので書かなくてよい。
+- `columns` は `readable` の中から。省くと `readable` 全部。空の配列 `[]` はキー列だけを返す（外部キーの存在確認用）。省略と `[]` は区別する。キー列は常に返るので書かなくてよい。
 - `keys` が `limits.maxFetchKeys` を超えたら `too_many_rows`。コアが分けて呼ぶ。
 - 同じキーが2回あっても受け付け、両方に同じ結果を返す（重複の指摘はコアの検証の仕事）。
 
@@ -293,7 +302,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 }
 ```
 
-- `requestId`: クライアントが作る UUID。必須。サーバはログに残し、同じ `requestId` で一度成功していれば再実行せず前回の結果を返してよい（二度押し・通信切れの再送対策。v1 では「してよい」）。
+- `requestId`: クライアントが作る UUID。必須。スクリプトのコメントに入るので、英数字とハイフンの 8〜64 文字に限る（違えば `bad_request`）。サーバはログに残し、同じ `requestId` で一度成功していれば再実行せず前回の結果を返してよい（二度押し・通信切れの再送対策。v1 では「してよい」）。
 - `mode`:
   - `"check"`: DB は変えない。許可リストの照合と、今の値が `before` と一致するかの確認だけ行い、実行予定の SQL（人が読む用）を返す。資料の「SQL だけ出力するモード」はこれ。
   - `"execute"`: 実際に反映する。
@@ -302,25 +311,26 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 - `rows[].op`: v1 は `"update"` だけ。省略時も `"update"`。
 - `before` と `after` は**同じ列の集まり**で、どちらも `updatable` の列だけ。`before == after` の列が混じっていたら `bad_request`（差分を取り違えている）。
 - 行数が `limits.maxApplyRows` を超えたら `too_many_rows`。1トランザクションの約束を守るため、コアは**勝手に分割しない**（分けるかは人が決める）。
-- 同じキーの行が2つあったら `bad_request`。
+- 同じキーの行が2つあったら `rowErrors` で `duplicate_key`（後の行の `index`）。JSON の文字列が違っても照合順序で同じ行を指すもの（`"a001"` と `"A001"`）も含む。サーバはロックして読んだ行の実際のキー値で確かめる。コアの差分でも同じ確認をする。
 
 ### サーバの処理（実装が守ること）
 
-1. ターゲット・列・キーを許可リストで照合する。違えばすぐ失敗（DB に触らない）。
+1. ターゲット・列・キーを許可リストで照合し、値が列の型の形か（`invalid_value`）も確かめる。違えばすぐ失敗（DB に触らない）。戻し SQL に値を埋め込むので、この確認は省けない。
 2. トランザクションを開始する。
 3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`）。キーごとに、
    - 行がない → 衝突（`reason: "not_found"`）
    - `before` の列のどれかが今の値と違う → 衝突（`reason: "changed"`）。比較は NULL 同士を一致とみなし、それ以外は DB の比較規則で行う。
-4. 衝突が1行でもあれば**全体をロールバック**し、衝突した行を全部返す（v1 は全部か無しか）。
-5. 衝突がなければ、行ごとにパラメータ付き UPDATE を流す。
+4. 読んだ行の実際のキー値で、2行が同じ DB 行を指していないかを確かめる（`duplicate_key`。あればロールバックして `rowErrors` で返す）。
+5. 衝突が1行でもあれば**全体をロールバック**し、衝突した行を全部返す（v1 は全部か無しか）。
+6. 衝突がなければ、行ごとにパラメータ付き UPDATE を流す。
    ```sql
    UPDATE [dbo].[M_Product]
       SET [UnitPrice] = @p1
     WHERE [ProductCode] = @k1
    ```
    テーブル名と列名は許可リストの値から組み、`[]` で囲む（クライアントの文字列を名前に使わない）。影響行数が1でなければ全体をロールバックして `db_error`。
-6. コミットする。`check` のときは手順 3〜4 の後でロールバックして終わる（手順 5 は流さず、SQL を組むだけ）。
-7. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
+7. コミットする。`check` のときは手順 3〜5 の後でロールバックして終わる（手順 6 は流さず、SQL を組むだけ）。
+8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
 
 ### レスポンス（成功）
 ```json
@@ -334,13 +344,13 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
   "results": [
     { "target": "product", "updated": 2 }
   ],
-  "script": "-- harikit 6f1c2a8e... product 2行\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 130.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 120.00;\n...",
-  "undoScript": "-- harikit 6f1c2a8e... の戻し\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 120.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 130.00;\n..."
+  "script": "-- harikit 6f1c2a8e... product (dbo.M_Product) 2行\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 130.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 120.00;\n...\nCOMMIT;",
+  "undoScript": "-- harikit 6f1c2a8e... の戻し（0行の UPDATE は後から別の更新が入った行）\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 120.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 130.00;\n...\nCOMMIT;"
 }
 ```
 
-- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。
-- `undoScript`: 戻し用 SQL。「今の値が harikit で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。`check` のときも返す。
+- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包む。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。
+- `undoScript`: 戻し用 SQL。「今の値が harikit で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。`script` と同じくトランザクションで包む。`check` のときも返す。
 - `script` と `undoScript` は方言ごとの書き方（引用、日付リテラル、NULL 比較）を知っているサーバが作る。コアはそれをファイルに保存する。
 - `appliedBy` はサーバが認証から判定した名前。
 
@@ -369,15 +379,16 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 
 ### 行単位の形の誤り
 
-許可リストの照合で行ごとに見つかった誤りは、まとめて返す（1件目で止めない）。DB には触っていない。
+許可リストの照合と値の形の確認で行ごとに見つかった誤りは、まとめて返す（1件目で止めない）。DB は変えていない（`duplicate_key` だけはロックして読んだ後に分かるので、ロールバックしてから返す）。
 ```json
 {
   "ok": false,
   "v": 1,
-  "error": { "code": "bad_request", "message": "2行に誤りがあります" },
+  "error": { "code": "bad_request", "message": "3行に誤りがあります" },
   "rowErrors": [
     { "target": "product", "index": 0, "code": "column_not_allowed", "column": "UnitPrice2" },
-    { "target": "product", "index": 3, "code": "key_mismatch" }
+    { "target": "product", "index": 3, "code": "key_mismatch" },
+    { "target": "product", "index": 5, "code": "invalid_value", "column": "UnitPrice" }
   ]
 }
 ```
