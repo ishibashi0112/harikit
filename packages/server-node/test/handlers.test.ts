@@ -214,7 +214,13 @@ test("apply: 行ごとの誤りはまとめて返し、DB に触らない", asyn
     { key: { ProductCode: "A001" }, before: { UnitPrice: "120.00" }, after: { UnitPrice: "1" } },
     { key: { ProductCode: "a001" }, before: { UnitPrice: "120.00" }, after: { UnitPrice: "2" } },
   ]));
+  assert.deepEqual((dup.rowErrors as { index: number; code: string }[]).map((e) => [e.index, e.code]), [[1, "duplicate_key"]]);
   assert.match((dup.rowErrors as { message: string }[])[0]!.message, /DB 上で同じ行/);
+  const sameJson = await handlers.handle("apply", applyReq([
+    { key: { ProductCode: "A001" }, before: { UnitPrice: "120.00" }, after: { UnitPrice: "1" } },
+    { key: { ProductCode: "A001" }, before: { UnitPrice: "120.00" }, after: { UnitPrice: "2" } },
+  ]));
+  assert.deepEqual((sameJson.rowErrors as { index: number; code: string }[]).map((e) => [e.index, e.code]), [[1, "duplicate_key"]]);
   const tooMany = await handlers.handle("apply", applyReq([{}, {}, {}, {}]));
   assert.equal((tooMany.error as { code: string }).code, "too_many_rows");
   const twoTables = await handlers.handle("apply", { ...applyReq([]), changes: [{ target: "product", rows: [] }, { target: "product", rows: [] }] });

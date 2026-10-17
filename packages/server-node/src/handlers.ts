@@ -335,7 +335,7 @@ export class Handlers {
       }
       if (bad) return;
       const id = JSON.stringify(r.key.map((kc) => canonical(r.byName.get(kc.toLowerCase())!.type, k.key![kc]!)));
-      if (seenKeys.has(id)) return rowErr("bad_request", `${seenKeys.get(id)} 番目の行とキーが同じです`);
+      if (seenKeys.has(id)) return rowErr("duplicate_key", `${seenKeys.get(id)} 番目の行とキーが同じです`);
       seenKeys.set(id, index);
       rows.push({ key: k.key!, before, after });
     });
@@ -386,7 +386,7 @@ export class Handlers {
     if (outcome.duplicate) {
       const [a, b] = outcome.duplicate;
       throw new Fail("bad_request", "1 行に誤りがあります", {
-        rowErrors: [{ target: r.name, index: b, code: "bad_request", message: `${a} 番目の行と DB 上で同じ行を指しています` }],
+        rowErrors: [{ target: r.name, index: b, code: "duplicate_key", message: `${a} 番目の行と DB 上で同じ行を指しています` }],
       });
     }
     if (outcome.conflicts.length > 0) {
