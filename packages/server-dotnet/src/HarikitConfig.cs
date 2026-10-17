@@ -40,6 +40,8 @@ namespace Harikit.Server
         public string LogDir = "~/App_Data/harikit-log";
         /// <summary>db_error の message に DB の生のエラー文を出すか。既定は出さない。</summary>
         public bool ExposeDbErrors;
+        /// <summary>反映で行のロックを待つ秒数（仕様 7 の手順 3）。既定は 10 秒。</summary>
+        public int LockWaitSeconds = 10;
 
         static void Fail(string message)
         {
@@ -139,6 +141,12 @@ namespace Harikit.Server
             {
                 config.LogDir = o["logDir"] as string;
                 if (string.IsNullOrEmpty(config.LogDir)) Fail("logDir は文字列です");
+            }
+            if (o.ContainsKey("lockWaitSeconds"))
+            {
+                config.LockWaitSeconds = PositiveInt(o["lockWaitSeconds"], "lockWaitSeconds");
+                // SET LOCK_TIMEOUT はミリ秒の int。
+                if (config.LockWaitSeconds > int.MaxValue / 1000) Fail("lockWaitSeconds が大きすぎます");
             }
             if (o.ContainsKey("exposeDbErrors"))
             {

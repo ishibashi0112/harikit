@@ -71,7 +71,7 @@ namespace Harikit.Server
                 service = new HarikitService(new HarikitServiceOptions
                 {
                     Config = config,
-                    Dialect = new SqlServerDialect(cs.ConnectionString),
+                    Dialect = new SqlServerDialect(cs.ConnectionString, config.LockWaitSeconds),
                     WhoAmI = CurrentUser,
                     Log = entry => HarikitFileLog.WriteApply(logDir, entry),
                     LogError = e => WriteError(logDir, e),
