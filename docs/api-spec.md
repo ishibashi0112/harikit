@@ -1,7 +1,7 @@
 # harikit サーバ API 仕様（v1 草案）
 
 > 2026-10-17 草案。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
-> 範囲は「SQL Server、1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
+> 範囲は「SQL Server と Oracle、1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
 
 ## 1. 全体の約束
 
@@ -415,7 +415,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
       SET [UnitPrice] = @p1
     WHERE [ProductCode] = @k1
    ```
-   テーブル名と列名は許可リストの値から組み、`[]` で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
+   テーブル名と列名は許可リストの値から組み、`[]`（Oracle は `"`）で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
 7. コミットする。`check` のときは手順 3〜5 の後でロールバックして終わる（手順 6 は流さず、SQL を組むだけ）。
 8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
 
@@ -483,7 +483,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 ## 8. 実装メモ
 
 ### Node 版
-- 依存は DB ドライバ（SQL Server は `mssql`）だけを目安に。HTTP は標準の `http` で足りる。
+- 依存は DB ドライバ（SQL Server は `mssql`、Oracle は `oracledb`）だけを目安に。HTTP は標準の `http` で足りる。
 - 既定で `127.0.0.1` にだけ待ち受け、起動時にトークンを出す（[1.4](#14-認証と-csrf)）。`appliedBy` は OS のユーザー名。
 - `decimal` / `bigint` はドライバから文字列で受けて文字列で返す。
 - Oracle のドライバは `oracledb`（node-oracledb）の Thin モード（Oracle Client 不要、12.1 以降）。11g は Thick モード（Oracle Instant Client が要る）。
@@ -514,6 +514,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 | 送る列 | 変わる列だけ | 他の更新とぶつかる範囲を最小に |
 | 値が変わっていないかの比べ方 | 厳密に同じ値（照合順序を使わない）。キーは照合順序 | 後から入った更新を上書きしない |
 | SQL 出力・戻し SQL | サーバが作る | 方言の書き方をサーバが知っている |
+| 人が流す SQL で行が当たらないとき | 全部戻して止まる（戻し SQL は続ける） | 変わっていた行だけ黙って飛ばさない |
 | 数値の精度 | `decimal` / `bigint` は文字列 | JS と .NET の両方で崩れない |
 
 ## 10. 拡張の余地
