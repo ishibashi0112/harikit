@@ -36,7 +36,7 @@ Excel やグリッドの値を、検証してから DB に貼り替える道具�
 
 ## 最初に通す道
 
-SQL Server と Oracle で「1 テーブル、UPDATE だけ、Excel 取込」。PostgreSQL、MySQL はその後。Oracle は今のところ Node 版サーバだけ（C# 版は SQL Server だけ）。
+SQL Server と Oracle で「1 テーブル、UPDATE だけ、Excel 取込」。PostgreSQL、MySQL はその後。Oracle は今のところ Node 版サーバだけ（C# 版と VB.NET 版は SQL Server だけ）。
 
 ## 試し方（SQL Server）
 
@@ -176,11 +176,12 @@ harikit が合わせているところ:
 | [packages/core](packages/core) | コア。Excel / CSV の読み込み、DB 定義での検証、差分、API クライアント。依存なしで、ブラウザでも Node でも動く |
 | [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server は `mssql`、Oracle は `oracledb` を使う） |
 | [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server） |
+| [packages/server-vbnet](packages/server-vbnet) | C# 版を VB.NET に書き直したもの。VB.NET の WebForms のアプリ（Web サイトの App_Code など）に載せる |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
 | [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配る |
 
 テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`、Oracle は `HARIKIT_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"harikit","password":"..."}' npm test`（そのユーザーのスキーマにテスト用のテーブルを作り直す）。
-C# 版は `HARIKIT_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。CI では Windows の IIS と .NET Framework 4.8 にも載せて同じテストを流す。
+C# 版は `HARIKIT_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。VB.NET 版は `HARIKIT_TEST_DOTNET_PKG=packages/server-vbnet` を足す（.NET SDK も要る。詳しくは [packages/server-vbnet](packages/server-vbnet)）。CI では Windows の IIS と .NET Framework 4.8 にも載せて同じテストを流す。
 
 ## ライセンス
 

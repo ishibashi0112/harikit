@@ -1,0 +1,18 @@
+#!/bin/sh
+# テスト用の vbnc。Mono の ASP.NET は VB のページや App_Code の .vb を PATH の vbnc でコンパイルするが、
+# Ubuntu の Mono には vbnc がないので、.NET SDK 付属の Roslyn の vbc に渡す（host.mjs が Mono のホストの PATH の先頭に足す）。
+# Mono には Microsoft.VisualBasic.dll もないので、その参照を外し、VB のランタイムをページの DLL に埋め込む（-vbruntime*）。
+set -e
+sdk=$(dotnet --list-sdks | tail -n 1)
+version=${sdk%% *}
+dir=${sdk#*[}
+dir=${dir%]}
+lib="$(dirname "$(dirname "$(command -v mono)")")/lib/mono/4.5"
+for a do
+  shift
+  case "$a" in
+    [/-]r:Microsoft.VisualBasic.dll) ;;
+    *) set -- "$@" "$a" ;;
+  esac
+done
+exec dotnet "$dir/$version/Roslyn/bincore/vbc.dll" -nologo -nostdlib -sdkpath:"$lib" -vbruntime* "$@"
