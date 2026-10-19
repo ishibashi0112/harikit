@@ -9,13 +9,15 @@
 //   app_code: src のソースを App_Code/Harikit/ に置き、ASP.NET にビルドさせる（Web サイトの形。IIS なら .NET Framework 付属のコンパイラ）。
 // 載せるサーバ（HARIKIT_TEST_DOTNET_PKG）: リポジトリの中のパッケージのフォルダ。既定は packages/server-dotnet。
 //   パッケージには src/（ソース）、web/Harikit.aspx、build.cmd と build.sh（bin/ に DLL を作る）を置く。
+//   公開する型が C# 版と同じなら、C# のページ（test/Probe.aspx など）をその DLL の上でも使える。
+//   Mono は VB のページとソースをビルドできないので、Mono では VB 版も bin の形で、ページは C# 版のものを使う。
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -24,6 +26,10 @@ const repo = resolve(here, "..", "..", "..");
 export const hostKind = process.env.HARIKIT_TEST_DOTNET_HOST || "mono";
 export const layout = process.env.HARIKIT_TEST_DOTNET_LAYOUT || "bin";
 export const serverPkg = resolve(repo, process.env.HARIKIT_TEST_DOTNET_PKG || "packages/server-dotnet");
+/** パッケージごとに分けたテスト用の DB の名前（C# 版と VB 版を同じ SQL Server で並べて流しても当たらないように）。 */
+export const testDatabase = `HarikitTest_${basename(serverPkg).replace(/[^A-Za-z0-9]/g, "_")}`;
+const csharpPkg = join(here, "..");
+const isVb = () => readdirSync(join(serverPkg, "src")).some((f) => extname(f).toLowerCase() === ".vb");
 
 const appcmd = join(process.env.windir ?? "C:\\Windows", "System32", "inetsrv", "appcmd.exe");
 const IIS_SITE = "Default Web Site";
@@ -42,14 +48,24 @@ const works = (cmd, args) => {
 export function hostUnavailable() {
   if (!["mono", "iis"].includes(hostKind)) throw new Error(`HARIKIT_TEST_DOTNET_HOST は mono か iis です（${hostKind}）`);
   if (!["bin", "app_code"].includes(layout)) throw new Error(`HARIKIT_TEST_DOTNET_LAYOUT は bin か app_code です（${layout}）`);
-  if (hostKind === "mono") return works("mono", ["--version"]) && works("mcs", ["--version"]) ? false : "mono / mcs がないので飛ばす";
+  if (hostKind === "mono") {
+    if (layout === "app_code" && isVb()) throw new Error("Mono では VB のソースを App_Code でビルドできません（bin の形で動かす）");
+    return works("mono", ["--version"]) && works("mcs", ["--version"]) ? false : "mono / mcs がないので飛ばす";
+  }
   return process.platform === "win32" && existsSync(appcmd) ? false : "IIS（appcmd.exe）がないので飛ばす";
 }
 
 /** 載せるサーバのファイル。パッケージになければ C# 版（packages/server-dotnet）のものを使う（テスト用のページなど）。 */
 export function serverFile(rel) {
   const own = join(serverPkg, rel);
-  return existsSync(own) ? own : join(here, "..", rel);
+  return existsSync(own) ? own : join(csharpPkg, rel);
+}
+
+/** 載せるページ。Mono では VB のページを動かせないので、C# 版のページにする。 */
+function pagePath() {
+  const own = join(serverPkg, "web", "Harikit.aspx");
+  if (hostKind === "mono" && /Language\s*=\s*"VB"/i.test(readFileSync(own, "utf8"))) return join(csharpPkg, "web", "Harikit.aspx");
+  return own;
 }
 
 /** サーバを置いた Web のフォルダを作る（Web.config などはテストが足す）。 */
@@ -74,7 +90,7 @@ export async function createSite() {
     await mkdir(dir, { recursive: true });
     for (const f of await readdir(join(serverPkg, "src"))) await copyFile(join(serverPkg, "src", f), join(dir, f));
   }
-  await copyFile(join(serverPkg, "web", "Harikit.aspx"), join(root, "Harikit.aspx"));
+  await copyFile(pagePath(), join(root, "Harikit.aspx"));
   if (hostKind === "mono") {
     // ApplicationHost は bin の中から AspHost を読み込むので、テスト用のホストも bin に置く。
     execFileSync("mcs", ["-nologo", "-warnaserror", `-out:${join(root, "bin", "Harikit.TestHost.exe")}`, "-r:System.Web.dll", join(here, "TestHost.cs")], { stdio: "inherit" });

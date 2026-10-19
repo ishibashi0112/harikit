@@ -3,7 +3,7 @@
 サーバ API 3 本（[docs/api-spec.md](../../docs/api-spec.md) の describe / fetch / apply）の C# 参考実装。
 既存の ASP.NET WebForms アプリに、ソースと `.aspx` 1 枚を足して WebMethod として載せる。今は SQL Server だけ。
 
-- .NET Framework 4.5 以上を想定（使っている API は 4.0 からあるものだけ）。CI では .NET Framework 4.8 付属の `csc` と `aspnet_compiler` でビルドを確かめている。
+- .NET Framework 4.5 以上を想定（使っている API は 4.0 からあるものだけ）。CI では Windows の IIS と .NET Framework 4.8 に載せ、実際の SQL Server で通している（下の「テスト」）。
 - C# 5 で書いてあるので、Web サイト（プロジェクトファイルなし）の `App_Code` でも、.NET Framework 付属のコンパイラのまま通る。
 - 参照するのは `System.Data`、`System.Configuration`、`System.Web`、`System.Web.Extensions` だけ（WebForms のアプリなら入っている）。NuGet は要らない。
 - 中身の手順は Node 版（[packages/server-node](../server-node)）と同じで、同じクライアント（`@harikit/core`）で両方を通すテストがある。
@@ -100,8 +100,11 @@ HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run
 ```
 
 - [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、値の厳密な比べ方（全角半角・かな・末尾の空白）、止まる `script`、ロック待ちの打ち切り、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
-- [test/TestHost.cs](test/TestHost.cs): テスト用の小さな ASP.NET ホスト（Ubuntu の `xsp4` は今の Mono では起動しないため）。
-- CI では加えて、Windows で .NET Framework 付属の `csc`（C# 5）と `aspnet_compiler`（`App_Code` に置いた形）でビルドを確かめる。
+- [test/host.mjs](test/host.mjs): ページを載せる Web のフォルダを作り、ASP.NET で動かす。環境変数で選ぶ。
+  - `HARIKIT_TEST_DOTNET_HOST`: `mono`（既定。[test/TestHost.cs](test/TestHost.cs) の小さなホストで動かす。Ubuntu の `xsp4` は今の Mono では起動しないため）か `iis`（Windows の IIS に、テストごとにアプリプールとアプリを作って載せる。管理者で動かす）。
+  - `HARIKIT_TEST_DOTNET_LAYOUT`: `bin`（既定。`build.cmd` か `build.sh` で作った DLL を置く）か `app_code`（`src/*.cs` を `App_Code/Harikit/` に置き、ASP.NET にビルドさせる）。
+  - `HARIKIT_TEST_DOTNET_PKG`: 載せるパッケージ（既定 `packages/server-dotnet`）。
+- CI では加えて、Windows のランナーに SQL Server Express（今は 2025）と IIS（ASP.NET 4.8）を入れ、IIS に `app_code` と `bin` の両方の形で載せて同じテストを流す（[.github/workflows/ci.yml](../../.github/workflows/ci.yml) の `iis`）。`app_code` の形では、IIS が .NET Framework 付属のコンパイラ（C# 5）でビルドするので、`App_Code` に置いたまま通るかも確かめられる。
 
 ## ファイル
 

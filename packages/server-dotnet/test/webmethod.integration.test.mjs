@@ -9,12 +9,12 @@ import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sql from "mssql";
 import { buildApplyRequest, HarikitClient, prepare } from "@harikit/core";
-import { createSite, hostUnavailable, serverFile, startSite } from "./host.mjs";
+import { createSite, hostUnavailable, serverFile, startSite, testDatabase } from "./host.mjs";
 
 const env = process.env.HARIKIT_TEST_MSSQL;
 const skip = !env ? "HARIKIT_TEST_MSSQL がないので飛ばす" : hostUnavailable();
 const conn = env ? JSON.parse(env) : undefined;
-const DB = "HarikitDotnetTest";
+const DB = testDatabase;
 const USER = "CONTOSO\\tester";
 /** Web.config の maxJsonLength。大きすぎる結果を DB を変える前に止めるかを見るため、小さめにしておく。 */
 const MAX_JSON = 400000;

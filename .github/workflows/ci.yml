@@ -101,7 +101,7 @@ jobs:
         env:
           HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
 
-  # C# 版を Windows の IIS（.NET Framework 4.8）に載せ、Windows に入れた SQL Server で通す（本番に近い形）。
+  # C# 版を Windows の IIS（.NET Framework 4.8）に載せ、Windows に入れた SQL Server Express（Microsoft の最新版、今は 2025）で通す（本番に近い形）。
   # 載せ方は 2 つ: app_code はソースを App_Code に置く Web サイトの形（IIS が .NET Framework 付属の C# 5 のコンパイラでビルドする）、
   # bin は build.cmd（csc）で作った DLL を置く形。テストは Mono のジョブと同じもの（packages/server-dotnet/test/host.mjs）。
   # ほかの .NET 版（VB.NET など）は、matrix に package（packages/ の下のフォルダ）を足せば同じテストで通る。
@@ -117,7 +117,7 @@ jobs:
       HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
     steps:
       - uses: actions/checkout@v4
-      - name: Install SQL Server 2022 Express
+      - name: Install SQL Server Express
         run: .github/scripts/install-sqlserver.ps1 -SaPassword 'Harikit#Ci1'
       - name: Install IIS and ASP.NET 4.8
         run: |
