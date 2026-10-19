@@ -71,8 +71,8 @@ Namespace Global.Harikit.Server
         End Property
 
         ''' <summary>名前を [] で囲む。] は ]] にする。</summary>
-        Public Shared Function QuoteName(value As String) As String
-            Return "[" & value.Replace("]", "]]") & "]"
+        Public Shared Function QuoteName(name As String) As String
+            Return "[" & name.Replace("]", "]]") & "]"
         End Function
 
         ''' <summary>"dbo.M_Product" や "[dbo].[M_Product]" を [スキーマ, 名前] に分ける。スキーマを省くと dbo。</summary>
@@ -166,15 +166,15 @@ Namespace Global.Harikit.Server
                     Return "@" & paramName
                 Case "tinyint"
                     p.SqlDbType = SqlDbType.TinyInt
-                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CByte(HarikitJson.ToDouble(v))))
+                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CByte(Math.Truncate(HarikitJson.ToDouble(v)))))
                     Return "@" & paramName
                 Case "smallint"
                     p.SqlDbType = SqlDbType.SmallInt
-                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CShort(HarikitJson.ToDouble(v))))
+                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CShort(Math.Truncate(HarikitJson.ToDouble(v)))))
                     Return "@" & paramName
                 Case "int"
                     p.SqlDbType = SqlDbType.Int
-                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CInt(HarikitJson.ToDouble(v))))
+                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CInt(Math.Truncate(HarikitJson.ToDouble(v)))))
                     Return "@" & paramName
                 Case "real", "float"
                     p.SqlDbType = SqlDbType.Float
@@ -206,11 +206,11 @@ Namespace Global.Harikit.Server
                     Return HarikitJson.FormatDouble(HarikitJson.ToDouble(v))
                 Case "bigint", "decimal"
                     Dim s = TryCast(v, String)
-                    If s Is Nothing OrElse Not NumberLiteralRe.IsMatch(s) Then Throw New InvalidOperationException("数値ではない値: " & Convert.ToString(v, CultureInfo.InvariantCulture))
+                    If s Is Nothing OrElse Not NumberLiteralRe.IsMatch(s) Then Throw New InvalidOperationException("数値ではない値: " & Convert.ToString(v))
                     Return s
                 Case "date", "datetime", "time"
                     Dim s = TryCast(v, String)
-                    If s Is Nothing OrElse Not DateLiteralRe.IsMatch(s) Then Throw New InvalidOperationException("日付ではない値: " & Convert.ToString(v, CultureInfo.InvariantCulture))
+                    If s Is Nothing OrElse Not DateLiteralRe.IsMatch(s) Then Throw New InvalidOperationException("日付ではない値: " & Convert.ToString(v))
                     Return "'" & s & "'"
                 Case Else
                     Throw New InvalidOperationException("列 " & col.Name & " の型は SQL に書けません")
@@ -466,13 +466,13 @@ Namespace Global.Harikit.Server
                 Return locked
             End Function
 
-            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, setValues As Row) As Integer Implements IHarikitTransaction.Update
+            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row) As Integer Implements IHarikitTransaction.Update
                 Dim keyCols = meta.ColumnsOf(keyColumns)
-                Dim setCols = meta.ColumnsOf(setValues.Keys)
+                Dim setCols = meta.ColumnsOf([set].Keys)
                 Dim cmd As New SqlCommand() With {.Connection = conn, .Transaction = tx, .CommandTimeout = commandTimeout}
                 Dim assigns As New List(Of String)()
                 For i = 0 To setCols.Count - 1
-                    assigns.Add(QuoteName(setCols(i).Name) & " = " & BindValue(cmd, "p" & i, setCols(i), setValues(setCols(i).Name)))
+                    assigns.Add(QuoteName(setCols(i).Name) & " = " & BindValue(cmd, "p" & i, setCols(i), [set](setCols(i).Name)))
                 Next
                 Dim conds As New List(Of String)()
                 For i = 0 To keyCols.Count - 1

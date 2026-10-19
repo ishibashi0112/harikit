@@ -234,11 +234,11 @@ Namespace Global.Harikit.Server
         End Function
 
         ''' <summary>比較用に値をそろえる（"120" と "120.00" を同じにする、など）。数値は Double にする。</summary>
-        Public Shared Function Canonical(typeName As String, v As Object) As Object
+        Public Shared Function Canonical(type As String, v As Object) As Object
             If HarikitJson.IsNumber(v) Then Return HarikitJson.ToDouble(v)
             Dim s = TryCast(v, String)
             If s Is Nothing Then Return v
-            Select Case typeName
+            Select Case type
                 Case "decimal"
                     Return If(DecimalRe.IsMatch(s), CanonicalDecimal(s), s)
                 Case "bigint"
@@ -259,8 +259,8 @@ Namespace Global.Harikit.Server
         End Function
 
         ''' <summary>型に沿って 2 つの値が同じかを見る。NULL 同士は同じ。</summary>
-        Public Shared Function SameValue(typeName As String, a As Object, b As Object) As Boolean
-            Return Same(Canonical(typeName, a), Canonical(typeName, b))
+        Public Shared Function SameValue(type As String, a As Object, b As Object) As Boolean
+            Return Same(Canonical(type, a), Canonical(type, b))
         End Function
 
         ''' <summary>列の定義に沿って比べる。固定長の char / nchar は DB が末尾を空白で埋めるので、末尾の空白は見ない。</summary>

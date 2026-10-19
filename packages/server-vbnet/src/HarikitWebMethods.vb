@@ -62,7 +62,7 @@ Namespace Global.Harikit.Server
             Dim configPath = MapPath(If(ConfigurationManager.AppSettings("harikit:config"), DefaultConfigPath))
             Dim stamp = File.GetLastWriteTimeUtc(configPath)
             SyncLock sync
-                If cachedService IsNot Nothing AndAlso configPath = cachedPath AndAlso stamp = cachedStamp Then Return cachedService
+                If cachedService IsNot Nothing AndAlso String.Equals(configPath, cachedPath, StringComparison.Ordinal) AndAlso stamp = cachedStamp Then Return cachedService
                 Dim config = HarikitConfig.Parse(File.ReadAllText(configPath, Encoding.UTF8))
                 Dim cs = ConfigurationManager.ConnectionStrings(config.ConnectionStringName)
                 If cs Is Nothing OrElse String.IsNullOrEmpty(cs.ConnectionString) Then

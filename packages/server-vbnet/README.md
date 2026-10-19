@@ -32,7 +32,7 @@ C# 版から直すとき、または C# 版の変更をこちらに写すとき�
 - **大文字小文字を区別しない**: 引数や変数を `file`、`path` にすると `File`、`Path` のクラスが隠れる（`fileName`、`value` にしてある）。`Imports Row = Dictionary(Of String, Object)` があるファイルで `For Each row In rows` と書くと、新しい変数ではなく型の `Row` を指してしまう（`item` にしてある）。関数の中で関数と同じ名前の変数は作れない。
 - **文字列の `=`**: `Nothing = ""` が `True` になる。`Nothing` と空文字を分けたいところや、大文字小文字の区別が要るところは `String.Equals(a, b, StringComparison.Ordinal)` にする。
 - **数**: 整数の割り算は `\`（`/` は小数になる）。`CInt` などは切り捨てではなく偶数への丸めなので、整数だと確かめた値にだけ使う。
-- **キーワードと同じ名前**: `Set`、`Get`、`Call`、`Error`、`Select` は `[Set]` のように角かっこで囲むか、別の名前にする（`ScriptUpdate.[Set]`、`HarikitJson.[Get]`、`HarikitWebMethods.[Call]`）。
+- **キーワードと同じ名前**: `Set`、`Get`、`Call`、`Error`、`Select` は `[Set]` のように角かっこで囲むか、別の名前にする（`ScriptUpdate.[Set]`、`HarikitJson.[Get]`、`HarikitWebMethods.[Call]`、`IHarikitTransaction.Update` の引数 `[set]`）。公開メンバーの引数の名前も C# 版と同じにする（C# から名前付き引数で呼べるように）。
 - **VB 11 にない書き方**: 複数行の文字列リテラル、`?.`、`NameOf`、`$"..."`、`TypeOf ... IsNot` は VB 14 から。SQL の文は `&` でつなぐ。暗黙の行継続の行末にコメントは書けない。
 - **VB の関数**: `Left`、`Mid`、`Len`、`Format` などの `Microsoft.VisualBasic` の関数は使わず、.NET の `String` のメソッドを使う（Linux のテストでは VB のランタイムを埋め込んでビルドするので、使うとビルドが止まる）。`vbLf` などの定数はよい。
 
@@ -44,7 +44,7 @@ C# 版と同じテスト（[../server-dotnet/test/webmethod.integration.test.mjs
 HARIKIT_TEST_DOTNET_PKG=packages/server-vbnet HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 ```
 
-- Linux では Mono の ASP.NET で動かす（`mono-complete` と .NET SDK が要る）。DLL は `build.sh` が .NET SDK 付属の Roslyn の `vbc` で VB 11 に限ってビルドする。Mono には `vbnc` も `Microsoft.VisualBasic.dll` もないので、VB のページ（`Harikit.aspx`）や `App_Code` は [../server-dotnet/test/mono-path/vbnc](../server-dotnet/test/mono-path/vbnc) が Roslyn の `vbc` に渡し、VB のランタイムは DLL に埋め込む。
+- Linux では Mono の ASP.NET で動かす（`mono-complete` と .NET SDK が要る）。DLL は `build.sh` が .NET SDK 付属の Roslyn の `vbc` で VB 11 に限ってビルドする。Mono には `vbnc` も `Microsoft.VisualBasic.dll` もないので、VB のページ（`Harikit.aspx`）や `App_Code` は [../server-dotnet/test/mono-path/vbnc](../server-dotnet/test/mono-path/vbnc) が Roslyn の `vbc` に（VB 11 に限って）渡し、VB のランタイムは DLL に埋め込む。
 - CI では加えて、Windows の IIS（.NET Framework 4.8）に `App_Code` の形（IIS が付属の `vbc` でビルドする）と `bin` の形（`build.cmd`）で載せ、Windows に入れた SQL Server で同じテストを通す。
 - テスト用の `Probe.aspx` と `Global.asax` は C# のまま使う（VB.NET の DLL の型を C# から使えることの確認にもなる）。
 

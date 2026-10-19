@@ -96,7 +96,7 @@ Namespace Global.Harikit.Server
         ''' <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。</summary>
         Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row) As LockedRow
         ''' <summary>パラメータ付き UPDATE を 1 行流し、UPDATE そのものの影響行数を返す（トリガーの行数は含めない）。</summary>
-        Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, setValues As Row) As Integer
+        Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row) As Integer
     End Interface
 
     ''' <summary>DB がエラーを返したとき。Message は生のエラー文。</summary>

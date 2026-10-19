@@ -30,7 +30,7 @@ Namespace Global.Harikit.Server
 
         Public Shared Sub WriteError(dir As String, e As Exception)
             Dim now = DateTime.Now
-            Dim text = now.ToString("yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture) & " " & e.ToString() & vbLf
+            Dim text = now.ToString("yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture) & " " & Convert.ToString(e) & vbLf
             Append(dir, "error-" & now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) & ".log", text)
         End Sub
 

@@ -2,6 +2,7 @@
 # テスト用の vbnc。Mono の ASP.NET は VB のページや App_Code の .vb を PATH の vbnc でコンパイルするが、
 # Ubuntu の Mono には vbnc がないので、.NET SDK 付属の Roslyn の vbc に渡す（host.mjs が Mono のホストの PATH の先頭に足す）。
 # Mono には Microsoft.VisualBasic.dll もないので、その参照を外し、VB のランタイムをページの DLL に埋め込む（-vbruntime*）。
+# IIS（.NET Framework 付属の vbc）と同じく VB 11 に限る（新しい書き方を使ったページが Mono だけで通らないように）。
 set -e
 sdk=$(dotnet --list-sdks | tail -n 1)
 version=${sdk%% *}
@@ -15,4 +16,4 @@ for a do
     *) set -- "$@" "$a" ;;
   esac
 done
-exec dotnet "$dir/$version/Roslyn/bincore/vbc.dll" -nologo -nostdlib -sdkpath:"$lib" -vbruntime* "$@"
+exec dotnet "$dir/$version/Roslyn/bincore/vbc.dll" -nologo -nostdlib -sdkpath:"$lib" -vbruntime* "$@" -langversion:11

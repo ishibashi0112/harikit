@@ -301,7 +301,7 @@ Namespace Global.Harikit.Server
             Next
             For Each targetName In o.Config.TargetNames
                 Try
-                    If o.Dialect.NormalizeTable(o.Config.Targets(targetName).Table) <> want Then Continue For
+                    If Not String.Equals(o.Dialect.NormalizeTable(o.Config.Targets(targetName).Table), want, StringComparison.Ordinal) Then Continue For
                     Dim r = Resolve(targetName)
                     If r.Key.Count = cols.Count AndAlso r.Key.TrueForAll(Function(k) cols.Contains(k.ToLowerInvariant())) Then Return targetName
                 Catch e As Exception
