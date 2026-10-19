@@ -1,40 +1,26 @@
-// C# 版を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通すテスト。
+// .NET 版サーバを ASP.NET（WebMethod）で動かし、実際の SQL Server で通すテスト。
 // クライアントは Node 版のテストと同じ @harikit/core を webmethod スタイルで使う（同じクライアントで両方が動くことの確認）。
-// HARIKIT_TEST_MSSQL があり、mono と mcs があるときだけ動く。
+// HARIKIT_TEST_MSSQL があり、ASP.NET を動かせるとき（既定は Mono。IIS などは test/host.mjs）だけ動く。
 //   HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import sql from "mssql";
 import { buildApplyRequest, HarikitClient, prepare } from "@harikit/core";
+import { createSite, hostUnavailable, serverFile, startSite, testDatabase } from "./host.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const pkg = join(here, "..");
 const env = process.env.HARIKIT_TEST_MSSQL;
-const hasMono = (() => {
-  try {
-    execFileSync("mono", ["--version"], { stdio: "ignore" });
-    execFileSync("mcs", ["--version"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-})();
-const skip = !env ? "HARIKIT_TEST_MSSQL がないので飛ばす" : !hasMono ? "mono / mcs がないので飛ばす" : false;
+const skip = !env ? "HARIKIT_TEST_MSSQL がないので飛ばす" : hostUnavailable();
 const conn = env ? JSON.parse(env) : undefined;
-const DB = "HarikitDotnetTest";
+const DB = testDatabase;
 const USER = "CONTOSO\\tester";
 /** Web.config の maxJsonLength。大きすぎる結果を DB を変える前に止めるかを見るため、小さめにしておく。 */
 const MAX_JSON = 400000;
 
 let admin;
-let host;
+let site;
 let url;
 let root;
 let client;
@@ -56,14 +42,6 @@ async function call(method, req, headers = { "Content-Type": "application/json; 
 }
 
 const applyReq = (rows, extra = {}) => ({ v: 1, requestId: crypto.randomUUID(), mode: "check", changes: [{ target: "item", rows }], ...extra });
-
-async function freePort() {
-  const s = createServer();
-  await new Promise((resolve) => s.listen(0, "127.0.0.1", resolve));
-  const { port } = s.address();
-  await new Promise((resolve) => s.close(resolve));
-  return port;
-}
 
 before(async () => {
   if (skip) return;
@@ -103,13 +81,8 @@ before(async () => {
   await q(`CREATE TRIGGER dbo.TrItem ON dbo.Item AFTER UPDATE AS
     INSERT INTO dbo.ItemAudit SELECT Code, N'new' FROM inserted UNION ALL SELECT Code, N'old' FROM deleted;`);
 
-  execFileSync(join(pkg, "build.sh"), { stdio: "inherit" });
-  root = await mkdtemp(join(tmpdir(), "harikit-dotnet-"));
-  await mkdir(join(root, "bin"));
-  await mkdir(join(root, "App_Data"));
-  for (const f of ["Harikit.Server.dll", "Harikit.TestHost.exe"]) await copyFile(join(pkg, "bin", f), join(root, "bin", f));
-  await copyFile(join(pkg, "web", "Harikit.aspx"), join(root, "Harikit.aspx"));
-  await copyFile(join(pkg, "test", "Probe.aspx"), join(root, "Probe.aspx"));
+  root = await createSite();
+  await copyFile(serverFile("test/Probe.aspx"), join(root, "Probe.aspx"));
   const cs = `Server=${conn.server},${conn.port ?? 1433};Database=${DB};User Id=${conn.user};Password=${conn.password};Encrypt=false`;
   await writeFile(
     join(root, "Web.config"),
@@ -151,18 +124,13 @@ before(async () => {
     }),
   );
 
-  const port = await freePort();
-  url = `http://127.0.0.1:${port}`;
-  host = spawn("mono", [join(root, "bin", "Harikit.TestHost.exe"), root, String(port)], { stdio: ["ignore", "pipe", "inherit"] });
-  await new Promise((resolve, reject) => {
-    host.once("exit", (code) => reject(new Error(`テスト用ホストが止まりました（${code}）`)));
-    host.stdout.on("data", (d) => String(d).includes("listening") && resolve());
-  });
+  site = await startSite(root);
+  url = site.url;
   client = new HarikitClient({ baseUrl: `${url}/Harikit.aspx`, style: "webmethod", headers: { "X-Test-User": USER } });
 });
 
 after(async () => {
-  host?.kill();
+  await site?.stop();
   await admin?.close();
 });
 

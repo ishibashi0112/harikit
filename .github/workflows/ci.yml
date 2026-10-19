@@ -101,23 +101,53 @@ jobs:
         env:
           HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
 
-  # C# 版が .NET Framework 付属のコンパイラ（C# 5）と、Web サイトの App_Code の形で通るか。
-  dotnet-windows:
+  # C# 版を Windows の IIS（.NET Framework 4.8）に載せ、Windows に入れた SQL Server Express（Microsoft の最新版、今は 2025）で通す（本番に近い形）。
+  # 載せ方は 2 つ: app_code はソースを App_Code に置く Web サイトの形（IIS が .NET Framework 付属の C# 5 のコンパイラでビルドする）、
+  # bin は build.cmd（csc）で作った DLL を置く形。テストは Mono のジョブと同じもの（packages/server-dotnet/test/host.mjs）。
+  # ほかの .NET 版（VB.NET など）は、matrix に package（packages/ の下のフォルダ）を足せば同じテストで通る。
+  iis:
+    name: iis (${{ matrix.package }}, ${{ matrix.layout }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [server-dotnet]
+        layout: [app_code, bin]
+    env:
+      HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
     steps:
       - uses: actions/checkout@v4
-      - name: Build with csc
-        shell: cmd
+      - name: Install SQL Server Express
+        run: .github/scripts/install-sqlserver.ps1 -SaPassword 'Harikit#Ci1'
+      - name: Install IIS and ASP.NET 4.8
         run: |
-          call packages\server-dotnet\build.cmd || exit /b 1
-          if not exist packages\server-dotnet\bin\Harikit.Server.dll exit /b 1
-      - name: Compile the page and App_Code with aspnet_compiler
-        shell: pwsh
+          $r = Install-WindowsFeature -Name Web-Server, Web-Asp-Net45
+          $r | Format-List Success, RestartNeeded, ExitCode, FeatureResult
+          if (-not $r.Success) { exit 1 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Wait for SQL Server
+        shell: bash
         run: |
-          $site = Join-Path $env:RUNNER_TEMP "site"
-          New-Item -ItemType Directory -Force (Join-Path $site "App_Code\Harikit") | Out-Null
-          Copy-Item packages/server-dotnet/src/*.cs (Join-Path $site "App_Code\Harikit")
-          Copy-Item packages/server-dotnet/web/Harikit.aspx $site
-          Set-Content (Join-Path $site "web.config") '<?xml version="1.0"?><configuration><system.web><compilation debug="false" /></system.web></configuration>'
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\aspnet_compiler.exe" -v / -p $site (Join-Path $env:RUNNER_TEMP "out")
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          for i in $(seq 1 30); do
+            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Harikit#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),e=>{console.error(e.message);process.exit(1)})" && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Test on IIS
+        run: node --test packages/server-dotnet/test/webmethod.integration.test.mjs
+        env:
+          HARIKIT_TEST_DOTNET_HOST: iis
+          HARIKIT_TEST_DOTNET_LAYOUT: ${{ matrix.layout }}
+          HARIKIT_TEST_DOTNET_PKG: packages/${{ matrix.package }}
+      - name: Show server logs
+        if: failure()
+        run: |
+          Get-ChildItem C:\harikit-test -Recurse -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object { "== $($_.FullName)"; Get-Content $_.FullName -Tail 200 }
+          Get-WinEvent -LogName Application -MaxEvents 200 -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -match 'ASP\.NET|W3SVC|WAS|IIS' } |
+            Select-Object -First 20 | Format-List TimeCreated, ProviderName, Message
