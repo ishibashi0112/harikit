@@ -590,7 +590,8 @@ export class MySqlDialect implements Dialect {
   /**
    * MySQL はストアドプログラムの外で IF や SIGNAL を使えないので、素の SQL で 1 トランザクションにする。
    * 反映は、先に全部の行を FOR UPDATE でロックして数え、1 行でも当たらなければどの UPDATE も当たらない条件（@harikit_ok）にする
-   * （途中でエラーを飛ばして流し続けるクライアントでも、半端に反映しない）。最後の SELECT に結果を出す。
+   * （行が合わないときは、流し続けるクライアントでも半端に反映しない）。最後の SELECT に結果を出す。
+   * 途中の文が DB のエラーになったときは、MySQL はその文だけを戻して続けるので、エラーで止まるクライアントで流す前提（先頭のコメントに書く）。
    * 戻しは当たらなかった行を飛ばし、最後の SELECT に出す。
    */
   renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[], kind: "apply" | "undo"): string {
