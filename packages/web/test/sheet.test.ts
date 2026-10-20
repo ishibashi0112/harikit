@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HarikitClient, prepare, type FetchRequest, type Row, type TableDescription } from "@harikit/core";
-import { addConflictMarks, addHeader, buildMarks, diffGridRows, headerInfo, liveMark, markKey, toSheet, type GridRow } from "../src/sheet.js";
+import { addConflictMarks, addHeader, buildMarks, diffGridRows, headerInfo, liveMark, markKey, rowsFromCells, toSheet, type GridRow } from "../src/sheet.js";
 
 const product: TableDescription = {
   ok: true,
@@ -77,6 +77,29 @@ test("addHeader: 空いている列に入れる。もうあればその列、埋
   const full = addHeader(a.rows, 3, "UpdatedAt");
   assert.equal(full.col, 3);
   assert.equal(full.rows[0]!.D, "UpdatedAt");
+});
+
+test("rowsFromCells: 外から渡した表を行にする。列は一番長い行に合わせ、行は足りなければ空の行で埋める", () => {
+  let id = 0;
+  const { rows, columnCount } = rowsFromCells(
+    [
+      ["ProductCode", "UnitPrice", "ProductName"],
+      ["A001", "", "0"],
+      ["A002", "130"],
+    ],
+    5,
+    () => ++id,
+  );
+  assert.equal(columnCount, 3);
+  assert.equal(rows.length, 5);
+  assert.deepEqual(rows[1], { id: 2, A: "A001", C: "0" });
+  assert.deepEqual(rows[4], { id: 5 });
+  assert.deepEqual(toSheet(rows, columnCount).rows, [
+    ["ProductCode", "UnitPrice", "ProductName"],
+    ["A001", null, "0"],
+    ["A002", "130", null],
+  ]);
+  assert.equal(rowsFromCells([["A"], ["1"], ["2"]], 2, () => ++id).rows.length, 3);
 });
 
 test("buildMarks: 誤り、警告、変わるセル、キーなしをセルの印にする", async () => {

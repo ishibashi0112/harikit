@@ -1,6 +1,11 @@
-/* harikit の画面。色はここの変数だけで決め、ダークは OS の設定に合わせる。 */
+/*
+ * harikit の画面。色はここの変数だけで決め、ダークは OS の設定に合わせる。
+ * ほかのアプリに埋め込んでも外に効かないよう、すべて .hk-app の中に閉じる（ページ全体の指定は page.css）。
+ * 要素への指定は :where で詳細度を下げ、spreadsheet-grid や hk- のクラスの指定に負けるようにしておく。
+ * 見出しと段落の余白だけは .hk-app を残し、埋め込む側の p { margin: … } などに負けないようにする。
+ */
 
-:root {
+.hk-app {
   --hk-bg: #f6f7f9;
   --hk-surface: #ffffff;
   --hk-border: #dde1e6;
@@ -24,7 +29,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  .hk-app {
     --hk-bg: #15181c;
     --hk-surface: #1d2126;
     --hk-border: #343a42;
@@ -48,42 +53,29 @@
   }
 }
 
-* {
+:where(.hk-app, .hk-app *) {
   box-sizing: border-box;
 }
 
-html,
-body,
-#root {
-  height: 100%;
+.hk-app :where(h1, h2, p) {
   margin: 0;
 }
 
-body {
+:where(.hk-app) :where(button, input, select) {
+  font: inherit;
+  color: inherit;
+}
+
+/* 高さは親いっぱい。親の高さ（100vh など）は使う側で決める。 */
+.hk-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   background: var(--hk-bg);
   color: var(--hk-text);
   font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-}
-
-h1,
-h2,
-p {
-  margin: 0;
-}
-
-button,
-input,
-select {
-  font: inherit;
-  color: inherit;
-}
-
-.hk-app {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
 }
 
 .hk-bar {
@@ -126,8 +118,15 @@ select {
   font-weight: 600;
 }
 
-.hk-server {
+.hk-bar-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
   margin-left: auto;
+}
+
+.hk-server {
   color: var(--hk-muted);
   font-size: 12px;
 }

@@ -32,6 +32,19 @@ export function blankRows(count: number, nextId: () => number): GridRow[] {
   return Array.from({ length: count }, () => ({ id: nextId() }));
 }
 
+/** 外から渡された表（1 行目が見出し、空文字は空のセル）をグリッドの行にする。行は少なくとも minRows、列は一番長い行に合わせる。 */
+export function rowsFromCells(cells: readonly (readonly string[])[], minRows: number, nextId: () => number): { rows: GridRow[]; columnCount: number } {
+  const rows = cells.map((cs) => {
+    const row: GridRow = { id: nextId() };
+    cs.forEach((v, c) => {
+      if (v) row[columnLetter(c)] = v;
+    });
+    return row;
+  });
+  const columnCount = cells.reduce((n, cs) => Math.max(n, cs.length), 0);
+  return { rows: [...rows, ...blankRows(Math.max(0, minRows - rows.length), nextId)], columnCount };
+}
+
 /** グリッドの行を取込データにする。空のセルは null、後ろの空の行は落とす。値は貼り付けたままの文字列。 */
 export function toSheet(rows: readonly GridRow[], columnCount: number, name = "grid"): Sheet {
   const out: Cell[][] = rows.map((r) => Array.from({ length: columnCount }, (_, c) => cellText(r, columnLetter(c)) || null));

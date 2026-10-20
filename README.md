@@ -240,7 +240,7 @@ HARIKIT_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c hari
 | [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server） |
 | [packages/server-vbnet](packages/server-vbnet) | C# 版を VB.NET に書き直したもの。VB.NET の WebForms のアプリ（Web サイトの App_Code など）に載せる |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
-| [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配る |
+| [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配るほか、React の部品（`HarikitApp`）としてほかのアプリに埋め込める |
 
 テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`、Oracle は `HARIKIT_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"harikit","password":"..."}' npm test`（そのユーザーのスキーマにテスト用のテーブルを作り直す）、PostgreSQL は `HARIKIT_TEST_POSTGRES='{"host":"localhost","database":"harikit","user":"harikit","password":"..."}' npm test`（`ht` スキーマを作り直す）、MySQL / MariaDB は `HARIKIT_TEST_MYSQL='{"host":"127.0.0.1","database":"harikit","user":"root","password":"..."}' npm test`（そのデータベースにテスト用のテーブルを作り直す。トリガーを作るので root で）。
 C# 版は `HARIKIT_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。VB.NET 版は `HARIKIT_TEST_DOTNET_PKG=packages/server-vbnet` を足す（.NET SDK も要る。詳しくは [packages/server-vbnet](packages/server-vbnet)）。CI では Windows の IIS と .NET Framework 4.8 にも載せて同じテストを流す。
