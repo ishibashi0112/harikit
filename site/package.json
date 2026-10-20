@@ -1,0 +1,33 @@
+{
+  "name": "patchiri-site",
+  "version": "0.0.0",
+  "private": true,
+  "description": "patchiri のドキュメントとデモ（Astro + Starlight）。デモはブラウザの中の PostgreSQL（PGlite）で動く。",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "dev": "node scripts/sync-docs.mjs && astro dev",
+    "build": "node scripts/sync-docs.mjs && astro build",
+    "preview": "astro preview",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/react": "^7.1.0",
+    "@astrojs/starlight": "^0.42.6",
+    "@electric-sql/pglite": "^0.5.10",
+    "@fontsource/zen-maru-gothic": "^5.3.1",
+    "@ishibashi0112/spreadsheet-grid": "^0.51.0",
+    "astro": "^7.4.1",
+    "patchiri-core": "0.0.0",
+    "patchiri-server-node": "0.0.0",
+    "patchiri-web": "0.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

@@ -6,6 +6,17 @@ Validate spreadsheet data and patch your database tables — safely, with a diff
 
 > 作りはじめの段階です。今動くのは「SQL Server、Oracle、PostgreSQL、MySQL / MariaDB で、1 テーブル、UPDATE だけ」の細い道で、入口は表への貼り付け（画面）と Excel / CSV 取込（CLI）です。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
 
+## ドキュメントとデモ
+
+[site/](site) にドキュメントとデモのサイト（Astro + Starlight）がある。デモ（`/demo/`）は画面をブラウザの中で動く PostgreSQL（[PGlite](https://pglite.dev/)）につないだもので、サーバも DB も要らない。貼り付け → 検証 → 差分 → 反映 → 戻し SQL まで、手元に何も入れずに試せる。
+
+```sh
+npm install
+npm run build:site            # site/dist に静的なファイルができる（Vercel は vercel.json のとおりこれを配る）
+npm run dev -w patchiri-site  # 手元で見る（build:site の後に。http://localhost:4321）
+npm run test:site             # デモを Chromium で通しで動かす（先に npx playwright install chromium）
+```
+
 ## 何をするものか
 
 自社開発の業務システムでは、マスタの一括更新を次のように手作業でやっていることがよくあります。
@@ -243,6 +254,7 @@ PATCHIRI_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c pat
 | [packages/server-vbnet](packages/server-vbnet) | C# 版を VB.NET に書き直したもの。VB.NET の WebForms のアプリ（Web サイトの App_Code など）に載せる |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
 | [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配るほか、React の部品（`PatchiriApp`）としてほかのアプリに埋め込める |
+| [site](site) | ドキュメントとデモのサイト（Astro + Starlight）。デモは、server-node の API の中身（`Handlers`）と PostgreSQL の方言を PGlite と一緒にブラウザに載せ、画面の通信をそこへつないで動かす |
 
 テスト: `npm test`。実際の SQL Server でも通すときは `PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`、Oracle は `PATCHIRI_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"patchiri","password":"..."}' npm test`（そのユーザーのスキーマにテスト用のテーブルを作り直す）、PostgreSQL は `PATCHIRI_TEST_POSTGRES='{"host":"localhost","database":"patchiri","user":"patchiri","password":"..."}' npm test`（`ht` スキーマを作り直す）、MySQL / MariaDB は `PATCHIRI_TEST_MYSQL='{"host":"127.0.0.1","database":"patchiri","user":"root","password":"..."}' npm test`（そのデータベースにテスト用のテーブルを作り直す。トリガーを作るので root で）。
 C# 版は `PATCHIRI_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。VB.NET 版は `PATCHIRI_TEST_DOTNET_PKG=packages/server-vbnet` を足す（.NET SDK も要る。詳しくは [packages/server-vbnet](packages/server-vbnet)）。CI では Windows の IIS と .NET Framework 4.8 にも載せて同じテストを流す。

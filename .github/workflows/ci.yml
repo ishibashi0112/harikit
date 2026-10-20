@@ -238,3 +238,17 @@ jobs:
           Get-WinEvent -LogName Application -MaxEvents 200 -ErrorAction SilentlyContinue |
             Where-Object { $_.ProviderName -match 'ASP\.NET|W3SVC|WAS|IIS' } |
             Select-Object -First 20 | Format-List TimeCreated, ProviderName, Message
+
+  # ドキュメントとデモのサイト（site/）。ビルドして、デモ（ブラウザの中の PostgreSQL）を Chromium で通しで動かす。
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:site
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:site

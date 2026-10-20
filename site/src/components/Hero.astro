@@ -1,0 +1,123 @@
+---
+// トップページの見出し。Starlight の Hero を置き換え、左に文、右にマスコットを置く。
+// 文言（title、tagline、actions）は index.mdx の hero から読む。
+import { LinkButton } from "@astrojs/starlight/components";
+import { Mascot } from "../mascot/Mascot.tsx";
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, actions = [] } = data.hero ?? {};
+---
+
+<div class="pt-hero">
+  <Mascot className="pt-hero-mascot" size={280} title="patchiri のマスコット（ぱっちりした目の当て布）" />
+  <div class="pt-hero-copy">
+    <span class="pt-hero-flow">Excel → 検証 → 差分 → 反映 → 戻し SQL</span>
+    <h1 id="_top" data-page-title set:html={title} />
+    {tagline && <p class="pt-hero-tagline" set:html={tagline} />}
+    <p class="pt-hero-sub">自社開発の業務システムの、マスタの一括更新のために。差分が承認資料になり、戻し SQL も残ります。</p>
+    {
+      actions.length > 0 && (
+        <div class="pt-hero-actions">
+          {actions.map(({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
+            <LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+              {text}
+              {icon?.html && <Fragment set:html={icon.html} />}
+            </LinkButton>
+          ))}
+        </div>
+      )
+    }
+    <p class="pt-hero-dbs">SQL Server・Oracle・PostgreSQL・MySQL / MariaDB</p>
+  </div>
+</div>
+
+<style>
+  .pt-hero {
+    display: grid;
+    align-items: center;
+    gap: 1.25rem;
+    padding-block: 1.5rem 1rem;
+  }
+
+  .pt-hero-mascot {
+    width: min(45%, 10rem);
+    height: auto;
+    margin-inline: auto;
+  }
+
+  .pt-hero-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    text-align: center;
+  }
+
+  .pt-hero-flow {
+    padding: 0.25rem 0.75rem;
+    border-radius: 8px;
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+  }
+
+  h1 {
+    margin: 0;
+    font-family: var(--pt-font-round);
+    font-size: clamp(var(--sl-text-4xl), calc(0.5rem + 5vw), var(--sl-text-6xl));
+    font-weight: 900;
+    line-height: 1.1;
+    color: var(--sl-color-white);
+  }
+
+  .pt-hero-tagline {
+    margin: 0;
+    max-width: 32em;
+    font-size: clamp(var(--sl-text-base), calc(0.0625rem + 2vw), var(--sl-text-xl));
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--sl-color-gray-1);
+  }
+
+  .pt-hero-sub,
+  .pt-hero-dbs {
+    margin: 0;
+    max-width: 36em;
+    color: var(--sl-color-gray-3);
+  }
+
+  .pt-hero-dbs {
+    font-size: var(--sl-text-xs);
+  }
+
+  .pt-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.25rem;
+  }
+
+  @media (min-width: 50rem) {
+    .pt-hero {
+      grid-template-columns: 7fr 4fr;
+      gap: 3rem;
+      padding-block: clamp(2.5rem, calc(1rem + 8vmin), 5rem) 2rem;
+    }
+
+    .pt-hero-mascot {
+      order: 2;
+      width: min(100%, 18rem);
+    }
+
+    .pt-hero-copy {
+      align-items: flex-start;
+      text-align: start;
+    }
+
+    .pt-hero-actions {
+      justify-content: flex-start;
+    }
+  }
+</style>

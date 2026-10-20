@@ -1,0 +1,350 @@
+---
+// トップページに置くデモの画面のイメージ（静的な HTML）。値はデモの「価格改定」のサンプルと同じ。
+// 本物のデモは PostgreSQL を読み込むので重く、ここでは見た目だけを出して /demo/ へ誘う。
+type Row = { status: "change" | "same" | "not_found"; code: string; name: string; before: string; after: string };
+
+const rows: Row[] = [
+  { status: "change", code: "A001", name: "ボールペン 黒", before: "120", after: "130" },
+  { status: "change", code: "A002", name: "ボールペン 赤", before: "（空）", after: "130" },
+  { status: "change", code: "A003", name: "シャープペン 0.5mm", before: "300", after: "330" },
+  { status: "same", code: "B002", name: "方眼ノート", before: "220", after: "220" },
+  { status: "not_found", code: "Z999", name: "新商品（まだ無い）", before: "—", after: "500" },
+];
+const LABELS = { change: "変わる", same: "同じ", not_found: "キーなし" } as const;
+---
+
+<figure class="not-content pt-preview">
+  <div class="pt-preview-card">
+    <div class="pt-preview-bar" aria-hidden="true">
+      <strong>patchiri</strong>
+      <span class="pt-preview-field">対象 <span class="pt-preview-select">product（public.m_product）</span></span>
+      <span class="pt-preview-grow"></span>
+      <span class="pt-preview-btn pt-preview-btn--primary">サンプル ▾</span>
+      <span class="pt-preview-btn">DB の中身</span>
+      <span class="pt-preview-btn">ほかの人が書き換える</span>
+    </div>
+    <div class="pt-preview-body">
+      <div class="pt-preview-main">
+        <div class="pt-preview-tabs" aria-hidden="true">
+          <span>貼り付け</span>
+          <span class="pt-preview-tab-on">差分（変わる 7 行）</span>
+        </div>
+        <div class="pt-preview-grid">
+          <table>
+            <caption>差分（一部）</caption>
+            <thead>
+              <tr><th scope="col">状態</th><th scope="col">product_code</th><th scope="col">product_name</th><th scope="col">unit_price（前）</th><th scope="col">unit_price（後）</th></tr>
+            </thead>
+            <tbody>
+              {
+                rows.map((r) => (
+                  <tr>
+                    <td><span class:list={["pt-preview-chip", `pt-preview-chip--${r.status}`]}>{LABELS[r.status]}</span></td>
+                    <td>{r.code}</td>
+                    <td>{r.name}</td>
+                    <td class="pt-preview-before">{r.before}</td>
+                    <td class:list={{ "pt-preview-changed": r.status === "change" }}>{r.after}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="pt-preview-side">
+        <div class="pt-preview-panel">
+          <p class="pt-preview-step"><span>2</span>検証して差分を見る</p>
+          <div class="pt-preview-counts">
+            <p class="pt-preview-count pt-preview-count--change"><strong>7</strong>変わる</p>
+            <p class="pt-preview-count"><strong>2</strong>同じ</p>
+            <p class="pt-preview-count pt-preview-count--not_found"><strong>1</strong>キーなし</p>
+          </div>
+          <p class="pt-preview-ok">差分ができました。「差分」のタブが承認資料になります。</p>
+        </div>
+        <div class="pt-preview-panel" aria-hidden="true">
+          <p class="pt-preview-step"><span>3</span>確かめて反映する</p>
+          <div class="pt-preview-actions">
+            <span class="pt-preview-btn">DB で確かめる</span>
+            <span class="pt-preview-btn pt-preview-btn--danger">反映する</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption>
+    <span>デモの画面。ブラウザの中で PostgreSQL が動くので、サーバも DB も要らずにそのまま触れます。</span>
+    <a href="/demo/">デモを触る →</a>
+  </figcaption>
+</figure>
+
+<style>
+  .pt-preview {
+    margin: 0 0 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .pt-preview-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 20px;
+    background: var(--pt-surface-2);
+    box-shadow: 0 12px 32px rgb(15 23 42 / 0.07);
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-white);
+  }
+
+  .pt-preview-bar,
+  .pt-preview-actions,
+  .pt-preview-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .pt-preview-bar strong {
+    margin-right: 0.5rem;
+    font-family: var(--pt-font-round);
+    font-size: var(--sl-text-lg);
+    font-weight: 900;
+  }
+
+  .pt-preview-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .pt-preview-select,
+  .pt-preview-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.25rem;
+    padding: 0 0.875rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    background: var(--sl-color-black);
+    color: var(--sl-color-white);
+    white-space: nowrap;
+  }
+
+  .pt-preview-grow {
+    flex: 1 1 auto;
+  }
+
+  .pt-preview-btn--primary {
+    border-color: transparent;
+    background: var(--sl-color-text-accent);
+    color: var(--sl-color-black);
+    font-weight: 700;
+  }
+
+  .pt-preview-btn--danger {
+    border-color: transparent;
+    background: var(--pt-danger);
+    color: var(--pt-danger-text);
+    font-weight: 700;
+  }
+
+  .pt-preview-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .pt-preview-main {
+    flex: 999 1 30rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .pt-preview-tabs {
+    align-self: flex-start;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 12px;
+    background: var(--sl-color-gray-6);
+  }
+
+  .pt-preview-tabs span {
+    padding: 0.375rem 1rem;
+    border-radius: 9px;
+    color: var(--sl-color-gray-3);
+  }
+
+  .pt-preview-tabs .pt-preview-tab-on {
+    background: var(--sl-color-black);
+    color: var(--sl-color-white);
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
+  }
+
+  .pt-preview-grid {
+    overflow-x: auto;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 12px;
+    background: var(--sl-color-black);
+  }
+
+  .pt-preview-grid table {
+    width: 100%;
+    border-collapse: collapse;
+    white-space: nowrap;
+  }
+
+  .pt-preview-grid caption {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .pt-preview-grid th,
+  .pt-preview-grid td {
+    padding: 0.5rem 0.875rem;
+    text-align: left;
+  }
+
+  .pt-preview-grid th {
+    background: var(--pt-head-bg);
+    color: var(--sl-color-gray-2);
+    font-weight: 700;
+  }
+
+  .pt-preview-grid tbody tr {
+    border-top: 1px solid var(--sl-color-hairline-light);
+  }
+
+  .pt-preview-before {
+    color: var(--sl-color-gray-3);
+  }
+
+  .pt-preview-changed {
+    background: var(--pt-change-bg);
+    font-weight: 700;
+  }
+
+  .pt-preview-chip {
+    padding: 0.125rem 0.5rem;
+    border-radius: 6px;
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-gray-2);
+  }
+
+  .pt-preview-chip--change {
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+  }
+
+  .pt-preview-chip--not_found {
+    background: var(--sl-color-orange-low);
+    color: var(--sl-color-orange-high);
+  }
+
+  .pt-preview-side {
+    flex: 1 1 16rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .pt-preview-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.875rem;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 16px;
+    background: var(--sl-color-black);
+  }
+
+  .pt-preview-panel p {
+    margin: 0;
+  }
+
+  .pt-preview-step {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-family: var(--pt-font-round);
+    font-weight: 700;
+  }
+
+  .pt-preview-step span {
+    display: inline-grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 8px;
+    background: var(--sl-color-text-accent);
+    color: var(--sl-color-black);
+    font-size: var(--sl-text-xs);
+  }
+
+  .pt-preview-counts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .pt-preview-count {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 12px;
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-xs);
+  }
+
+  .pt-preview-count strong {
+    font-size: var(--sl-text-2xl);
+    line-height: 1.3;
+  }
+
+  .pt-preview-count--change {
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+  }
+
+  .pt-preview-count--not_found {
+    background: var(--sl-color-orange-low);
+    color: var(--sl-color-orange-high);
+  }
+
+  .pt-preview-ok {
+    color: var(--sl-color-accent-high);
+  }
+
+  .pt-preview-actions .pt-preview-btn {
+    flex: 1;
+    justify-content: center;
+    min-height: 2.5rem;
+  }
+
+  .pt-preview figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+  }
+
+  .pt-preview figcaption a {
+    color: var(--sl-color-text-accent);
+    font-weight: 700;
+  }
+</style>

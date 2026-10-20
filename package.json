@@ -6,13 +6,16 @@
     "packages/core",
     "packages/web",
     "packages/server-node",
-    "packages/cli"
+    "packages/cli",
+    "site"
   ],
   "scripts": {
     "build": "tsc -b packages/core packages/web packages/server-node packages/cli && npm run bundle -w patchiri-web",
     "test": "npm run build && node --test \"packages/*/dist/test/**/*.test.js\"",
     "clean": "tsc -b --clean packages/core packages/web packages/server-node packages/cli",
-    "test:dotnet": "npm run build && node --test packages/server-dotnet/test/webmethod.integration.test.mjs"
+    "test:dotnet": "npm run build && node --test packages/server-dotnet/test/webmethod.integration.test.mjs",
+    "build:site": "tsc -b packages/core packages/web packages/server-node && npm run bundle -w patchiri-web && npm run build -w patchiri-site",
+    "test:site": "npm test -w patchiri-site"
   },
   "devDependencies": {
     "@types/mssql": "^12.3.0",
