@@ -45,6 +45,7 @@ export function MasterUpdate() {
 | `client` | つなぐ先（`@harikit/core` の `HarikitClient`）。WebForms の WebMethod なら `style: "webmethod"`、ほかのつなぎ方は `fetch` を差し替える。渡さなければ、画面を配ったサーバ（同じオリジン）に URL の `#token=` でつなぐ |
 | `serverLabel` | 見出しの右に「… につながっています」と出す名前。`client` を渡したときの既定は出さない |
 | `headerExtra` | 見出しの右端に置くもの（ボタンなど） |
+| `initialRules` | 最初に読み込んでおく業務ルール（`{ name, text }`、`harikit.rules.json` の名前と中身）。このブラウザが覚えたものより優先する。最初に描いたときだけ読む |
 | `ref` | `loadCells(cells)` で表を入れ替える。`cells` は文字列の 2 次元配列で、1 行目が見出し（列名） |
 
 - 高さは親いっぱい（`height: 100%`）。親の高さは使う側で決める。

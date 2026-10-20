@@ -88,6 +88,16 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** 最初の業務ルール。渡されたものがあればそれを、無ければこのブラウザが覚えたものを使う。 */
+function startRules(given: { name: string; text: string } | undefined): { rules: RulesFile | null; error: string | null } {
+  if (!given) return { rules: loadRules(), error: null };
+  try {
+    return { rules: parseRules(given.name, given.text), error: null };
+  } catch (e) {
+    return { rules: null, error: `業務ルールを読めません: ${errorMessage(e)}` };
+  }
+}
+
 function remembered(key: string): string {
   try {
     return localStorage.getItem(key) ?? "";
@@ -115,6 +125,8 @@ export interface HarikitAppProps {
   serverLabel?: string;
   /** 見出しの右端に置くもの（埋め込む側のボタンなど）。 */
   headerExtra?: ReactNode;
+  /** 最初に読み込んでおく業務ルール（harikit.rules.json の名前と中身）。このブラウザが覚えたものより優先する。最初に描いたときだけ読む。 */
+  initialRules?: { name: string; text: string };
   ref?: Ref<HarikitAppHandle>;
 }
 
@@ -126,11 +138,12 @@ export interface HarikitAppHandle {
   loadCells(cells: readonly (readonly string[])[]): void;
 }
 
-export function HarikitApp({ client: given, serverLabel, headerExtra, ref }: HarikitAppProps) {
+export function HarikitApp({ client: given, serverLabel, headerExtra, initialRules, ref }: HarikitAppProps) {
+  const [start] = useState(() => startRules(initialRules));
   const [conn, setConn] = useState<Connection>({ state: "connecting" });
   const [target, setTarget] = useState("");
   const [desc, setDesc] = useState<TableDescription | null>(null);
-  const [rules, setRules] = useState<RulesFile | null>(() => loadRules());
+  const [rules, setRules] = useState<RulesFile | null>(start.rules);
   const [rows, setRows] = useState<GridRow[]>(() => blankRows(INITIAL_ROWS, nextId));
   const [columnCount, setColumnCount] = useState(INITIAL_COLUMNS);
   const [version, setVersion] = useState(0);
@@ -140,7 +153,7 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, ref }: Har
   const [confirming, setConfirming] = useState(false);
   const [note, setNote] = useState("");
   const [tab, setTab] = useState<"input" | "diff">("input");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(start.error);
   const gridRef = useRef<SpreadsheetGridHandle<GridRow>>(null);
 
   const connect = useCallback(async (client: HarikitClient | null) => {
