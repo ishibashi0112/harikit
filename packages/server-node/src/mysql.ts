@@ -6,7 +6,8 @@
 //   （'ボールペン' = 'ﾎﾞｰﾙﾍﾟﾝ'、'ボ' = 'ホ'）。値が変わっていないかは、utf8mb4 にしてからバイト列（BINARY）で比べる。
 //   _bin の照合順序は PAD SPACE（末尾の空白を見ない）のものが多いので使わない。キーは列の照合順序のまま。
 // - CHAR は読むときに末尾の空白が落ちる。比べるときも両方の末尾の空白を落とす。
-// - プリペアドステートメントの CAST(? AS UNSIGNED) は 9223372036854775807 で頭打ちになる（MySQL 8.4）。数値は文字列で渡し、
+// - プリペアドステートメントのパラメータをじかに CAST すると、型の決め方が変わって値が崩れる（MySQL 8.4 で、CAST(? AS UNSIGNED) は
+//   9223372036854775807 で頭打ち、文字列の '09:00:00' の CAST(? AS TIME(6)) は 00:00:00）。数値と日時は文字列で渡し、
 //   CAST(CAST(? AS CHAR) AS …) で読む。
 // - FLOAT の列は DOUBLE の値と比べると合わない（0.1 が違う値になる）。CAST(? AS FLOAT) にして比べ、読むときも CAST(… AS CHAR) で読む。
 // - 影響行数（affectedRows）は当たった行の数で、トリガーの中の行数は入らない（mysql2 は FOUND_ROWS を付けてつなぐ）。
@@ -238,13 +239,13 @@ function bindValue(params: unknown[], col: MyColumn, v: Value): string {
       return "CAST(CAST(? AS CHAR) AS UNSIGNED)";
     case "date":
       params.push(String(v));
-      return "CAST(? AS DATE)";
+      return "CAST(CAST(? AS CHAR) AS DATE)";
     case "datetime":
       params.push(String(v).replace("T", " "));
-      return "CAST(? AS DATETIME(6))";
+      return "CAST(CAST(? AS CHAR) AS DATETIME(6))";
     case "time":
       params.push(String(v));
-      return "CAST(? AS TIME(6))";
+      return "CAST(CAST(? AS CHAR) AS TIME(6))";
     default:
       throw new Error(`列 ${col.name} の型 ${col.dbType} は扱えません`);
   }
@@ -327,8 +328,8 @@ function toDbError(e: unknown): DbError {
   let publicMessage: string | undefined;
   // 1205: innodb_lock_wait_timeout を超えた。
   if (errno === 1205) publicMessage = LOCKED_MESSAGE;
-  // 1366: 列の文字コードで表せない字（Incorrect string value）。
-  else if (errno === 1366) publicMessage = "列の文字コードで表せない字があります。値を確かめてください";
+  // 1366: 列の文字コードで表せない字（Incorrect string value）。3988: パラメータを列の文字コードにできない（MySQL 8.0.22 以降）。
+  else if (errno === 1366 || errno === 3988) publicMessage = "列の文字コードで表せない字があります。値を確かめてください";
   return new DbError(message, { cause: e, ...(publicMessage && { publicMessage }) });
 }
 
@@ -562,8 +563,9 @@ export class MySqlDialect implements Dialect {
         const params: unknown[] = [];
         const selects = part.map((i, j) => {
           params.push(items[i]!.value, items[i]!.value, items[i]!.value);
-          const back = `CONVERT(CONVERT(? USING ${cs}) USING utf8mb4)`;
-          return `SELECT ${j} AS \`j\`, CASE WHEN CAST(${back} AS BINARY) = CAST(CONVERT(? USING utf8mb4) AS BINARY) THEN 1 ELSE 0 END AS \`ok\`, LENGTH(CONVERT(? USING ${cs})) AS \`b\``;
+          // パラメータをじかに CONVERT すると、表せない字で MySQL 8.4 はエラー（3988）になるので、いったん utf8mb4 の値にしてから変える。
+          const back = `CONVERT(CONVERT(CONVERT(? USING utf8mb4) USING ${cs}) USING utf8mb4)`;
+          return `SELECT ${j} AS \`j\`, CASE WHEN CAST(${back} AS BINARY) = CAST(CONVERT(? USING utf8mb4) AS BINARY) THEN 1 ELSE 0 END AS \`ok\`, LENGTH(CONVERT(CONVERT(? USING utf8mb4) USING ${cs})) AS \`b\``;
         });
         for (const r of await query(this.pool, selects.join(" UNION ALL "), params)) out[part[Number(r.j)]!] = { encodable: Number(r.ok) === 1, bytes: Number(r.b) };
       }
@@ -603,7 +605,7 @@ export class MySqlDialect implements Dialect {
       for (const u of updates) lines.push(`UPDATE ${quoteTable(m)} SET ${this.assigns(m, u)} WHERE ${this.conditions(m, u)} AND @harikit_ok = 1;`);
       lines.push(
         "COMMIT;",
-        `SELECT IF(@harikit_ok = 1, 'harikit: ${updates.length} 行を反映しました', CONCAT('harikit: 行が見つからないか、値が変わっています（', @harikit_ng, '）。何も反映していません')) AS \`harikit\`;`,
+        `SELECT CONVERT(IF(@harikit_ok = 1, 'harikit: ${updates.length} 行を反映しました', CONCAT('harikit: 行が見つからないか、値が変わっています（', @harikit_ng, '）。何も反映していません')) USING utf8mb4) AS \`harikit\`;`,
       );
     } else {
       lines.push("SET @harikit_done = 0, @harikit_ng = NULL;", "START TRANSACTION;");
@@ -612,7 +614,7 @@ export class MySqlDialect implements Dialect {
       }
       lines.push(
         "COMMIT;",
-        `SELECT CONCAT('harikit: ', @harikit_done, ' / ${updates.length} 行を戻しました', IFNULL(CONCAT('。戻していない行（後から別の更新が入った）: ', @harikit_ng), '')) AS \`harikit\`;`,
+        `SELECT CONVERT(CONCAT('harikit: ', @harikit_done, ' / ${updates.length} 行を戻しました', IFNULL(CONCAT('。戻していない行（後から別の更新が入った）: ', @harikit_ng), '')) USING utf8mb4) AS \`harikit\`;`,
       );
     }
     return lines.join("\n") + "\n";
