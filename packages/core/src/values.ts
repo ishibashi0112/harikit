@@ -59,14 +59,17 @@ export function checkValue(col: ColumnDef, v: Value): string | null {
     }
     case "integer": {
       if (typeof v !== "number" || !Number.isInteger(v)) return "整数ではありません";
-      const range = INTEGER_RANGES[baseDbType(col.dbType)] ?? INTEGER_RANGES.int!;
+      const [min, max] = INTEGER_RANGES[baseDbType(col.dbType)] ?? INTEGER_RANGES.int!;
+      const range = [typeof col.min === "number" ? col.min : min, typeof col.max === "number" ? col.max : max] as const;
       if (v < range[0] || v > range[1]) return `範囲外です（${range[0]}〜${range[1]}）`;
       return null;
     }
     case "bigint": {
       if (typeof v !== "string" || !BIGINT_RE.test(v)) return "整数ではありません";
       const n = BigInt(v);
-      if (n < BIGINT_MIN || n > BIGINT_MAX) return "範囲外です（bigint）";
+      const min = typeof col.min === "string" && BIGINT_RE.test(col.min) ? BigInt(col.min) : BIGINT_MIN;
+      const max = typeof col.max === "string" && BIGINT_RE.test(col.max) ? BigInt(col.max) : BIGINT_MAX;
+      if (n < min || n > max) return col.min === undefined && col.max === undefined ? "範囲外です（bigint）" : `範囲外です（${min}〜${max}）`;
       return null;
     }
     case "decimal": {
