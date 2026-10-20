@@ -10,6 +10,8 @@ import Demo from "../demo/Demo.tsx";
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="patchiri のデモ。Excel の値を検証して、ブラウザの中の PostgreSQL にパッチを当てる。" />
     <meta name="referrer" content="no-referrer" />
+    {Astro.site && <link rel="canonical" href={new URL("/demo/", Astro.site)} />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>デモ | patchiri</title>
   </head>
   <body>
