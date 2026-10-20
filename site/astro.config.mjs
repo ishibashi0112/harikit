@@ -6,6 +6,8 @@ import react from "@astrojs/react";
 import starlight from "@astrojs/starlight";
 
 export default defineConfig({
+  // 公開先。正規の URL とサイトマップに使う。
+  site: "https://patchiri.vercel.app",
   integrations: [
     starlight({
       title: "patchiri",

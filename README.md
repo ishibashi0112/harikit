@@ -4,11 +4,15 @@ Excel やグリッドの値を検証して、DB のテーブルにぱっちり�
 
 Validate spreadsheet data and patch your database tables — safely, with a diff and an undo script.
 
+ドキュメントとデモ / Docs and live demo: https://patchiri.vercel.app/
+
 > 作りはじめの段階です。今動くのは「SQL Server、Oracle、PostgreSQL、MySQL / MariaDB で、1 テーブル、UPDATE だけ」の細い道で、入口は表への貼り付け（画面）と Excel / CSV 取込（CLI）です。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
 
 ## ドキュメントとデモ
 
 [site/](site) にドキュメントとデモのサイト（Astro + Starlight）がある。デモ（`/demo/`）は画面をブラウザの中で動く PostgreSQL（[PGlite](https://pglite.dev/)）につないだもので、サーバも DB も要らない。貼り付け → 検証 → 差分 → 反映 → 戻し SQL まで、手元に何も入れずに試せる。
+
+公開先は https://patchiri.vercel.app/ （デモは [/demo/](https://patchiri.vercel.app/demo/)）。Vercel が main への push ごとに作り直す。Vercel のプロジェクトの Root Directory は空（リポジトリの直下）にする（`site` にすると `vercel.json` の `build:site` が見つからずに失敗する）。
 
 ```sh
 npm install
