@@ -2,6 +2,7 @@
 
 サーバ API 3 本（[docs/api-spec.md](../../docs/api-spec.md) の describe / fetch / apply）の C# 参考実装。
 既存の ASP.NET WebForms アプリに、ソースと `.aspx` 1 枚を足して WebMethod として載せる。今は SQL Server だけ。
+VB.NET のアプリ（Web サイトの `App_Code` など）には、同じものを VB.NET で書いた [packages/server-vbnet](../server-vbnet) を置く。こちらを直したら VB.NET 版も同じように直す（同じテストで両方を通している）。
 
 - .NET Framework 4.5 以上を想定（使っている API は 4.0 からあるものだけ）。CI では Windows の IIS と .NET Framework 4.8 に載せ、実際の SQL Server で通している（下の「テスト」）。
 - C# 5 で書いてあるので、Web サイト（プロジェクトファイルなし）の `App_Code` でも、.NET Framework 付属のコンパイラのまま通る。

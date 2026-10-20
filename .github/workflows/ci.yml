@@ -70,9 +70,14 @@ jobs:
         env:
           HARIKIT_TEST_ORACLE: '{"connectString":"localhost:1521/${{ matrix.service }}","user":"harikit","password":"Harikit1"}'
 
-  # C# 版を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通す。
+  # .NET 版（C# と VB.NET）を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通す。
   dotnet:
+    name: dotnet (${{ matrix.package }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [server-dotnet, server-vbnet]
     services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -87,6 +92,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # VB 版は .NET SDK 付属の Roslyn の vbc でビルドする（build.sh と test/mono-path/vbnc）。
+      - uses: actions/setup-dotnet@v4
+        if: matrix.package == 'server-vbnet'
+        with:
+          dotnet-version: 8.0.x
       - run: npm ci
       - name: Install Mono
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mono-complete
@@ -100,18 +110,19 @@ jobs:
       - run: npm run test:dotnet
         env:
           HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
+          HARIKIT_TEST_DOTNET_PKG: packages/${{ matrix.package }}
 
-  # C# 版を Windows の IIS（.NET Framework 4.8）に載せ、Windows に入れた SQL Server Express（Microsoft の最新版、今は 2025）で通す（本番に近い形）。
-  # 載せ方は 2 つ: app_code はソースを App_Code に置く Web サイトの形（IIS が .NET Framework 付属の C# 5 のコンパイラでビルドする）、
-  # bin は build.cmd（csc）で作った DLL を置く形。テストは Mono のジョブと同じもの（packages/server-dotnet/test/host.mjs）。
-  # ほかの .NET 版（VB.NET など）は、matrix に package（packages/ の下のフォルダ）を足せば同じテストで通る。
+  # .NET 版（C# と VB.NET）を Windows の IIS（.NET Framework 4.8）に載せ、Windows に入れた SQL Server Express（Microsoft の最新版、今は 2025）で通す（本番に近い形）。
+  # 載せ方は 2 つ: app_code はソースを App_Code に置く Web サイトの形（IIS が .NET Framework 付属のコンパイラ（C# 5 / VB 11）でビルドする）、
+  # bin は build.cmd（csc / vbc）で作った DLL を置く形。テストは Mono のジョブと同じもの（packages/server-dotnet/test/host.mjs）。
+  # ほかの .NET 版も、matrix に package（packages/ の下のフォルダ）を足せば同じテストで通る。
   iis:
     name: iis (${{ matrix.package }}, ${{ matrix.layout }})
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        package: [server-dotnet]
+        package: [server-dotnet, server-vbnet]
         layout: [app_code, bin]
     env:
       HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'

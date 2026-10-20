@@ -14,6 +14,7 @@ harikit は「Excel やグリッドの値を、検証してから DB に貼り�
 - `packages/core`: 取込（`xlsx.ts`、`table.ts`）、検証（`validate.ts`、`values.ts`、Excel の表示の形（2024/4/1、¥1,200 など）の読み替えは `display.ts`、文字コードのバイト数は `encoding.ts`）、業務ルール（`rules.ts`）、差分（`diff.ts`）、API クライアント（`client.ts`）、まとめ（`prepare.ts`）。Node の API を使わない（ブラウザで動かすため）。
 - `packages/server-node`: API 3 本の中身（`handlers.ts`）、DB ごとの違い（`dialect.ts` と `mssql.ts`、`oracle.ts`）、HTTP（`http.ts`）。Oracle は node-oracledb の Thin モード。
 - `packages/server-dotnet`: API 3 本の C# 版（`src/HarikitService.cs`、`src/SqlServerDialect.cs`）と WebForms のページ（`web/Harikit.aspx`）。C# 5 で書く（App_Code で通るように）。`npm run test:dotnet` で Mono の ASP.NET と実際の SQL Server で通す。CI では同じテストを Windows の IIS でも流す（`test/host.mjs` の `HARIKIT_TEST_DOTNET_HOST=iis`）。
+- `packages/server-vbnet`: C# 版を VB.NET に書き直したもの（`src/*.vb`、`web/Harikit.aspx`）。VB 11 で書き、型とメンバーの名前は C# 版と同じにする。C# 版を直したらこちらも直す。テストは C# 版と同じもので、`HARIKIT_TEST_DOTNET_PKG=packages/server-vbnet npm run test:dotnet`（.NET SDK の Roslyn の vbc でビルドする）。
 - `packages/cli`: `harikit targets / diff / apply`。
 - `packages/web`: 画面（React と `@ishibashi0112/spreadsheet-grid`）。表の 1 行目が列名で、Excel 取込と同じ `prepare` に通す。セルの印は `sheet.ts`（React に依存しない、テストあり）。esbuild で `dist/app` にまとめ、Node 版サーバが起動時に読んで `/` で配る（トークンは URL の `#token=`）。
 - `npm test` でビルドとテスト。`HARIKIT_TEST_MSSQL` を渡すと実際の SQL Server でも、`HARIKIT_TEST_ORACLE` を渡すと実際の Oracle でも通す（`packages/server-node/test/*.integration.test.ts`）。
@@ -22,7 +23,7 @@ harikit は「Excel やグリッドの値を、検証してから DB に貼り�
 
 - コア（取込・検証・差分）は TypeScript で、ブラウザ側で動く Headless パッケージ。UI（Excel 取込、spreadsheet-grid 貼付、CLI）はその上に載せる。
 - サーバは DB に触る API 3 本だけ。仕様を決めて中身は任意言語。参考実装は Node 版と C#（.NET Framework）版。
-- C# 版は ASP.NET WebForms の WebMethod に足せることを前提にする（.NET Framework、`JavaScriptSerializer`）。
+- C# 版と VB.NET 版は ASP.NET WebForms の WebMethod に足せることを前提にする（.NET Framework、`JavaScriptSerializer`）。
 
 ## 守ること
 
