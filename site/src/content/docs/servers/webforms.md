@@ -70,4 +70,4 @@ description: 既存の ASP.NET WebForms のアプリに、WebMethod として AP
 
 今の画面（`patchiri-web`）は React の部品なので、WebForms のページにそのまま置くには、React を束ねたスクリプトを用意する必要があります。WebForms のアプリの中で使える画面の入口は、まだ用意できていません。
 
-詳しくは [C# 版の README](https://github.com/ishibashi0112/harikit/tree/main/packages/server-dotnet) と [VB.NET 版の README](https://github.com/ishibashi0112/harikit/tree/main/packages/server-vbnet) を見てください。
+詳しくは [C# 版の README](https://github.com/ishibashi0112/patchiri/tree/main/packages/server-dotnet) と [VB.NET 版の README](https://github.com/ishibashi0112/patchiri/tree/main/packages/server-vbnet) を見てください。

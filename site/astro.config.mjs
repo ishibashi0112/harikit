@@ -12,8 +12,8 @@ export default defineConfig({
       description: "Excel やグリッドの値を検証して、DB のテーブルにぱっちりパッチを当てる道具",
       defaultLocale: "root",
       locales: { root: { label: "日本語", lang: "ja" } },
-      social: [{ icon: "github", label: "GitHub", href: "https://github.com/ishibashi0112/harikit" }],
-      editLink: { baseUrl: "https://github.com/ishibashi0112/harikit/edit/main/site/" },
+      social: [{ icon: "github", label: "GitHub", href: "https://github.com/ishibashi0112/patchiri" }],
+      editLink: { baseUrl: "https://github.com/ishibashi0112/patchiri/edit/main/site/" },
       lastUpdated: false,
       sidebar: [
         { label: "デモを触る", link: "/demo/" },

@@ -15,7 +15,7 @@ const PAGES = [
 ];
 
 const SITE_LINKS = new Map(PAGES.map((p) => [p.file, `/reference/${p.slug}/`]));
-const REPO = "https://github.com/ishibashi0112/harikit/blob/main/";
+const REPO = "https://github.com/ishibashi0112/patchiri/blob/main/";
 
 /** docs/ どうしのリンクはサイトの URL、それ以外の相対リンクは GitHub の URL にする。 */
 function rewriteLinks(text) {
@@ -36,7 +36,7 @@ for (const page of PAGES) {
     "---",
     `title: ${JSON.stringify(title)}`,
     `description: ${JSON.stringify(page.description)}`,
-    `editUrl: ${JSON.stringify(`https://github.com/ishibashi0112/harikit/edit/main/docs/${page.file}`)}`,
+    `editUrl: ${JSON.stringify(`https://github.com/ishibashi0112/patchiri/edit/main/docs/${page.file}`)}`,
     "---",
     "",
     `<!-- docs/${page.file} の写し（scripts/sync-docs.mjs）。直すときは docs/ のほうを直す。 -->`,

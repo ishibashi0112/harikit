@@ -45,4 +45,4 @@ node packages/server-node/dist/src/main.js -c patchiri.config.json
 
 ## ほかの React アプリに埋め込む
 
-画面は React の部品（`PatchiriApp`）としても使えます。つなぐ先（`PatchiriClient`）を渡せば、WebForms の WebMethod など、Node 版サーバ以外にもつなげます。詳しくは [packages/web の README](https://github.com/ishibashi0112/harikit/tree/main/packages/web) を見てください。
+画面は React の部品（`PatchiriApp`）としても使えます。つなぐ先（`PatchiriClient`）を渡せば、WebForms の WebMethod など、Node 版サーバ以外にもつなげます。詳しくは [packages/web の README](https://github.com/ishibashi0112/patchiri/tree/main/packages/web) を見てください。
