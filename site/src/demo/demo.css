@@ -1,0 +1,427 @@
+/* デモのページだけの見た目。patchiri の画面（.pt-app）の色の変数に合わせる。 */
+
+.demo-page {
+  --demo-bg: #f6f7f9;
+  --demo-surface: #ffffff;
+  --demo-border: #dde1e6;
+  --demo-text: #1f2328;
+  --demo-muted: #66707a;
+  --demo-accent: #1f6feb;
+  --demo-danger: #c62828;
+  --demo-changed: #fff1b8;
+  --demo-guide-bg: #eef4ff;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  .demo-page {
+    --demo-bg: #15181c;
+    --demo-surface: #1d2126;
+    --demo-border: #343a42;
+    --demo-text: #e6e9ec;
+    --demo-muted: #9aa4ae;
+    --demo-accent: #4c8dff;
+    --demo-danger: #ff7b72;
+    --demo-changed: #4a3d0f;
+    --demo-guide-bg: #17243a;
+    color-scheme: dark;
+  }
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f6f7f9;
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #15181c;
+    color: #e6e9ec;
+  }
+}
+
+.demo-page {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--demo-bg);
+  color: var(--demo-text);
+}
+
+.demo-app {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 手順の帯 */
+
+.demo-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 6px 16px;
+  background: var(--demo-guide-bg);
+  border-bottom: 1px solid var(--demo-border);
+  font-size: 13px;
+}
+
+.demo-badge {
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--demo-accent);
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.demo-guide ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  padding: 0 0 0 1.2em;
+}
+
+.demo-guide li::marker {
+  font-weight: 700;
+  color: var(--demo-accent);
+}
+
+.demo-guide-note {
+  color: var(--demo-muted);
+  font-size: 12px;
+}
+
+.demo-guide a,
+.demo-boot a {
+  color: var(--demo-accent);
+}
+
+.demo-guide-close,
+.demo-toast-close,
+.demo-dialog-close {
+  margin-left: auto;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--demo-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* 見出しのバーに足すボタン */
+
+.demo-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.demo-menu {
+  position: relative;
+}
+
+.demo-menu-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  width: min(360px, calc(100vw - 32px));
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+}
+
+.demo-menu-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--demo-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.demo-menu-list button:hover,
+.demo-menu-list button:focus-visible {
+  background: var(--demo-guide-bg);
+}
+
+.demo-menu-list span {
+  color: var(--demo-muted);
+  font-size: 12px;
+}
+
+/* 知らせ */
+
+.demo-toasts {
+  position: fixed;
+  z-index: 30;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.demo-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--demo-surface);
+  color: var(--demo-text);
+  border: 1px solid var(--demo-border);
+  border-left: 4px solid var(--demo-accent);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+  font-size: 13px;
+  pointer-events: auto;
+}
+
+.demo-toast > span {
+  flex: 1;
+}
+
+.demo-toast .pt-link {
+  flex-shrink: 0;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* DB の中身 */
+
+.demo-dialog {
+  width: min(1100px, calc(100vw - 32px));
+  height: min(760px, calc(100dvh - 32px));
+  padding: 0;
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  background: var(--demo-bg);
+  color: var(--demo-text);
+}
+
+.demo-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.demo-dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.demo-dialog-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--demo-border);
+  background: var(--demo-surface);
+}
+
+.demo-dialog-head h2 {
+  font-size: 15px;
+}
+
+.demo-dialog-head .pt-tabs {
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+.demo-dialog-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.demo-table {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.demo-table-grid {
+  flex: 1;
+  min-height: 240px;
+}
+
+.ssg-body-cell.demo-changed,
+.demo-changed-sample {
+  background: var(--demo-changed);
+}
+
+.demo-sql {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.demo-sql-input {
+  min-height: min(320px, 40dvh);
+  padding: 8px 10px;
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  background: var(--demo-surface);
+  color: var(--demo-text);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize: vertical;
+}
+
+.demo-run {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-notices {
+  margin: 0;
+  padding: 8px 10px 8px 28px;
+  border-radius: 6px;
+  background: var(--demo-guide-bg);
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.demo-run-table {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+}
+
+.demo-run-table table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.demo-run-table th,
+.demo-run-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--demo-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.demo-run-table th {
+  position: sticky;
+  top: 0;
+  background: var(--demo-surface);
+}
+
+.demo-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-log summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  background: var(--demo-surface);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.demo-log pre {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--demo-surface);
+  font-size: 11px;
+}
+
+.demo-log-outcome {
+  font-weight: 700;
+}
+
+.demo-log-outcome--applied {
+  color: #1a7f37;
+}
+
+.demo-log-outcome--conflict,
+.demo-log-outcome--error {
+  color: var(--demo-danger);
+}
+
+/* 読み込み中 */
+
+.demo-center {
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.demo-boot {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.demo-muted {
+  color: #66707a;
+  font-size: 12px;
+}
+
+.demo-error {
+  color: #c62828;
+}
+
+.demo-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #dde1e6;
+  border-top-color: #1f6feb;
+  border-radius: 50%;
+  animation: demo-spin 0.9s linear infinite;
+}
+
+@keyframes demo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-spinner {
+    animation-duration: 3s;
+  }
+}

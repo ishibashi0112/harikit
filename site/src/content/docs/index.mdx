@@ -1,0 +1,46 @@
+---
+title: patchiri
+description: Excel やグリッドの値を検証して、DB のテーブルにぱっちりパッチを当てる道具
+template: splash
+hero:
+  tagline: Excel やグリッドの値を検証して、DB のテーブルにぱっちりパッチを当てる道具。自社開発の業務システムの、マスタの一括更新のために。
+  actions:
+    - text: デモを触る
+      link: /demo/
+      icon: right-arrow
+    - text: patchiri とは
+      link: /guide/what/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/ishibashi0112/harikit
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <Card title="貼って、検証する" icon="document">
+    Excel から表に貼るか、Excel / CSV を取り込みます。DB の定義（型、桁、NOT NULL、外部キー）と業務ルールで全部のセルを確かめ、誤りのセルを示します。`2024/4/1` や `¥1,200` のような Excel の表示のままの値も読めます。
+  </Card>
+  <Card title="差分が承認資料になる" icon="list-format">
+    今の DB の値と並べて「変わる」「同じ」「キーなし」に分けます。差分の CSV と反映計画をそのまま承認に回せます。
+  </Card>
+  <Card title="止まる反映、戻せる記録" icon="approve-check">
+    反映は 1 トランザクション。差分を取った後で DB が変わっていたら、何も反映せずに止まります。実行した SQL と、上書きしない戻し SQL が残ります。
+  </Card>
+  <Card title="SQL は人が書かない" icon="setting">
+    サーバは許可リストのテーブルと列だけを扱い、パラメータ付きの UPDATE を自分で組み立てます。反映の API に SQL を渡す口はありません。
+  </Card>
+</CardGrid>
+
+## 今つなげる DB とサーバ
+
+<CardGrid>
+  <LinkCard title="SQL Server" description="Node 版、C# 版、VB.NET 版" href="/databases/sqlserver/" />
+  <LinkCard title="Oracle" description="Node 版（Oracle Client は不要）" href="/databases/oracle/" />
+  <LinkCard title="PostgreSQL" description="Node 版（14 以降）" href="/databases/postgresql/" />
+  <LinkCard title="MySQL / MariaDB" description="Node 版（MySQL 8.0、MariaDB 10.11 以降）" href="/databases/mysql/" />
+  <LinkCard title="Node 版サーバ" description="手元で API と画面を配る" href="/servers/node/" />
+  <LinkCard title="WebForms に載せる" description="既存の ASP.NET アプリに WebMethod として足す" href="/servers/webforms/" />
+</CardGrid>

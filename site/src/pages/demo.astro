@@ -1,0 +1,18 @@
+---
+// デモ。ドキュメントの枠（Starlight）の外で、画面いっぱいに出す。
+import Demo from "../demo/Demo.tsx";
+---
+
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="patchiri のデモ。Excel の値を検証して、ブラウザの中の PostgreSQL にパッチを当てる。" />
+    <meta name="referrer" content="no-referrer" />
+    <title>デモ | patchiri</title>
+  </head>
+  <body>
+    <Demo client:only="react" />
+  </body>
+</html>
