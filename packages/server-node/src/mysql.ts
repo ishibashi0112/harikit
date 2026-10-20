@@ -79,7 +79,9 @@ const CHARSETS: Record<string, string> = {
   gb2312: "gbk",
   big5: "big5",
   euckr: "euc-kr",
-  utf16: "utf-16le",
+  // MySQL の utf16 はビッグエンディアン。
+  utf16: "utf-16be",
+  utf16le: "utf-16le",
 };
 
 /** 整数の型の範囲（signed、unsigned）。 */
@@ -596,7 +598,7 @@ export class MySqlDialect implements Dialect {
     const lines = [head];
     if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。先に全部の行をロックして確かめ、1 行でも見つからないか値が変わっていたら、何も反映しない（最後の行に結果が出る）。");
     else lines.push("-- 今の値が harikit で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、最後の行に出す。");
-    lines.push("-- mysql コマンド、MySQL Workbench、DBeaver、HeidiSQL などで流せる素の SQL。", "SET NAMES utf8mb4;");
+    lines.push("-- mysql コマンド、MySQL Workbench、DBeaver、HeidiSQL などで流せる素の SQL。エラーが出たらそこで止める（飛ばして続けると、最後の COMMIT で一部の行だけ反映される）。", "SET NAMES utf8mb4;");
     const count = (u: ScriptUpdate) => `SELECT COUNT(*) INTO @harikit_n FROM ${quoteTable(m)} WHERE ${this.conditions(m, u)} FOR UPDATE;`;
     const note = (u: ScriptUpdate) => `@harikit_ng = IF(@harikit_n = 1, @harikit_ng, CONCAT_WS(', ', @harikit_ng, ${quoteString(scriptKeyText(u.key))}))`;
     if (kind === "apply") {

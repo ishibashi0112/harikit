@@ -82,7 +82,7 @@ test("人が読む SQL: 先に全部の行をロックして数え、1 行でも
       [
         "-- harikit x",
         "-- 1 つのトランザクションで流す。先に全部の行をロックして確かめ、1 行でも見つからないか値が変わっていたら、何も反映しない（最後の行に結果が出る）。",
-        "-- mysql コマンド、MySQL Workbench、DBeaver、HeidiSQL などで流せる素の SQL。",
+        "-- mysql コマンド、MySQL Workbench、DBeaver、HeidiSQL などで流せる素の SQL。エラーが出たらそこで止める（飛ばして続けると、最後の COMMIT で一部の行だけ反映される）。",
         "SET NAMES utf8mb4;",
         "SET @harikit_ok = 1, @harikit_ng = NULL;",
         "START TRANSACTION;",

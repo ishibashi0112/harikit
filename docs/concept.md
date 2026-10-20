@@ -109,7 +109,7 @@
 - [x] 入力の揺れ（全角半角、空白）を自動で直すか、エラーにするか → 文字列の列は直さず、数・日付の列は Excel の表示の形を読み替えて見せる（2026-10-17、[5 章](#入力の揺れと-excel-の表示の形2026-10-17-決定)）
 - [ ] 承認をツールの中で持つか、外（メールや稟議）に任せるか
 - [ ] 最初の UI をどれにするか（Excel 取込か、spreadsheet-grid 貼付か）
-- [ ] 対応 DB の順番（SQL Server と Oracle から、次に PostgreSQL と MySQL）
+- [x] 対応 DB の順番（SQL Server と Oracle から、次に PostgreSQL と MySQL）→ PostgreSQL と MySQL / MariaDB を Node 版サーバに足した（2026-10-20）。C# 版と VB.NET 版、SQLite はまだ
 - [ ] ashiato と共通にできる部分（DB アダプタ、Excel 出力）を共有するか
 - [ ] API 3 本の詳しい形（JSON の形、エラーの返し方、認証は既存アプリに任せるか）→ [api-spec.md](api-spec.md) で検討中
 
