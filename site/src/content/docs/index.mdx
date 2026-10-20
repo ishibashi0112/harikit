@@ -3,21 +3,20 @@ title: patchiri
 description: Excel やグリッドの値を検証して、DB のテーブルにぱっちりパッチを当てる道具
 template: splash
 hero:
-  tagline: Excel やグリッドの値を検証して、DB のテーブルにぱっちりパッチを当てる道具。自社開発の業務システムの、マスタの一括更新のために。
+  tagline: Excel やグリッドの値を検証して、<br />DB のテーブルにぱっちりパッチを当てる道具。
   actions:
     - text: デモを触る
       link: /demo/
       icon: right-arrow
     - text: patchiri とは
       link: /guide/what/
-      variant: minimal
-    - text: GitHub
-      link: https://github.com/ishibashi0112/patchiri
-      icon: external
-      variant: minimal
+      variant: secondary
 ---
 
 import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+import DemoPreview from "../../components/DemoPreview.astro";
+
+<DemoPreview />
 
 <CardGrid>
   <Card title="貼って、検証する" icon="document">

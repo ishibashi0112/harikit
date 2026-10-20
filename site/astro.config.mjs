@@ -15,6 +15,12 @@ export default defineConfig({
       social: [{ icon: "github", label: "GitHub", href: "https://github.com/ishibashi0112/patchiri" }],
       editLink: { baseUrl: "https://github.com/ishibashi0112/patchiri/edit/main/site/" },
       lastUpdated: false,
+      logo: { src: "./src/assets/logo.svg" },
+      favicon: "/favicon.svg",
+      // 見出しの丸文字は手元に置く（Google Fonts などの外部には読みに行かない）。
+      customCss: ["@fontsource/zen-maru-gothic/700.css", "@fontsource/zen-maru-gothic/900.css", "./src/styles/theme.css"],
+      components: { Hero: "./src/components/Hero.astro" },
+      expressiveCode: { styleOverrides: { borderRadius: "12px" } },
       sidebar: [
         { label: "デモを触る", link: "/demo/" },
         { label: "はじめに", items: ["guide/what", "guide/flow", "guide/demo"] },

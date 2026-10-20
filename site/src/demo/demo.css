@@ -1,29 +1,34 @@
-/* デモのページだけの見た目。patchiri の画面（.pt-app）の色の変数に合わせる。 */
+/*
+ * デモのページだけの見た目。サイトと同じく、白地に青緑、ほどよく丸い角。
+ * patchiri の画面（.pt-app）と spreadsheet-grid（.ssg-root）は、どちらも変数と角の丸みだけをここで上書きする（パッケージには手を入れない）。
+ */
 
 .demo-page {
-  --demo-bg: #f6f7f9;
+  --demo-bg: #f8fafc;
   --demo-surface: #ffffff;
-  --demo-border: #dde1e6;
-  --demo-text: #1f2328;
-  --demo-muted: #66707a;
-  --demo-accent: #1f6feb;
-  --demo-danger: #c62828;
-  --demo-changed: #fff1b8;
-  --demo-guide-bg: #eef4ff;
+  --demo-border: #e2e8f0;
+  --demo-text: #0f172a;
+  --demo-muted: #64748b;
+  --demo-accent: #0b7f73;
+  --demo-accent-low: #ddf3ef;
+  --demo-danger: #c2412d;
+  --demo-changed: #fef0d2;
+  --demo-guide-bg: #ecf8f5;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   .demo-page {
-    --demo-bg: #15181c;
-    --demo-surface: #1d2126;
-    --demo-border: #343a42;
-    --demo-text: #e6e9ec;
-    --demo-muted: #9aa4ae;
-    --demo-accent: #4c8dff;
-    --demo-danger: #ff7b72;
-    --demo-changed: #4a3d0f;
-    --demo-guide-bg: #17243a;
+    --demo-bg: #11151b;
+    --demo-surface: #1a2029;
+    --demo-border: #333b47;
+    --demo-text: #e8edf3;
+    --demo-muted: #9aa6b6;
+    --demo-accent: #2bb3a3;
+    --demo-accent-low: #0b3d38;
+    --demo-danger: #ff8a7a;
+    --demo-changed: #3a2e12;
+    --demo-guide-bg: #0f2622;
     color-scheme: dark;
   }
 }
@@ -35,16 +40,16 @@ body {
 }
 
 body {
-  background: #f6f7f9;
-  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+  background: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", sans-serif;
   font-size: 14px;
   line-height: 1.5;
 }
 
 @media (prefers-color-scheme: dark) {
   body {
-    background: #15181c;
-    color: #e6e9ec;
+    background: #11151b;
+    color: #e8edf3;
   }
 }
 
@@ -59,6 +64,144 @@ body {
 .demo-app {
   flex: 1;
   min-height: 0;
+}
+
+/* patchiri の画面の色と角 */
+
+.demo-page .pt-app {
+  --pt-bg: #f8fafc;
+  --pt-surface: #ffffff;
+  --pt-border: #e2e8f0;
+  --pt-text: #0f172a;
+  --pt-muted: #64748b;
+  --pt-accent: #0b7f73;
+  --pt-accent-text: #ffffff;
+  --pt-danger: #c2412d;
+  --pt-danger-bg: #fdece9;
+  --pt-ok: #0b6b61;
+  --pt-ok-bg: #e6f6f3;
+  --pt-warn: #8a5300;
+  --pt-warn-bg: #fef0d2;
+  --pt-change-bg: #e3f4f1;
+  --pt-before-bg: #f1f5f9;
+  --pt-notfound-bg: #fef0d2;
+  --pt-head-bg: #f1f5f4;
+  --pt-read: #3157c9;
+  font-family: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  .demo-page .pt-app {
+    --pt-bg: #11151b;
+    --pt-surface: #1a2029;
+    --pt-border: #333b47;
+    --pt-text: #e8edf3;
+    --pt-muted: #9aa6b6;
+    --pt-accent: #2bb3a3;
+    --pt-accent-text: #06201d;
+    --pt-danger: #ff8a7a;
+    --pt-danger-bg: #3a1f1c;
+    --pt-ok: #5fd3bf;
+    --pt-ok-bg: #0f2e2a;
+    --pt-warn: #e9b949;
+    --pt-warn-bg: #3a2e12;
+    --pt-change-bg: #12332f;
+    --pt-before-bg: #232a34;
+    --pt-notfound-bg: #3a2e12;
+    --pt-head-bg: #212833;
+    --pt-read: #7da2ff;
+  }
+}
+
+.demo-page .pt-bar h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Zen Maru Gothic", sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.demo-page .pt-bar h1::before {
+  content: "";
+  width: 30px;
+  height: 30px;
+  background: var(--demo-logo) center / contain no-repeat;
+}
+
+.demo-page .pt-button,
+.demo-page .pt-field select,
+.demo-page .pt-note input,
+.demo-page .pt-confirm,
+.demo-page .pt-banner,
+.demo-page .pt-issues {
+  border-radius: 10px;
+}
+
+.demo-page .pt-button {
+  font-weight: 700;
+}
+
+.demo-page .pt-card {
+  border-radius: 16px;
+}
+
+.demo-page .pt-step {
+  border-radius: 8px;
+}
+
+.demo-page .pt-tabs [role="tab"] {
+  border-radius: 9px;
+}
+
+.demo-page .pt-count {
+  border-radius: 12px;
+}
+
+.demo-page .pt-tag {
+  border-radius: 6px;
+}
+
+/* 表（spreadsheet-grid）の色と角。セルは四角のまま、外枠と見出しだけ合わせる。 */
+
+.demo-page .ssg-root {
+  --ssg-radius: 12px;
+  --ssg-accent: #0b7f73;
+  --ssg-accent-strong: #075e55;
+  --ssg-divider: #e2e8f0;
+  --ssg-header-bg: #f1f5f4;
+  --ssg-header-hover-bg: #e3eeec;
+  --ssg-header-text: #334155;
+  --ssg-select-bg: #ddf3ef;
+  --ssg-select-bg-hover: #c9ece6;
+  --ssg-selection-fill: #0b7f7314;
+  --ssg-icon-active-bg: #ddf3ef;
+  --ssg-icon-active-bg-hover: #c9ece6;
+  --ssg-icon-active-border: #a7dcd3;
+  --ssg-find-mark-current-bg: #0b7f734d;
+  /* 状態の印の「変わる」（info）も青緑に */
+  --ssg-cf-info: #0b7f73;
+  --ssg-cf-info-bg: #ddf3ef;
+}
+
+.demo-page .ssg-root.ssg-theme-dark {
+  --ssg-accent: #2bb3a3;
+  --ssg-accent-strong: #5fd3bf;
+  --ssg-divider: #333b47;
+  --ssg-cell-bg: #161b22;
+  --ssg-header-bg: #1f2630;
+  --ssg-header-hover-bg: #283140;
+  --ssg-header-text: #c3cbd6;
+  --ssg-select-bg: #12332f;
+  --ssg-select-bg-hover: #184440;
+  --ssg-selection-fill: #2bb3a321;
+  --ssg-icon-active-bg: #12332f;
+  --ssg-icon-active-bg-hover: #184440;
+  --ssg-icon-active-border: #1f5a53;
+  --ssg-find-mark-current-bg: #2bb3a359;
+  --ssg-cf-info: #5fd3bf;
+  --ssg-cf-info-bg: #12332f;
 }
 
 /* 手順の帯 */
@@ -76,7 +219,7 @@ body {
 
 .demo-badge {
   padding: 1px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--demo-accent);
   color: #ffffff;
   font-size: 12px;
@@ -142,7 +285,7 @@ body {
   list-style: none;
   background: var(--demo-surface);
   border: 1px solid var(--demo-border);
-  border-radius: 8px;
+  border-radius: 12px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
 }
 
@@ -153,7 +296,7 @@ body {
   width: 100%;
   padding: 8px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: none;
   color: var(--demo-text);
   text-align: left;
@@ -194,7 +337,7 @@ body {
   color: var(--demo-text);
   border: 1px solid var(--demo-border);
   border-left: 4px solid var(--demo-accent);
-  border-radius: 8px;
+  border-radius: 12px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
   font-size: 13px;
   pointer-events: auto;
@@ -202,6 +345,11 @@ body {
 
 .demo-toast > span {
   flex: 1;
+}
+
+.demo-toast-face {
+  flex-shrink: 0;
+  margin: -4px 0;
 }
 
 .demo-toast .pt-link {
@@ -217,7 +365,7 @@ body {
   height: min(760px, calc(100dvh - 32px));
   padding: 0;
   border: 1px solid var(--demo-border);
-  border-radius: 10px;
+  border-radius: 16px;
   background: var(--demo-bg);
   color: var(--demo-text);
 }
@@ -287,7 +435,7 @@ body {
   min-height: min(320px, 40dvh);
   padding: 8px 10px;
   border: 1px solid var(--demo-border);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--demo-surface);
   color: var(--demo-text);
   font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -303,7 +451,7 @@ body {
 .demo-notices {
   margin: 0;
   padding: 8px 10px 8px 28px;
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--demo-guide-bg);
   font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
@@ -312,7 +460,7 @@ body {
   max-height: 320px;
   overflow: auto;
   border: 1px solid var(--demo-border);
-  border-radius: 6px;
+  border-radius: 10px;
 }
 
 .demo-run-table table {
@@ -349,7 +497,7 @@ body {
   gap: 4px 12px;
   padding: 6px 10px;
   border: 1px solid var(--demo-border);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--demo-surface);
   cursor: pointer;
   font-size: 13px;
@@ -360,7 +508,7 @@ body {
   padding: 8px 10px;
   max-height: 320px;
   overflow: auto;
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--demo-surface);
   font-size: 11px;
 }
@@ -397,19 +545,29 @@ body {
 }
 
 .demo-muted {
-  color: #66707a;
+  color: #64748b;
   font-size: 12px;
 }
 
 .demo-error {
-  color: #c62828;
+  color: #c2412d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .demo-muted {
+    color: #9aa6b6;
+  }
+
+  .demo-error {
+    color: #ff8a7a;
+  }
 }
 
 .demo-spinner {
   width: 28px;
   height: 28px;
-  border: 3px solid #dde1e6;
-  border-top-color: #1f6feb;
+  border: 3px solid #e2e8f0;
+  border-top-color: #0b7f73;
   border-radius: 50%;
   animation: demo-spin 0.9s linear infinite;
 }

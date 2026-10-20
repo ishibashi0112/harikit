@@ -1,7 +1,7 @@
 // デモのページ。ブラウザの中の PostgreSQL（PGlite）に、patchiri の Handlers と PostgreSQL の方言をそのまま載せ、
 // 画面（PatchiriApp）の通信をそこへつなぐ。サーバも DB も要らず、データはこのタブの外に出ない。
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { PatchiriClient } from "patchiri-core";
 import { PatchiriApp, type PatchiriAppHandle } from "patchiri-web";
 import { Handlers, type ApplyLogEntry } from "patchiri-server-node/handlers";
@@ -10,6 +10,9 @@ import { DemoDb } from "./db.js";
 import { DbDialog, type DbTab } from "./DbDialog.js";
 import { OTHER_EDITS, RULES, SAMPLES, TARGETS, type Sample } from "./seed.js";
 import { localFetch, type Exchange } from "./transport.js";
+import { Mascot } from "../mascot/Mascot.js";
+import logoUrl from "../assets/logo.svg?url";
+import "@fontsource/zen-maru-gothic/900.css";
 import "@ishibashi0112/spreadsheet-grid/style.css";
 import "patchiri-web/style.css";
 import "./demo.css";
@@ -26,6 +29,8 @@ interface Toast {
   id: number;
   text: ReactNode;
   action?: { label: string; run: () => void };
+  /** うまくいった知らせには、マスコットのウインクを添える。 */
+  wink?: boolean;
 }
 
 const RULES_FILE = { name: "patchiri.rules.json（デモ）", text: JSON.stringify(RULES, null, 2) };
@@ -58,9 +63,9 @@ export default function Demo() {
   const appRef = useRef<PatchiriAppHandle>(null);
   const handlersRef = useRef<Handlers | null>(null);
 
-  const toast = useCallback((text: ReactNode, action?: Toast["action"]) => {
+  const toast = useCallback((text: ReactNode, action?: Toast["action"], wink?: boolean) => {
     const id = ++toastId;
-    setToasts((t) => [...t.slice(-2), { id, text, ...(action && { action }) }]);
+    setToasts((t) => [...t.slice(-2), { id, text, ...(action && { action }), ...(wink && { wink }) }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 12_000);
   }, []);
 
@@ -77,7 +82,7 @@ export default function Demo() {
       }
       if (ok && x.request.mode === "execute") {
         setChecked(null);
-        toast(<>反映しました。「DB の中身」で変わった値を確かめて、戻し SQL を流すと元に戻せます。</>, { label: "DB の中身を開く", run: () => setDialog("product") });
+        toast(<>反映しました。「DB の中身」で変わった値を確かめて、戻し SQL を流すと元に戻せます。</>, { label: "DB の中身を開く", run: () => setDialog("product") }, true);
       }
     },
     [toast],
@@ -184,6 +189,7 @@ export default function Demo() {
       <div className="demo-toasts" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className="demo-toast">
+            {t.wink && <Mascot face="wink" size={40} className="demo-toast-face" />}
             <span>{t.text}</span>
             {t.action && (
               <button
@@ -207,7 +213,7 @@ export default function Demo() {
   );
 
   return (
-    <div className="demo-page">
+    <div className="demo-page" style={{ "--demo-logo": `url("${logoUrl}")` } as CSSProperties}>
       {guide && <Guide onClose={() => setGuide(false)} />}
       <div className="demo-app">
         <PatchiriApp ref={appRef} client={client} serverLabel="ブラウザの中の PostgreSQL（PGlite）" initialRules={RULES_FILE} headerExtra={tools} />
@@ -283,6 +289,7 @@ function Loading({ step }: { step: string }) {
   return (
     <div className="demo-center">
       <div className="demo-boot">
+        <Mascot size={96} />
         <div className="demo-spinner" aria-hidden="true" />
         <p>{step}</p>
         <p className="demo-muted">ブラウザの中で PostgreSQL を動かすので、最初だけ数 MB を読み込みます。データはこのタブの外に出ません。</p>

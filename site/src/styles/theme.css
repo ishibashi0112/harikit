@@ -1,0 +1,119 @@
+/*
+ * サイトの見た目。白地に青緑、見出しは丸文字（Zen Maru Gothic）、角はほどよく丸く。
+ * Starlight の色の変数を上書きする。:root がダーク、[data-theme="light"] がライト（Starlight の決まり）。
+ * --pt-* はこのサイトで足した変数（トップのデモのイメージと、丸文字の指定で使う）。
+ */
+
+:root {
+  --sl-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", sans-serif;
+  --pt-font-round: "Zen Maru Gothic", var(--__sl-font);
+
+  --sl-color-accent-low: #0b3d38;
+  --sl-color-accent: #2bb3a3;
+  --sl-color-accent-high: #9ee6dc;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e8edf3;
+  --sl-color-gray-2: #c3cbd6;
+  --sl-color-gray-3: #8d99aa;
+  --sl-color-gray-4: #5b6676;
+  --sl-color-gray-5: #333b47;
+  --sl-color-gray-6: #1a2029;
+  --sl-color-black: #11151b;
+
+  --pt-surface-2: #161b22;
+  --pt-head-bg: #1f2630;
+  --pt-change-bg: #12332f;
+  --pt-danger: #ff8a7a;
+  --pt-danger-text: #2a0d08;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #ddf3ef;
+  --sl-color-accent: #0b7f73;
+  --sl-color-accent-high: #075e55;
+  --sl-color-white: #0f172a;
+  --sl-color-gray-1: #1e293b;
+  --sl-color-gray-2: #334155;
+  --sl-color-gray-3: #475569;
+  --sl-color-gray-4: #64748b;
+  --sl-color-gray-5: #cbd5e1;
+  --sl-color-gray-6: #e2e8f0;
+  --sl-color-gray-7: #f1f5f9;
+  --sl-color-black: #ffffff;
+  --sl-color-bg-nav: #ffffff;
+
+  --pt-surface-2: #f8fafc;
+  --pt-head-bg: #f1f5f4;
+  --pt-change-bg: #ecf8f5;
+  --pt-danger: #c2412d;
+  --pt-danger-text: #ffffff;
+}
+
+/* 見出しとロゴの文字は丸文字 */
+
+.site-title,
+h1#_top,
+.sl-markdown-content :is(h1, h2, h3, h4):not(:where(.not-content *)),
+.card .title,
+.sl-link-card .title {
+  font-family: var(--pt-font-round);
+  font-weight: 700;
+}
+
+.site-title {
+  gap: 0.5rem;
+  font-size: var(--sl-text-xl);
+  font-weight: 900;
+  color: var(--sl-color-white);
+}
+
+/* 角の丸み */
+
+.sl-link-button {
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.sl-link-button.primary {
+  box-shadow: 0 6px 16px rgb(11 127 115 / 0.22);
+}
+
+.card {
+  --sl-card-border: var(--sl-color-accent);
+  --sl-card-bg: var(--sl-color-accent-low);
+  border-color: var(--sl-color-hairline-light);
+  border-radius: 16px;
+}
+
+.card .icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0.4rem;
+  border-radius: 10px;
+  color: var(--sl-color-accent-high);
+}
+
+.sl-link-card {
+  border-color: var(--sl-color-hairline-light);
+  border-radius: 16px;
+}
+
+.sl-link-card:hover {
+  border-color: var(--sl-color-accent);
+}
+
+site-search button[data-open-modal] {
+  border-radius: 10px;
+}
+
+.pagination-links a {
+  border-radius: 16px;
+}
+
+.starlight-aside {
+  border-radius: 12px;
+}
+
+.sidebar-content a {
+  border-radius: 8px;
+}
