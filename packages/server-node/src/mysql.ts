@@ -14,8 +14,8 @@
 // - sql_mode が厳格でないと、桁あふれや表せない字が黙って切り詰められる。反映の前にセッションを STRICT_ALL_TABLES にする。
 
 import mysql from "mysql2/promise";
-import type { ColumnType, Row, Value } from "@harikit/core";
-import { canonical, DATE_RE, DATETIME_RE, DECIMAL_RE, TIME_RE } from "@harikit/core";
+import type { ColumnType, Row, Value } from "patchiri-core";
+import { canonical, DATE_RE, DATETIME_RE, DECIMAL_RE, TIME_RE } from "patchiri-core";
 import type { MySqlConnection } from "./config.js";
 import { DbError, LOCKED_MESSAGE, scriptKeyText, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
 
@@ -589,7 +589,7 @@ export class MySqlDialect implements Dialect {
 
   /**
    * MySQL はストアドプログラムの外で IF や SIGNAL を使えないので、素の SQL で 1 トランザクションにする。
-   * 反映は、先に全部の行を FOR UPDATE でロックして数え、1 行でも当たらなければどの UPDATE も当たらない条件（@harikit_ok）にする
+   * 反映は、先に全部の行を FOR UPDATE でロックして数え、1 行でも当たらなければどの UPDATE も当たらない条件（@patchiri_ok）にする
    * （行が合わないときは、流し続けるクライアントでも半端に反映しない）。最後の SELECT に結果を出す。
    * 途中の文が DB のエラーになったときは、MySQL はその文だけを戻して続けるので、エラーで止まるクライアントで流す前提（先頭のコメントに書く）。
    * 戻しは当たらなかった行を飛ばし、最後の SELECT に出す。
@@ -598,26 +598,26 @@ export class MySqlDialect implements Dialect {
     const m = meta as MyMeta;
     const lines = [head];
     if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。先に全部の行をロックして確かめ、1 行でも見つからないか値が変わっていたら、何も反映しない（最後の行に結果が出る）。");
-    else lines.push("-- 今の値が harikit で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、最後の行に出す。");
+    else lines.push("-- 今の値が patchiri で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、最後の行に出す。");
     lines.push("-- mysql コマンド、MySQL Workbench、DBeaver、HeidiSQL などで流せる素の SQL。エラーが出たらそこで止める（飛ばして続けると、最後の COMMIT で一部の行だけ反映される）。", "SET NAMES utf8mb4;");
-    const count = (u: ScriptUpdate) => `SELECT COUNT(*) INTO @harikit_n FROM ${quoteTable(m)} WHERE ${this.conditions(m, u)} FOR UPDATE;`;
-    const note = (u: ScriptUpdate) => `@harikit_ng = IF(@harikit_n = 1, @harikit_ng, CONCAT_WS(', ', @harikit_ng, ${quoteString(scriptKeyText(u.key))}))`;
+    const count = (u: ScriptUpdate) => `SELECT COUNT(*) INTO @patchiri_n FROM ${quoteTable(m)} WHERE ${this.conditions(m, u)} FOR UPDATE;`;
+    const note = (u: ScriptUpdate) => `@patchiri_ng = IF(@patchiri_n = 1, @patchiri_ng, CONCAT_WS(', ', @patchiri_ng, ${quoteString(scriptKeyText(u.key))}))`;
     if (kind === "apply") {
-      lines.push("SET @harikit_ok = 1, @harikit_ng = NULL;", "START TRANSACTION;");
-      for (const u of updates) lines.push(count(u), `SET @harikit_ok = @harikit_ok AND @harikit_n = 1, ${note(u)};`);
-      for (const u of updates) lines.push(`UPDATE ${quoteTable(m)} SET ${this.assigns(m, u)} WHERE ${this.conditions(m, u)} AND @harikit_ok = 1;`);
+      lines.push("SET @patchiri_ok = 1, @patchiri_ng = NULL;", "START TRANSACTION;");
+      for (const u of updates) lines.push(count(u), `SET @patchiri_ok = @patchiri_ok AND @patchiri_n = 1, ${note(u)};`);
+      for (const u of updates) lines.push(`UPDATE ${quoteTable(m)} SET ${this.assigns(m, u)} WHERE ${this.conditions(m, u)} AND @patchiri_ok = 1;`);
       lines.push(
         "COMMIT;",
-        `SELECT CONVERT(IF(@harikit_ok = 1, 'harikit: ${updates.length} 行を反映しました', CONCAT('harikit: 行が見つからないか、値が変わっています（', @harikit_ng, '）。何も反映していません')) USING utf8mb4) AS \`harikit\`;`,
+        `SELECT CONVERT(IF(@patchiri_ok = 1, 'patchiri: ${updates.length} 行を反映しました', CONCAT('patchiri: 行が見つからないか、値が変わっています（', @patchiri_ng, '）。何も反映していません')) USING utf8mb4) AS \`patchiri\`;`,
       );
     } else {
-      lines.push("SET @harikit_done = 0, @harikit_ng = NULL;", "START TRANSACTION;");
+      lines.push("SET @patchiri_done = 0, @patchiri_ng = NULL;", "START TRANSACTION;");
       for (const u of updates) {
-        lines.push(count(u), `UPDATE ${quoteTable(m)} SET ${this.assigns(m, u)} WHERE ${this.conditions(m, u)};`, `SET @harikit_done = @harikit_done + @harikit_n, ${note(u)};`);
+        lines.push(count(u), `UPDATE ${quoteTable(m)} SET ${this.assigns(m, u)} WHERE ${this.conditions(m, u)};`, `SET @patchiri_done = @patchiri_done + @patchiri_n, ${note(u)};`);
       }
       lines.push(
         "COMMIT;",
-        `SELECT CONVERT(CONCAT('harikit: ', @harikit_done, ' / ${updates.length} 行を戻しました', IFNULL(CONCAT('。戻していない行（後から別の更新が入った）: ', @harikit_ng), '')) USING utf8mb4) AS \`harikit\`;`,
+        `SELECT CONVERT(CONCAT('patchiri: ', @patchiri_done, ' / ${updates.length} 行を戻しました', IFNULL(CONCAT('。戻していない行（後から別の更新が入った）: ', @patchiri_ng), '')) USING utf8mb4) AS \`patchiri\`;`,
       );
     }
     return lines.join("\n") + "\n";

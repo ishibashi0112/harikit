@@ -1,6 +1,6 @@
--- harikit の例で使うテーブル。PostgreSQL 用（14 以降）。
---   psql -h localhost -U harikit -d harikit -f setup.sql
--- 名前は "" で囲まないので小文字になる（m_product、productcode など）。harikit は列名の大文字小文字を区別しないので、
+-- patchiri の例で使うテーブル。PostgreSQL 用（14 以降）。
+--   psql -h localhost -U patchiri -d patchiri -f setup.sql
+-- 名前は "" で囲まないので小文字になる（m_product、productcode など）。patchiri は列名の大文字小文字を区別しないので、
 -- SQL Server の例と同じ Excel（見出しが ProductCode など）がそのまま使える。
 SET client_encoding = 'UTF8';
 DROP TABLE IF EXISTS M_Product, M_Category;

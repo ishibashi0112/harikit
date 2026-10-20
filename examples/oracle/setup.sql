@@ -1,6 +1,6 @@
--- harikit の例で使うテーブル。Oracle 用（12c 以降）。
---   sqlplus harikit/パスワード@localhost:1521/FREEPDB1 @setup.sql
--- 列名は "" で囲まないので大文字になる（PRODUCTCODE など）。harikit は列名の大文字小文字を区別しないので、
+-- patchiri の例で使うテーブル。Oracle 用（12c 以降）。
+--   sqlplus patchiri/パスワード@localhost:1521/FREEPDB1 @setup.sql
+-- 列名は "" で囲まないので大文字になる（PRODUCTCODE など）。patchiri は列名の大文字小文字を区別しないので、
 -- SQL Server の例と同じ Excel（見出しが ProductCode など）がそのまま使える。
 -- SQL*Plus で日本語を入れるときは、端末の文字コードに NLS_LANG を合わせる（例 Japanese_Japan.AL32UTF8）。
 SET DEFINE OFF

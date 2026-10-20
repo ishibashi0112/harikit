@@ -1,5 +1,5 @@
-// 実際の Oracle で通すテスト。HARIKIT_TEST_ORACLE があるときだけ動く。
-//   HARIKIT_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"harikit","password":"..."}' npm test
+// 実際の Oracle で通すテスト。PATCHIRI_TEST_ORACLE があるときだけ動く。
+//   PATCHIRI_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"patchiri","password":"..."}' npm test
 // テスト用のテーブルは user のスキーマに作り直す。
 
 import { after, before, test } from "node:test";
@@ -8,16 +8,16 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import oracledb from "oracledb";
-import { buildApplyRequest, HarikitClient, prepare, type ApplyResponse, type Failure, type Sheet } from "@harikit/core";
+import { buildApplyRequest, PatchiriClient, prepare, type ApplyResponse, type Failure, type Sheet } from "patchiri-core";
 import { startServer, type RunningServer, type ServerConfig } from "../src/index.js";
 
-const env = process.env.HARIKIT_TEST_ORACLE;
-const skip = env ? false : "HARIKIT_TEST_ORACLE がないので飛ばす";
+const env = process.env.PATCHIRI_TEST_ORACLE;
+const skip = env ? false : "PATCHIRI_TEST_ORACLE がないので飛ばす";
 const conn = env ? (JSON.parse(env) as { connectString: string; user: string; password: string }) : undefined;
 
 let admin: oracledb.Connection;
 let server: RunningServer;
-let client: HarikitClient;
+let client: PatchiriClient;
 /** BOOLEAN の列は 23ai から。 */
 let hasBoolean = false;
 
@@ -109,10 +109,10 @@ before(async () => {
       kind: { table: `${conn.user}.kind`, access: "read", readable: ["kind_code"] },
       legacy: { table: "legacy_syn", access: "update", readable: ["cd", "nm", "kana"], updatable: ["nm", "kana"] },
     },
-    logDir: await mkdtemp(join(tmpdir(), "harikit-log-")),
+    logDir: await mkdtemp(join(tmpdir(), "patchiri-log-")),
   };
   server = await startServer(config, { token: "test", web: false });
-  client = new HarikitClient({ baseUrl: server.url, token: "test" });
+  client = new PatchiriClient({ baseUrl: server.url, token: "test" });
 });
 
 after(async () => {
@@ -188,7 +188,7 @@ test("CHAR のキーは末尾の空白を詰めずに入れても当たる（シ
     { CD: "L1    ", NM: "new", KANA: "ab  " },
     { CD: "L22   ", NM: "new2", KANA: "cd  " },
   ]);
-  assert.deepEqual(await runScript(done.undoScript), ["harikit: 2 / 2 行を戻しました"]);
+  assert.deepEqual(await runScript(done.undoScript), ["patchiri: 2 / 2 行を戻しました"]);
   assert.deepEqual(await q(`SELECT NM, KANA FROM LEGACY ORDER BY CD`), [{ NM: "old", KANA: "ab  " }, { NM: "old2", KANA: null }]);
 });
 
@@ -232,13 +232,13 @@ test("Excel 相当の取込から反映、衝突、戻しまで", { skip }, asyn
   const a = await one(`SELECT TO_CHAR(PRICE) AS PRICE, TO_CHAR(BIG) AS BIG, TO_CHAR(STAMP, 'YYYY-MM-DD HH24:MI:SS.FF3') AS STAMP,
       TO_CHAR(RELEASED, 'YYYY-MM-DD HH24:MI:SS') AS RELEASED, KIND_CODE, RATE FROM ITEM WHERE CODE = 'A001'`);
   assert.deepEqual(a, { PRICE: "130", BIG: "9007199254740995", STAMP: "2026-10-18 08:00:00.000", RELEASED: "2024-04-02 10:30:00", KIND_CODE: "K2", RATE: 0.25 });
-  assert.match(done.script, /^-- harikit .* 2行 実行済み\n/);
+  assert.match(done.script, /^-- patchiri .* 2行 実行済み\n/);
   assert.match(done.script, /TIMESTAMP '2026-10-18 08:00:00'/);
   assert.match(done.script, /TO_DATE\('2024-04-02 10:30:00', 'YYYY-MM-DD HH24:MI:SS'\)/);
 
   // 戻しは、後から変わった行には触らず、その行を DBMS_OUTPUT に出す。
   await q(`UPDATE ITEM SET PRICE = 98 WHERE CODE = 'A002'`);
-  assert.deepEqual(await runScript(done.undoScript), ["harikit: 戻していない行（後から別の更新が入った）: CODE=A002", "harikit: 1 / 2 行を戻しました"]);
+  assert.deepEqual(await runScript(done.undoScript), ["patchiri: 戻していない行（後から別の更新が入った）: CODE=A002", "patchiri: 1 / 2 行を戻しました"]);
   const rows = await q(`SELECT CODE, TO_CHAR(PRICE) AS PRICE, TO_CHAR(BIG) AS BIG, KIND_CODE, TO_CHAR(RELEASED, 'YYYY-MM-DD HH24:MI:SS') AS RELEASED FROM ITEM ORDER BY CODE`);
   assert.deepEqual(rows, [
     { CODE: "A001", PRICE: "120", BIG: "9007199254740993", KIND_CODE: "K1", RELEASED: "2024-04-01 00:00:00" },
@@ -246,7 +246,7 @@ test("Excel 相当の取込から反映、衝突、戻しまで", { skip }, asyn
   ]);
 
   // 反映の SQL は、1 行でも当たらなければ全部取り消して止まる（A002 は 98 に変わっている）。
-  await assert.rejects(runScript(done.script), /ORA-20001: harikit: 行が見つからないか、値が変わっています（CODE=A002）/);
+  await assert.rejects(runScript(done.script), /ORA-20001: patchiri: 行が見つからないか、値が変わっています（CODE=A002）/);
   assert.equal((await one(`SELECT TO_CHAR(PRICE) AS PRICE FROM ITEM WHERE CODE = 'A001'`)).PRICE, "120");
   await q(`UPDATE ITEM SET PRICE = 0.5, RELEASED = NULL WHERE CODE = 'A002'`);
   await runScript(done.script);
@@ -325,7 +325,7 @@ test("値が変わっていないかは厳密に比べる。大文字小文字�
 
   // 反映の後に、大文字小文字だけ違う値へ直された行は、戻し SQL が上書きしない。
   await q(`UPDATE ITEM SET NAME = N'PENCIL' WHERE CODE = 'A002'`);
-  assert.deepEqual(await runScript(done.undoScript), ["harikit: 戻していない行（後から別の更新が入った）: CODE=A002", "harikit: 0 / 1 行を戻しました"]);
+  assert.deepEqual(await runScript(done.undoScript), ["patchiri: 戻していない行（後から別の更新が入った）: CODE=A002", "patchiri: 0 / 1 行を戻しました"]);
   assert.deepEqual(await one(`SELECT MEMO, NAME, GRADE FROM ITEM WHERE CODE = 'A002'`), { MEMO: "ペン芯", NAME: "PENCIL", GRADE: "C  " });
 
   await q(`UPDATE ITEM SET NAME = N'Pencil' WHERE CODE = 'A002'`);
@@ -371,7 +371,7 @@ test("人が流す SQL は、流す人のセッションが大文字小文字を
     // 小文字のキーの行も、たまたま同じ値になった。NLS_COMP = LINGUISTIC のままだと、戻し SQL がこの行にも当たる。
     await q(`UPDATE LEGACY SET NM = 'UP' WHERE CD = 'z1'`);
     await admin.execute(`ALTER SESSION SET NLS_COMP = 'LINGUISTIC' NLS_SORT = 'BINARY_CI'`);
-    assert.deepEqual(await runScript(done.undoScript), ["harikit: 1 / 1 行を戻しました"]);
+    assert.deepEqual(await runScript(done.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
     assert.deepEqual(await q(`SELECT CD, NM FROM LEGACY WHERE CD IN ('Z1', 'z1') ORDER BY CD`), [
       { CD: "Z1    ", NM: "up" },
       { CD: "z1    ", NM: "UP" },
@@ -402,8 +402,8 @@ test("改行や、/ や . だけの行、# で始まる行を含む値、長い�
     assert.ok(lines.every((l) => l.length < 1000));
   }
 
-  assert.deepEqual(await runScript(d1.undoScript), ["harikit: 1 / 1 行を戻しました"]);
-  assert.deepEqual(await runScript(d2.undoScript), ["harikit: 1 / 1 行を戻しました"]);
+  assert.deepEqual(await runScript(d1.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
+  assert.deepEqual(await runScript(d2.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
   assert.deepEqual(await one(`SELECT NM, KANA FROM LEGACY WHERE CD = 'L1'`), before.L1);
   assert.deepEqual(await one(`SELECT REMARK FROM ITEM WHERE CODE = 'A002'`), before.A002);
   await runScript(d1.script);
@@ -411,7 +411,7 @@ test("改行や、/ や . だけの行、# で始まる行を含む値、長い�
   assert.deepEqual(await one(`SELECT NM, KANA FROM LEGACY WHERE CD = 'L1'`), { NM: nm, KANA: kana + " " });
   assert.deepEqual(await one(`SELECT REMARK FROM ITEM WHERE CODE = 'A002'`), { REMARK: remark });
   // 流し直すと、値が変わっていないので戻しが当たる（比べ方も崩れていない）。
-  assert.deepEqual(await runScript(d1.undoScript), ["harikit: 1 / 1 行を戻しました"]);
-  assert.deepEqual(await runScript(d2.undoScript), ["harikit: 1 / 1 行を戻しました"]);
+  assert.deepEqual(await runScript(d1.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
+  assert.deepEqual(await runScript(d2.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
 });
 

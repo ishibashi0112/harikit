@@ -1,5 +1,5 @@
 node_modules/
 dist/
 *.tsbuildinfo
-harikit-out/
-harikit-log/
+patchiri-out/
+patchiri-log/

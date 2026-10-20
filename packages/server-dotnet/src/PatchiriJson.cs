@@ -10,9 +10,9 @@ using System.Globalization;
 using System.Text;
 using System.Web.Script.Serialization;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
-    public static class HarikitJson
+    public static class PatchiriJson
     {
         public static IDictionary<string, object> AsObject(object x)
         {

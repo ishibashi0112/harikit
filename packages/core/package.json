@@ -1,7 +1,7 @@
 {
-  "name": "@harikit/core",
+  "name": "patchiri-core",
   "version": "0.0.0",
-  "description": "harikit のコア（取込・検証・差分）。ブラウザでも Node でも動く。",
+  "description": "patchiri のコア（取込・検証・差分）。ブラウザでも Node でも動く。",
   "license": "MIT",
   "type": "module",
   "main": "dist/src/index.js",

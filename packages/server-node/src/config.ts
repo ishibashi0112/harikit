@@ -1,7 +1,7 @@
 // サーバの設定（許可リスト、接続先、待ち受け）。仕様 2 の許可リストを含む。
 // handlers がブラウザでも動くよう、ここでは node: のモジュールを使わない（ファイルから読むのは load-config.ts）。
 
-import type { Access, Limits } from "@harikit/core";
+import type { Access, Limits } from "patchiri-core";
 
 export interface TargetConfig {
   table: string;
@@ -18,7 +18,7 @@ export interface SqlServerConnection {
   port?: number;
   database: string;
   user?: string;
-  /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
+  /** 設定ファイルに書かず、環境変数 PATCHIRI_DB_PASSWORD で渡してもよい。 */
   password?: string;
   options?: { encrypt?: boolean; trustServerCertificate?: boolean; instanceName?: string };
   /** 反映のとき、ほかのセッションがロックしている行を待つ秒数。既定は 10。 */
@@ -30,7 +30,7 @@ export interface OracleConnection {
   /** つなぐ先。"host:1521/サービス名"（Easy Connect）か、tnsnames.ora の別名。 */
   connectString: string;
   user: string;
-  /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
+  /** 設定ファイルに書かず、環境変数 PATCHIRI_DB_PASSWORD で渡してもよい。 */
   password?: string;
   /** tnsnames.ora を置いたフォルダ（別名でつなぐとき）。 */
   configDir?: string;
@@ -49,7 +49,7 @@ export interface PostgresConnection {
   port?: number;
   database: string;
   user: string;
-  /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
+  /** 設定ファイルに書かず、環境変数 PATCHIRI_DB_PASSWORD で渡してもよい。 */
   password?: string;
   /** TLS でつなぐ。rejectUnauthorized: false は自己署名の証明書を受ける（社内の検証用など）。 */
   ssl?: boolean | { rejectUnauthorized?: boolean };
@@ -65,7 +65,7 @@ export interface MySqlConnection {
   /** スキーマを省いたテーブル名はこのデータベースのものとして読む。 */
   database: string;
   user: string;
-  /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
+  /** 設定ファイルに書かず、環境変数 PATCHIRI_DB_PASSWORD で渡してもよい。 */
   password?: string;
   /** TLS でつなぐ。rejectUnauthorized: false は自己署名の証明書を受ける（社内の検証用など）。 */
   ssl?: boolean | { rejectUnauthorized?: boolean };
@@ -82,7 +82,7 @@ export interface ServerConfig {
   database: DatabaseConnection;
   targets: Record<string, TargetConfig>;
   limits?: Partial<Limits>;
-  /** 反映ログ（JSON Lines）を置くフォルダ。既定は ./harikit-log。 */
+  /** 反映ログ（JSON Lines）を置くフォルダ。既定は ./patchiri-log。 */
   logDir?: string;
   /** db_error の message に DB の生のエラー文を出すか。既定は出さない。 */
   exposeDbErrors?: boolean;

@@ -65,31 +65,31 @@ test("人が読む SQL: DO ブロック 1 つ。値に区切りが入ってい�
     foreignKeys: [],
   } as TableMeta;
   const d = new PostgresDialect(noDb);
-  const apply = d.renderScript(meta, "-- harikit x", [{ key: { code: "A1" }, set: { name: "ペン $harikit$", price: "130.00", ratio: 0.1 }, expect: { name: "ペン", price: null, ratio: 0.5 } }], "apply");
+  const apply = d.renderScript(meta, "-- patchiri x", [{ key: { code: "A1" }, set: { name: "ペン $patchiri$", price: "130.00", ratio: 0.1 }, expect: { name: "ペン", price: null, ratio: 0.5 } }], "apply");
   assert.equal(
     apply,
     [
-      "-- harikit x",
-      "-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（harikit: で始まるエラー）。",
+      "-- patchiri x",
+      "-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（patchiri: で始まるエラー）。",
       "-- psql、pgAdmin、DBeaver などで流せる素の SQL（DO ブロック 1 つ）。自動コミットを切っているときは、流した後に COMMIT する。",
       "SET client_encoding = 'UTF8';",
-      "DO $harikit_1$",
+      "DO $patchiri_1$",
       "#variable_conflict use_column",
       "DECLARE",
-      "  harikit_rows integer;",
+      "  patchiri_rows integer;",
       "BEGIN",
-      `  UPDATE "app"."m_item" SET "name" = 'ペン $harikit$', "price" = 130.00, "ratio" = CAST(0.1 AS real) WHERE "code" = 'A1' AND "name" COLLATE "C" = 'ペン' AND "price" IS NULL AND "ratio" = CAST(0.5 AS real);`,
-      "  GET DIAGNOSTICS harikit_rows = ROW_COUNT;",
-      "  IF harikit_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = 'harikit: 行が見つからないか、値が変わっています（code=A1）。何も反映していません'; END IF;",
+      `  UPDATE "app"."m_item" SET "name" = 'ペン $patchiri$', "price" = 130.00, "ratio" = CAST(0.1 AS real) WHERE "code" = 'A1' AND "name" COLLATE "C" = 'ペン' AND "price" IS NULL AND "ratio" = CAST(0.5 AS real);`,
+      "  GET DIAGNOSTICS patchiri_rows = ROW_COUNT;",
+      "  IF patchiri_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = 'patchiri: 行が見つからないか、値が変わっています（code=A1）。何も反映していません'; END IF;",
       "END",
-      "$harikit_1$;",
+      "$patchiri_1$;",
       "",
     ].join("\n"),
   );
-  const undo = d.renderScript(meta, "-- harikit x の戻し", [{ key: { code: "A'1" }, set: { released: "2024-04-01" }, expect: { released: null } }], "undo");
-  assert.match(undo, /^DO \$harikit\$\n#variable_conflict use_column\nDECLARE\n {2}harikit_rows integer;\n {2}harikit_done integer := 0;\nBEGIN$/m);
+  const undo = d.renderScript(meta, "-- patchiri x の戻し", [{ key: { code: "A'1" }, set: { released: "2024-04-01" }, expect: { released: null } }], "undo");
+  assert.match(undo, /^DO \$patchiri\$\n#variable_conflict use_column\nDECLARE\n {2}patchiri_rows integer;\n {2}patchiri_done integer := 0;\nBEGIN$/m);
   assert.match(undo, /SET "released" = DATE '2024-04-01' WHERE "code" = 'A''1' AND "released" IS NULL;/);
   // メッセージは書式（%）として読ませない。
-  assert.match(undo, /ELSE RAISE NOTICE USING MESSAGE = 'harikit: 戻していない行（後から別の更新が入った）: code=A''1'; END IF;/);
-  assert.match(undo, /RAISE NOTICE 'harikit: % \/ 1 行を戻しました', harikit_done;\nEND\n\$harikit\$;\n$/);
+  assert.match(undo, /ELSE RAISE NOTICE USING MESSAGE = 'patchiri: 戻していない行（後から別の更新が入った）: code=A''1'; END IF;/);
+  assert.match(undo, /RAISE NOTICE 'patchiri: % \/ 1 行を戻しました', patchiri_done;\nEND\n\$patchiri\$;\n$/);
 });

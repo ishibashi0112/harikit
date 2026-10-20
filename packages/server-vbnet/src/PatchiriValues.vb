@@ -13,9 +13,9 @@ Imports System.Globalization
 Imports System.Text
 Imports System.Text.RegularExpressions
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
-    Public NotInheritable Class HarikitValues
+    Public NotInheritable Class PatchiriValues
 
         Public Shared ReadOnly DecimalRe As New Regex("\A-?[0-9]+(\.[0-9]+)?\z")
         Public Shared ReadOnly BigintRe As New Regex("\A-?[0-9]+\z")
@@ -78,8 +78,8 @@ Namespace Global.Harikit.Server
                     End If
                     Return CheckBytes(col, s)
                 Case "integer"
-                    If Not HarikitJson.IsNumber(v) Then Return "整数ではありません"
-                    Dim d = HarikitJson.ToDouble(v)
+                    If Not PatchiriJson.IsNumber(v) Then Return "整数ではありません"
+                    Dim d = PatchiriJson.ToDouble(v)
                     If Double.IsNaN(d) OrElse Double.IsInfinity(d) OrElse Math.Floor(d) <> d Then Return "整数ではありません"
                     Dim min, max As Long
                     Select Case BaseDbType(col.DbType)
@@ -114,8 +114,8 @@ Namespace Global.Harikit.Server
                     End If
                     Return Nothing
                 Case "float"
-                    If Not HarikitJson.IsNumber(v) Then Return "数値ではありません"
-                    Dim d = HarikitJson.ToDouble(v)
+                    If Not PatchiriJson.IsNumber(v) Then Return "数値ではありません"
+                    Dim d = PatchiriJson.ToDouble(v)
                     If Double.IsNaN(d) OrElse Double.IsInfinity(d) Then Return "数値ではありません"
                     Return Nothing
                 Case "boolean"
@@ -235,7 +235,7 @@ Namespace Global.Harikit.Server
 
         ''' <summary>比較用に値をそろえる（"120" と "120.00" を同じにする、など）。数値は Double にする。</summary>
         Public Shared Function Canonical(type As String, v As Object) As Object
-            If HarikitJson.IsNumber(v) Then Return HarikitJson.ToDouble(v)
+            If PatchiriJson.IsNumber(v) Then Return PatchiriJson.ToDouble(v)
             Dim s = TryCast(v, String)
             If s Is Nothing Then Return v
             Select Case type
@@ -282,7 +282,7 @@ Namespace Global.Harikit.Server
                 key.TryGetValue(c.Name, v)
                 list.Add(Canonical(c.Type, v))
             Next
-            Return HarikitJson.Identity(list)
+            Return PatchiriJson.Identity(list)
         End Function
 
     End Class

@@ -1,5 +1,5 @@
 {
-  "name": "harikit-monorepo",
+  "name": "patchiri-monorepo",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -9,7 +9,7 @@
     "packages/cli"
   ],
   "scripts": {
-    "build": "tsc -b packages/core packages/web packages/server-node packages/cli && npm run bundle -w @harikit/web",
+    "build": "tsc -b packages/core packages/web packages/server-node packages/cli && npm run bundle -w patchiri-web",
     "test": "npm run build && node --test \"packages/*/dist/test/**/*.test.js\"",
     "clean": "tsc -b --clean packages/core packages/web packages/server-node packages/cli",
     "test:dotnet": "npm run build && node --test packages/server-dotnet/test/webmethod.integration.test.mjs"

@@ -1,10 +1,10 @@
 {
   "listen": { "host": "127.0.0.1", "port": 7357 },
   "database": {
-    "dialect": "mysql",
-    "host": "127.0.0.1",
-    "database": "harikit",
-    "user": "harikit"
+    "dialect": "postgresql",
+    "host": "localhost",
+    "database": "patchiri",
+    "user": "patchiri"
   },
   "targets": {
     "product": {
@@ -22,5 +22,5 @@
     }
   },
   "limits": { "maxFetchKeys": 1000, "maxApplyRows": 5000 },
-  "logDir": "harikit-log"
+  "logDir": "patchiri-log"
 }

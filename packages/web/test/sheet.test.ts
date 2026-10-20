@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HarikitClient, prepare, type FetchRequest, type Row, type TableDescription } from "@harikit/core";
+import { PatchiriClient, prepare, type FetchRequest, type Row, type TableDescription } from "patchiri-core";
 import { addConflictMarks, addHeader, buildMarks, diffGridRows, headerInfo, liveMark, markKey, rowsFromCells, toSheet, type GridRow } from "../src/sheet.js";
 
 const product: TableDescription = {
@@ -27,7 +27,7 @@ const db: Record<string, Row> = {
 };
 
 /** describe と fetch だけを返すサーバの代わり。 */
-const client = new HarikitClient({
+const client = new PatchiriClient({
   baseUrl: "http://127.0.0.1:7357",
   fetch: async (url, init) => {
     const name = String(url).split("/").pop();

@@ -1,10 +1,10 @@
-// 反映計画（plan.json）。差分から作って承認に回し、承認後に CLI（harikit apply）や画面で反映する。
+// 反映計画（plan.json）。差分から作って承認に回し、承認後に CLI（patchiri apply）や画面で反映する。
 
 import { buildApplyRequest, type DiffResult, type DiffStatus } from "./diff.js";
 import type { ApplyRequest } from "./types.js";
 
 export interface ApplyPlan {
-  harikitPlan: 1;
+  patchiriPlan: 1;
   createdAt: string;
   /** 取込元（ファイル名、画面の貼り付けなら "grid"）。 */
   source: string;
@@ -16,7 +16,7 @@ export interface ApplyPlan {
 
 export function buildPlan(d: DiffResult, source: string, options: { requestId?: string; note?: string } = {}): ApplyPlan {
   return {
-    harikitPlan: 1,
+    patchiriPlan: 1,
     createdAt: new Date().toISOString(),
     source,
     target: d.target,

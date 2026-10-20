@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// harikit の CLI。
-//   harikit targets                         使えるターゲットの一覧
-//   harikit diff <file.xlsx|csv> -t product  検証して差分と反映計画（plan.json）を作る
-//   harikit apply <plan.json> [--execute]    反映する（既定は check: DB は変えずに確かめるだけ）
+// patchiri の CLI。
+//   patchiri targets                         使えるターゲットの一覧
+//   patchiri diff <file.xlsx|csv> -t product  検証して差分と反映計画（plan.json）を作る
+//   patchiri apply <plan.json> [--execute]    反映する（既定は check: DB は変えずに確かめるだけ）
 
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
@@ -11,8 +11,8 @@ import {
   buildPlan,
   diffToCsv,
   groupReadings,
-  HarikitApiError,
-  HarikitClient,
+  PatchiriApiError,
+  PatchiriClient,
   issuesToCsv,
   prepare,
   readCsv,
@@ -22,15 +22,15 @@ import {
   type ApplyRequest,
   type RulesConfig,
   type Sheet,
-} from "@harikit/core";
+} from "patchiri-core";
 
 const USAGE = `使い方:
-  harikit targets
-  harikit diff <file.xlsx|file.csv> --target <ターゲット> [--sheet <シート名>] [--out <フォルダ>] [--encoding shift_jis]
-               [--rules <業務ルールの JSON>]（省くと、今のフォルダの harikit.rules.json があれば使う）
-  harikit apply <plan.json> [--execute] [--note <メモ>]
+  patchiri targets
+  patchiri diff <file.xlsx|file.csv> --target <ターゲット> [--sheet <シート名>] [--out <フォルダ>] [--encoding shift_jis]
+               [--rules <業務ルールの JSON>]（省くと、今のフォルダの patchiri.rules.json があれば使う）
+  patchiri apply <plan.json> [--execute] [--note <メモ>]
 
-共通: --server <URL>（既定 HARIKIT_SERVER か http://127.0.0.1:7357）、--token <トークン>（既定 HARIKIT_TOKEN）、--style rest|webmethod`;
+共通: --server <URL>（既定 PATCHIRI_SERVER か http://127.0.0.1:7357）、--token <トークン>（既定 PATCHIRI_TOKEN）、--style rest|webmethod`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -55,12 +55,12 @@ const stamp = () => {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 };
 
-function client(): HarikitClient {
+function client(): PatchiriClient {
   const style = values.style ?? "rest";
   if (style !== "rest" && style !== "webmethod") throw new Error("--style は rest か webmethod です");
-  const token = values.token ?? process.env.HARIKIT_TOKEN;
-  return new HarikitClient({
-    baseUrl: values.server ?? process.env.HARIKIT_SERVER ?? "http://127.0.0.1:7357",
+  const token = values.token ?? process.env.PATCHIRI_TOKEN;
+  return new PatchiriClient({
+    baseUrl: values.server ?? process.env.PATCHIRI_SERVER ?? "http://127.0.0.1:7357",
     style,
     ...(token && { token }),
   });
@@ -79,8 +79,8 @@ async function readRules(): Promise<{ path: string; config: RulesConfig } | unde
   let path = values.rules;
   if (!path) {
     try {
-      await access("harikit.rules.json");
-      path = "harikit.rules.json";
+      await access("patchiri.rules.json");
+      path = "patchiri.rules.json";
     } catch {
       return undefined;
     }
@@ -104,7 +104,7 @@ async function cmdDiff(file: string | undefined): Promise<number> {
   const rules = await readRules();
   if (rules) console.log(`業務ルール: ${rules.path}`);
   const result = await prepare(client(), values.target, sheet, rules ? { rules: rules.config } : {});
-  const out = values.out ?? join("harikit-out", `${values.target}-${stamp()}`);
+  const out = values.out ?? join("patchiri-out", `${values.target}-${stamp()}`);
   await mkdir(out, { recursive: true });
 
   const errors = result.issues.filter((i) => i.severity === "error");
@@ -131,14 +131,14 @@ async function cmdDiff(file: string | undefined): Promise<number> {
   console.log(`\n変わる ${d.counts.change} 行、同じ ${d.counts.same} 行、キーなし ${d.counts.not_found} 行${warnings.length ? `（警告 ${warnings.length} 件）` : ""}`);
   console.log(`差分: ${join(out, "diff.csv")}`);
   console.log(`反映計画: ${join(out, "plan.json")}`);
-  if (d.counts.change > 0) console.log(`\n承認が済んだら: harikit apply ${join(out, "plan.json")} で確認、--execute で反映`);
+  if (d.counts.change > 0) console.log(`\n承認が済んだら: patchiri apply ${join(out, "plan.json")} で確認、--execute で反映`);
   return 0;
 }
 
 async function cmdApply(planFile: string | undefined): Promise<number> {
   if (!planFile) throw new Error(USAGE);
   const plan = JSON.parse(await readFile(planFile, "utf8")) as ApplyPlan;
-  if (plan.harikitPlan !== 1) throw new Error(`${planFile} は harikit の反映計画ではありません`);
+  if (plan.patchiriPlan !== 1) throw new Error(`${planFile} は patchiri の反映計画ではありません`);
   const rows = plan.request.changes[0]?.rows.length ?? 0;
   if (rows === 0) {
     console.log("変わる行がないので、反映するものはありません");
@@ -154,7 +154,7 @@ async function cmdApply(planFile: string | undefined): Promise<number> {
     console.log(`止めました: ${res.error.message}`);
     for (const c of res.conflicts ?? []) console.log(`  衝突\t${JSON.stringify(c.key)}\t${c.reason}${c.current ? `\t今の値 ${JSON.stringify(c.current)}` : ""}`);
     for (const e of res.rowErrors ?? []) console.log(`  誤り\t${e.index} 番目\t${e.code}\t${e.column ?? ""}\t${e.message ?? ""}`);
-    if (res.conflicts?.length) console.log("\n差分を取った後に DB が変わっています。harikit diff からやり直してください。");
+    if (res.conflicts?.length) console.log("\n差分を取った後に DB が変わっています。patchiri diff からやり直してください。");
     return 1;
   }
   await writeFile(join(dir, mode === "execute" ? "applied.sql" : "check.sql"), res.script);
@@ -164,7 +164,7 @@ async function cmdApply(planFile: string | undefined): Promise<number> {
   else console.log(`確かめました: ${rows} 行とも差分どおりで、反映できます（DB は変えていません）`);
   console.log(`SQL: ${join(dir, mode === "execute" ? "applied.sql" : "check.sql")}`);
   console.log(`戻し SQL: ${join(dir, "undo.sql")}`);
-  if (mode === "check") console.log(`\n反映するには: harikit apply ${planFile} --execute`);
+  if (mode === "check") console.log(`\n反映するには: patchiri apply ${planFile} --execute`);
   return 0;
 }
 
@@ -184,7 +184,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (e: unknown) => {
-    console.error(e instanceof HarikitApiError ? `サーバ: ${e.failure.error.message}（${e.failure.error.code}）` : e instanceof Error ? e.message : e);
+    console.error(e instanceof PatchiriApiError ? `サーバ: ${e.failure.error.message}（${e.failure.error.code}）` : e instanceof Error ? e.message : e);
     process.exit(1);
   },
 );

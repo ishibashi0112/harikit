@@ -15,7 +15,7 @@ import {
   type RowError,
   type TableDescription,
   type Value,
-} from "@harikit/core";
+} from "patchiri-core";
 import { DEFAULT_LIMITS, type ServerConfig, type TargetConfig } from "./config.js";
 import { DbError, type Dialect, type TableMeta } from "./dialect.js";
 
@@ -459,7 +459,7 @@ export class Handlers {
 
   private renderScripts(r: Resolved, requestId: string, mode: ApplyMode, rows: { key: Row; before: Row; after: Row }[]) {
     const d = this.deps.dialect;
-    const head = `-- harikit ${requestId} ${r.name} (${r.meta.table}) ${rows.length}行`;
+    const head = `-- patchiri ${requestId} ${r.name} (${r.meta.table}) ${rows.length}行`;
     const script = d.renderScript(r.meta, `${head} ${mode === "check" ? "実行予定" : "実行済み"}`, rows.map((row) => ({ set: row.after, key: row.key, expect: row.before })), "apply");
     const undoScript = d.renderScript(r.meta, `${head} の戻し`, rows.map((row) => ({ set: row.before, key: row.key, expect: row.after })), "undo");
     return { script, undoScript };

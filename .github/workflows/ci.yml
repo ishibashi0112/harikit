@@ -13,7 +13,7 @@ jobs:
         image: mcr.microsoft.com/mssql/server:2022-latest
         env:
           ACCEPT_EULA: "Y"
-          MSSQL_SA_PASSWORD: "Harikit#Ci1"
+          MSSQL_SA_PASSWORD: "Patchiri#Ci1"
         ports:
           - 1433:1433
     steps:
@@ -26,13 +26,13 @@ jobs:
       - name: Wait for SQL Server
         run: |
           for i in $(seq 1 30); do
-            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Harikit#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),()=>process.exit(1))" && exit 0
+            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Patchiri#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),()=>process.exit(1))" && exit 0
             sleep 2
           done
           exit 1
       - run: npm test
         env:
-          HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
+          PATCHIRI_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Patchiri#Ci1"}'
 
   # Node 版を実際の Oracle で通す。23ai Free と、業務でまだ多い 19c に近い 21c XE の 2 つ。
   oracle:
@@ -49,9 +49,9 @@ jobs:
       oracle:
         image: ${{ matrix.image }}
         env:
-          ORACLE_PASSWORD: Harikit1
-          APP_USER: harikit
-          APP_USER_PASSWORD: Harikit1
+          ORACLE_PASSWORD: Patchiri1
+          APP_USER: patchiri
+          APP_USER_PASSWORD: Patchiri1
         ports:
           - 1521:1521
         options: >-
@@ -68,7 +68,7 @@ jobs:
       - run: npm ci
       - run: npm test
         env:
-          HARIKIT_TEST_ORACLE: '{"connectString":"localhost:1521/${{ matrix.service }}","user":"harikit","password":"Harikit1"}'
+          PATCHIRI_TEST_ORACLE: '{"connectString":"localhost:1521/${{ matrix.service }}","user":"patchiri","password":"Patchiri1"}'
 
   # Node 版を実際の PostgreSQL で通す。サポート中でいちばん古い 14 と最新の 18。
   postgres:
@@ -82,13 +82,13 @@ jobs:
       postgres:
         image: postgres:${{ matrix.version }}
         env:
-          POSTGRES_USER: harikit
-          POSTGRES_PASSWORD: Harikit1
-          POSTGRES_DB: harikit
+          POSTGRES_USER: patchiri
+          POSTGRES_PASSWORD: Patchiri1
+          POSTGRES_DB: patchiri
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U harikit -d harikit"
+          --health-cmd "pg_isready -U patchiri -d patchiri"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
@@ -101,7 +101,7 @@ jobs:
       - run: npm ci
       - run: npm test
         env:
-          HARIKIT_TEST_POSTGRES: '{"host":"localhost","database":"harikit","user":"harikit","password":"Harikit1"}'
+          PATCHIRI_TEST_POSTGRES: '{"host":"localhost","database":"patchiri","user":"patchiri","password":"Patchiri1"}'
 
   # Node 版を実際の MySQL と MariaDB で通す。それぞれ長期サポートの 2 つ。
   # テストはトリガーを作るので root でつなぐ（バイナリログが有効だと、ふつうのユーザーでは作れない）。
@@ -113,9 +113,9 @@ jobs:
       matrix:
         include:
           - image: mysql:8.0
-            health: mysqladmin ping -h 127.0.0.1 -uroot -pHarikit1
+            health: mysqladmin ping -h 127.0.0.1 -uroot -pPatchiri1
           - image: mysql:8.4
-            health: mysqladmin ping -h 127.0.0.1 -uroot -pHarikit1
+            health: mysqladmin ping -h 127.0.0.1 -uroot -pPatchiri1
           - image: mariadb:10.11
             health: healthcheck.sh --connect --innodb_initialized
           - image: mariadb:11.4
@@ -124,10 +124,10 @@ jobs:
       mysql:
         image: ${{ matrix.image }}
         env:
-          MYSQL_ROOT_PASSWORD: Harikit1
-          MYSQL_DATABASE: harikit
-          MARIADB_ROOT_PASSWORD: Harikit1
-          MARIADB_DATABASE: harikit
+          MYSQL_ROOT_PASSWORD: Patchiri1
+          MYSQL_DATABASE: patchiri
+          MARIADB_ROOT_PASSWORD: Patchiri1
+          MARIADB_DATABASE: patchiri
         ports:
           - 3306:3306
         options: >-
@@ -144,7 +144,7 @@ jobs:
       - run: npm ci
       - run: npm test
         env:
-          HARIKIT_TEST_MYSQL: '{"host":"127.0.0.1","port":3306,"database":"harikit","user":"root","password":"Harikit1"}'
+          PATCHIRI_TEST_MYSQL: '{"host":"127.0.0.1","port":3306,"database":"patchiri","user":"root","password":"Patchiri1"}'
 
   # .NET 版（C# と VB.NET）を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通す。
   dotnet:
@@ -159,7 +159,7 @@ jobs:
         image: mcr.microsoft.com/mssql/server:2022-latest
         env:
           ACCEPT_EULA: "Y"
-          MSSQL_SA_PASSWORD: "Harikit#Ci1"
+          MSSQL_SA_PASSWORD: "Patchiri#Ci1"
         ports:
           - 1433:1433
     steps:
@@ -179,14 +179,14 @@ jobs:
       - name: Wait for SQL Server
         run: |
           for i in $(seq 1 30); do
-            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Harikit#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),()=>process.exit(1))" && exit 0
+            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Patchiri#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),()=>process.exit(1))" && exit 0
             sleep 2
           done
           exit 1
       - run: npm run test:dotnet
         env:
-          HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
-          HARIKIT_TEST_DOTNET_PKG: packages/${{ matrix.package }}
+          PATCHIRI_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Patchiri#Ci1"}'
+          PATCHIRI_TEST_DOTNET_PKG: packages/${{ matrix.package }}
 
   # .NET 版（C# と VB.NET）を Windows の IIS（.NET Framework 4.8）に載せ、Windows に入れた SQL Server Express（Microsoft の最新版、今は 2025）で通す（本番に近い形）。
   # 載せ方は 2 つ: app_code はソースを App_Code に置く Web サイトの形（IIS が .NET Framework 付属のコンパイラ（C# 5 / VB 11）でビルドする）、
@@ -201,11 +201,11 @@ jobs:
         package: [server-dotnet, server-vbnet]
         layout: [app_code, bin]
     env:
-      HARIKIT_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Harikit#Ci1"}'
+      PATCHIRI_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Patchiri#Ci1"}'
     steps:
       - uses: actions/checkout@v4
       - name: Install SQL Server Express
-        run: .github/scripts/install-sqlserver.ps1 -SaPassword 'Harikit#Ci1'
+        run: .github/scripts/install-sqlserver.ps1 -SaPassword 'Patchiri#Ci1'
       - name: Install IIS and ASP.NET 4.8
         run: |
           $r = Install-WindowsFeature -Name Web-Server, Web-Asp-Net45
@@ -221,20 +221,20 @@ jobs:
         shell: bash
         run: |
           for i in $(seq 1 30); do
-            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Harikit#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),e=>{console.error(e.message);process.exit(1)})" && exit 0
+            node -e "require('mssql').connect({server:'localhost',user:'sa',password:'Patchiri#Ci1',options:{encrypt:false,trustServerCertificate:true}}).then(p=>p.close()).then(()=>process.exit(0),e=>{console.error(e.message);process.exit(1)})" && exit 0
             sleep 2
           done
           exit 1
       - name: Test on IIS
         run: node --test packages/server-dotnet/test/webmethod.integration.test.mjs
         env:
-          HARIKIT_TEST_DOTNET_HOST: iis
-          HARIKIT_TEST_DOTNET_LAYOUT: ${{ matrix.layout }}
-          HARIKIT_TEST_DOTNET_PKG: packages/${{ matrix.package }}
+          PATCHIRI_TEST_DOTNET_HOST: iis
+          PATCHIRI_TEST_DOTNET_LAYOUT: ${{ matrix.layout }}
+          PATCHIRI_TEST_DOTNET_PKG: packages/${{ matrix.package }}
       - name: Show server logs
         if: failure()
         run: |
-          Get-ChildItem C:\harikit-test -Recurse -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object { "== $($_.FullName)"; Get-Content $_.FullName -Tail 200 }
+          Get-ChildItem C:\patchiri-test -Recurse -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object { "== $($_.FullName)"; Get-Content $_.FullName -Tail 200 }
           Get-WinEvent -LogName Application -MaxEvents 200 -ErrorAction SilentlyContinue |
             Where-Object { $_.ProviderName -match 'ASP\.NET|W3SVC|WAS|IIS' } |
             Select-Object -First 20 | Format-List TimeCreated, ProviderName, Message

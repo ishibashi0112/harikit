@@ -10,8 +10,8 @@
 //   （列に照合順序が付いていても、人が流す SQL でも厳密に比べるため）。キーは列の照合順序のまま。
 
 import oracledb from "oracledb";
-import type { ColumnType, Row, Value } from "@harikit/core";
-import { byteCount, canonical, DATETIME_RE, DECIMAL_RE } from "@harikit/core";
+import type { ColumnType, Row, Value } from "patchiri-core";
+import { byteCount, canonical, DATETIME_RE, DECIMAL_RE } from "patchiri-core";
 import type { OracleConnection } from "./config.js";
 import { DbError, LOCKED_MESSAGE, scriptKeyText, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
 
@@ -90,7 +90,7 @@ export function quoteName(name: string): string {
 }
 
 /**
- * "HARIKIT.M_PRODUCT"、"m_product"、'"Mixed"."Name"' を [スキーマ, 名前] に分ける。
+ * "PATCHIRI.M_PRODUCT"、"m_product"、'"Mixed"."Name"' を [スキーマ, 名前] に分ける。
  * "" で囲まない名前は大文字にする（Oracle と同じ）。スキーマを省くと undefined。
  */
 export function splitOracleName(table: string): [string | undefined, string] {
@@ -746,7 +746,7 @@ export class OracleDialect implements Dialect {
     const m = meta as OraMeta;
     const lines = [head];
     if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（ORA-20001）。");
-    else lines.push("-- 今の値が harikit で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、DBMS_OUTPUT に出す。");
+    else lines.push("-- 今の値が patchiri で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、DBMS_OUTPUT に出す。");
     lines.push(
       "-- SQL*Plus、SQLcl、SQL Developer で流せる形（値の & を置き換えないよう SET DEFINE OFF にしてある）。",
       "-- キーを大文字小文字を区別して比べるよう、このセッションの NLS_COMP / NLS_SORT を BINARY にする（流した後もこのセッションに残る）。",
@@ -758,15 +758,15 @@ export class OracleDialect implements Dialect {
     for (const u of updates) {
       lines.push(`  ${this.renderUpdate(m, u)};`);
       if (kind === "apply") {
-        const msg = quoteString(`harikit: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`);
+        const msg = quoteString(`patchiri: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`);
         lines.push(`  IF SQL%ROWCOUNT <> 1 THEN RAISE_APPLICATION_ERROR(-20001, ${msg}); END IF;`);
       } else {
-        const msg = quoteString(`harikit: 戻していない行（後から別の更新が入った）: ${scriptKeyText(u.key)}`);
+        const msg = quoteString(`patchiri: 戻していない行（後から別の更新が入った）: ${scriptKeyText(u.key)}`);
         lines.push(`  IF SQL%ROWCOUNT = 1 THEN n := n + 1; ELSE DBMS_OUTPUT.PUT_LINE(${msg}); END IF;`);
       }
     }
     lines.push("  COMMIT;");
-    if (kind === "undo") lines.push(`  DBMS_OUTPUT.PUT_LINE('harikit: ' || n || ' / ${updates.length} 行を戻しました');`);
+    if (kind === "undo") lines.push(`  DBMS_OUTPUT.PUT_LINE('patchiri: ' || n || ' / ${updates.length} 行を戻しました');`);
     lines.push("EXCEPTION", "  WHEN OTHERS THEN", "    ROLLBACK;", "    RAISE;", "END;", "/");
     return lines.join("\n") + "\n";
   }

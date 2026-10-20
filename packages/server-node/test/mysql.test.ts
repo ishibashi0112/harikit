@@ -75,29 +75,29 @@ test("人が読む SQL: 先に全部の行をロックして数え、1 行でも
   } as TableMeta;
   const d = new MySqlDialect({ dialect: "mysql", host: "localhost", database: "app", user: "x" });
   try {
-    const apply = d.renderScript(meta, "-- harikit x", [{ key: { code: "A1" }, set: { name: "ペン", price: "130.00" }, expect: { name: "ﾍﾟﾝ", price: null } }], "apply");
+    const apply = d.renderScript(meta, "-- patchiri x", [{ key: { code: "A1" }, set: { name: "ペン", price: "130.00" }, expect: { name: "ﾍﾟﾝ", price: null } }], "apply");
     const where = "`code` = 'A1' AND CAST(CONVERT(`name` USING utf8mb4) AS BINARY) = CAST(CONVERT('ﾍﾟﾝ' USING utf8mb4) AS BINARY) AND `price` IS NULL";
     assert.equal(
       apply,
       [
-        "-- harikit x",
+        "-- patchiri x",
         "-- 1 つのトランザクションで流す。先に全部の行をロックして確かめ、1 行でも見つからないか値が変わっていたら、何も反映しない（最後の行に結果が出る）。",
         "-- mysql コマンド、MySQL Workbench、DBeaver、HeidiSQL などで流せる素の SQL。エラーが出たらそこで止める（飛ばして続けると、最後の COMMIT で一部の行だけ反映される）。",
         "SET NAMES utf8mb4;",
-        "SET @harikit_ok = 1, @harikit_ng = NULL;",
+        "SET @patchiri_ok = 1, @patchiri_ng = NULL;",
         "START TRANSACTION;",
-        `SELECT COUNT(*) INTO @harikit_n FROM \`app\`.\`m_item\` WHERE ${where} FOR UPDATE;`,
-        "SET @harikit_ok = @harikit_ok AND @harikit_n = 1, @harikit_ng = IF(@harikit_n = 1, @harikit_ng, CONCAT_WS(', ', @harikit_ng, 'code=A1'));",
-        `UPDATE \`app\`.\`m_item\` SET \`name\` = 'ペン', \`price\` = 130.00 WHERE ${where} AND @harikit_ok = 1;`,
+        `SELECT COUNT(*) INTO @patchiri_n FROM \`app\`.\`m_item\` WHERE ${where} FOR UPDATE;`,
+        "SET @patchiri_ok = @patchiri_ok AND @patchiri_n = 1, @patchiri_ng = IF(@patchiri_n = 1, @patchiri_ng, CONCAT_WS(', ', @patchiri_ng, 'code=A1'));",
+        `UPDATE \`app\`.\`m_item\` SET \`name\` = 'ペン', \`price\` = 130.00 WHERE ${where} AND @patchiri_ok = 1;`,
         "COMMIT;",
-        "SELECT CONVERT(IF(@harikit_ok = 1, 'harikit: 1 行を反映しました', CONCAT('harikit: 行が見つからないか、値が変わっています（', @harikit_ng, '）。何も反映していません')) USING utf8mb4) AS `harikit`;",
+        "SELECT CONVERT(IF(@patchiri_ok = 1, 'patchiri: 1 行を反映しました', CONCAT('patchiri: 行が見つからないか、値が変わっています（', @patchiri_ng, '）。何も反映していません')) USING utf8mb4) AS `patchiri`;",
         "",
       ].join("\n"),
     );
     // CHAR は両方の末尾の空白を落として比べる。
-    const undo = d.renderScript(meta, "-- harikit x の戻し", [{ key: { code: "A1" }, set: { code: "A1" }, expect: { code: "B1 " } }], "undo");
+    const undo = d.renderScript(meta, "-- patchiri x の戻し", [{ key: { code: "A1" }, set: { code: "A1" }, expect: { code: "B1 " } }], "undo");
     assert.match(undo, /CAST\(RTRIM\(CONVERT\(`code` USING utf8mb4\)\) AS BINARY\) = CAST\(RTRIM\(CONVERT\('B1 ' USING utf8mb4\)\) AS BINARY\)/);
-    assert.match(undo, /SET @harikit_done = @harikit_done \+ @harikit_n, @harikit_ng = /);
+    assert.match(undo, /SET @patchiri_done = @patchiri_done \+ @patchiri_n, @patchiri_ng = /);
     assert.match(undo, /' \/ 1 行を戻しました'/);
   } finally {
     await d.close();

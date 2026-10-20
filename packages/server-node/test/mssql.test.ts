@@ -24,21 +24,21 @@ test("人が読む SQL: 反映用は 1 行に当たらなければ THROW で全�
     { key: { Code: "O'1" }, set: { Name: "ペン" }, expect: { Name: null } },
   ];
   assert.equal(
-    d.renderScript(meta, "-- harikit x", updates, "apply"),
+    d.renderScript(meta, "-- patchiri x", updates, "apply"),
     [
-      "-- harikit x",
+      "-- patchiri x",
       "-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（エラー 50001）。",
       "SET XACT_ABORT ON;",
       "BEGIN TRANSACTION;",
       "UPDATE [dbo].[M_Item] SET [Price] = 130.00 WHERE [Code] = N'A1' AND [Price] = 120.00;",
-      "IF @@ROWCOUNT <> 1 THROW 50001, N'harikit: 行が見つからないか、値が変わっています（Code=A1）。何も反映していません', 1;",
+      "IF @@ROWCOUNT <> 1 THROW 50001, N'patchiri: 行が見つからないか、値が変わっています（Code=A1）。何も反映していません', 1;",
       "UPDATE [dbo].[M_Item] SET [Name] = N'ペン' WHERE [Code] = N'O''1' AND [Name] IS NULL;",
-      "IF @@ROWCOUNT <> 1 THROW 50001, N'harikit: 行が見つからないか、値が変わっています（Code=O''1）。何も反映していません', 1;",
+      "IF @@ROWCOUNT <> 1 THROW 50001, N'patchiri: 行が見つからないか、値が変わっています（Code=O''1）。何も反映していません', 1;",
       "COMMIT;",
       "",
     ].join("\n"),
   );
-  const undo = d.renderScript(meta, "-- harikit x の戻し", updates, "undo");
+  const undo = d.renderScript(meta, "-- patchiri x の戻し", updates, "undo");
   assert.doesNotMatch(undo, /THROW/);
-  assert.match(undo, /^-- 今の値が harikit で入れた値のままの行だけ戻す。/m);
+  assert.match(undo, /^-- 今の値が patchiri で入れた値のままの行だけ戻す。/m);
 });

@@ -4,16 +4,16 @@
 <%@ Import Namespace="System.IO" %>
 <%@ Import Namespace="System.Web.Hosting" %>
 <%@ Import Namespace="System.Web.Services" %>
-<%@ Import Namespace="Harikit.Server" %>
+<%@ Import Namespace="Patchiri.Server" %>
 <script runat="server">
     // テスト用のページ。.NET の文字コードでの確認を外した方言で apply を流し、
     // DB での最後の確認（CheckStrings）だけで止まるかを見る。
 
-    sealed class DbOnlyCheckDialect : IHarikitDialect
+    sealed class DbOnlyCheckDialect : IPatchiriDialect
     {
-        readonly IHarikitDialect inner;
+        readonly IPatchiriDialect inner;
 
-        public DbOnlyCheckDialect(IHarikitDialect inner)
+        public DbOnlyCheckDialect(IPatchiriDialect inner)
         {
             this.inner = inner;
         }
@@ -29,7 +29,7 @@
         }
 
         public List<Dictionary<string, object>> FetchRows(TableMeta meta, IList<string> keyColumns, IList<string> columns, IList<Dictionary<string, object>> keys) { return inner.FetchRows(meta, keyColumns, columns, keys); }
-        public void RunTransaction(Func<IHarikitTransaction, bool> fn) { inner.RunTransaction(fn); }
+        public void RunTransaction(Func<IPatchiriTransaction, bool> fn) { inner.RunTransaction(fn); }
         public List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items) { return inner.CheckStrings(meta, items); }
         public string RenderScript(TableMeta meta, string head, IList<ScriptUpdate> updates, string kind) { return inner.RenderScript(meta, head, updates, kind); }
     }
@@ -37,9 +37,9 @@
     [WebMethod]
     public static Dictionary<string, object> Apply(Dictionary<string, object> req)
     {
-        var config = HarikitConfig.Parse(File.ReadAllText(HostingEnvironment.MapPath("~/App_Data/harikit.config.json")));
+        var config = PatchiriConfig.Parse(File.ReadAllText(HostingEnvironment.MapPath("~/App_Data/patchiri.config.json")));
         var cs = ConfigurationManager.ConnectionStrings[config.ConnectionStringName].ConnectionString;
-        var service = new HarikitService(new HarikitServiceOptions
+        var service = new PatchiriService(new PatchiriServiceOptions
         {
             Config = config,
             Dialect = new DbOnlyCheckDialect(new SqlServerDialect(cs)),

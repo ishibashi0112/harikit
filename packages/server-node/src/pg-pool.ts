@@ -18,7 +18,7 @@ export class PgPoolConnector implements PgConnector {
       user: conn.user,
       password: conn.password,
       ...(conn.ssl !== undefined && { ssl: conn.ssl }),
-      application_name: "harikit",
+      application_name: "patchiri",
       max: 4,
     });
     // 使っていないつなぎが DB 側で切られたときのエラー。次に借りるときにつなぎ直すので、落とさない。

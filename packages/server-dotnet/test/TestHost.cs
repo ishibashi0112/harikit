@@ -1,6 +1,6 @@
 ﻿// テスト用の ASP.NET ホスト。Mono の System.Web で .aspx を動かし、HttpListener で受ける。
 // （Ubuntu の xsp4 は今の Mono では起動しないので、ApplicationHost で同じことをする）
-//   mono Harikit.TestHost.exe <Web のフォルダ> <ポート>
+//   mono Patchiri.TestHost.exe <Web のフォルダ> <ポート>
 // Web のフォルダの bin にこの exe を置くこと（ApplicationHost が AspHost を読み込むため）。
 
 using System;

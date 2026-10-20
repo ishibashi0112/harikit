@@ -1,8 +1,8 @@
 "use client";
 
-// harikit の画面。表に貼り付けて、検証 → 差分 → DB で確かめる → 反映、を順に行う。
-// 検証・差分・反映の中身はコア（@harikit/core）で、CLI と同じ。
-// Node 版サーバが配る同梱アプリ（main.tsx）でも、ほかの React アプリに埋め込むとき（index.ts）でも、この HarikitApp を使う。
+// patchiri の画面。表に貼り付けて、検証 → 差分 → DB で確かめる → 反映、を順に行う。
+// 検証・差分・反映の中身はコア（patchiri-core）で、CLI と同じ。
+// Node 版サーバが配る同梱アプリ（main.tsx）でも、ほかの React アプリに埋め込むとき（index.ts）でも、この PatchiriApp を使う。
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { SpreadsheetGrid, type GridColumn, type SpreadsheetGridHandle } from "@ishibashi0112/spreadsheet-grid";
@@ -12,8 +12,8 @@ import {
   columnLetter,
   diffToCsv,
   groupReadings,
-  HarikitApiError,
-  HarikitHttpError,
+  PatchiriApiError,
+  PatchiriHttpError,
   issuesToCsv,
   prepare,
   readingsToCsv,
@@ -21,13 +21,13 @@ import {
   type ApplyResponse,
   type DiffResult,
   type Failure,
-  type HarikitClient,
+  type PatchiriClient,
   type Issue,
   type PrepareResult,
   type Reading,
   type TableDescription,
   type TargetSummary,
-} from "@harikit/core";
+} from "patchiri-core";
 import { download, loadRules, makeClient, parseRules, saveToken, storeRules, takeToken, type RulesFile } from "./browser.js";
 import {
   addConflictMarks,
@@ -50,7 +50,7 @@ import {
 
 const INITIAL_ROWS = 100;
 const INITIAL_COLUMNS = 10;
-const TARGET_KEY = "harikit.target";
+const TARGET_KEY = "patchiri.target";
 const EMPTY_MARKS: Marks = new Map();
 
 let lastId = 0;
@@ -59,7 +59,7 @@ const nextId = () => ++lastId;
 type Connection =
   | { state: "connecting" }
   | { state: "need-token"; message?: string }
-  | { state: "ready"; client: HarikitClient; targets: TargetSummary[] }
+  | { state: "ready"; client: PatchiriClient; targets: TargetSummary[] }
   | { state: "offline"; message: string };
 
 interface Prepared {
@@ -83,8 +83,8 @@ type Applied =
 const tokenClient = (token: string | null) => (token ? makeClient(token) : null);
 
 function errorMessage(e: unknown): string {
-  if (e instanceof HarikitApiError) return `${e.failure.error.message}（${e.failure.error.code}）`;
-  if (e instanceof TypeError) return "サーバに届きません。harikit サーバが動いているか確かめてください";
+  if (e instanceof PatchiriApiError) return `${e.failure.error.message}（${e.failure.error.code}）`;
+  if (e instanceof TypeError) return "サーバに届きません。patchiri サーバが動いているか確かめてください";
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -114,23 +114,23 @@ function remember(key: string, value: string): void {
   }
 }
 
-export interface HarikitAppProps {
+export interface PatchiriAppProps {
   /**
    * つなぐ先。渡すとトークンの画面を出さず、このクライアントでつなぐ（ほかのアプリに埋め込むとき）。
    * 渡さなければ、画面を配ったサーバ（同じオリジン）に URL の #token= のトークンでつなぐ。
    * 描くたびに作り直すとつなぎ直すので、コンポーネントの外か useMemo で作っておく。
    */
-  client?: HarikitClient;
+  client?: PatchiriClient;
   /** 見出しの右に「… につながっています」と出す名前。既定は client を渡したときは出さず、渡さないときは location.host。 */
   serverLabel?: string;
   /** 見出しの右端に置くもの（埋め込む側のボタンなど）。 */
   headerExtra?: ReactNode;
-  /** 最初に読み込んでおく業務ルール（harikit.rules.json の名前と中身）。このブラウザが覚えたものより優先する。最初に描いたときだけ読む。 */
+  /** 最初に読み込んでおく業務ルール（patchiri.rules.json の名前と中身）。このブラウザが覚えたものより優先する。最初に描いたときだけ読む。 */
   initialRules?: { name: string; text: string };
-  ref?: Ref<HarikitAppHandle>;
+  ref?: Ref<PatchiriAppHandle>;
 }
 
-export interface HarikitAppHandle {
+export interface PatchiriAppHandle {
   /**
    * 表を入れ替える。1 行目が見出し（列名）で、空文字は空のセル。行や列が足りなければ増やす。
    * 検証した後なら、その結果は古い扱いになる（もう一度「検証して差分を見る」を押す）。
@@ -138,7 +138,7 @@ export interface HarikitAppHandle {
   loadCells(cells: readonly (readonly string[])[]): void;
 }
 
-export function HarikitApp({ client: given, serverLabel, headerExtra, initialRules, ref }: HarikitAppProps) {
+export function PatchiriApp({ client: given, serverLabel, headerExtra, initialRules, ref }: PatchiriAppProps) {
   const [start] = useState(() => startRules(initialRules));
   const [conn, setConn] = useState<Connection>({ state: "connecting" });
   const [target, setTarget] = useState("");
@@ -156,7 +156,7 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
   const [error, setError] = useState<string | null>(start.error);
   const gridRef = useRef<SpreadsheetGridHandle<GridRow>>(null);
 
-  const connect = useCallback(async (client: HarikitClient | null) => {
+  const connect = useCallback(async (client: PatchiriClient | null) => {
     if (!client) return setConn({ state: "need-token" });
     setConn({ state: "connecting" });
     try {
@@ -166,7 +166,7 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
       const last = remembered(TARGET_KEY);
       setTarget((cur) => cur || (targets.some((t) => t.target === last) ? last : targets.length === 1 ? targets[0]!.target : ""));
     } catch (e) {
-      if (e instanceof HarikitHttpError && e.status === 401 && !given) {
+      if (e instanceof PatchiriHttpError && e.status === 401 && !given) {
         saveToken(null);
         setConn({ state: "need-token", message: "トークンが違います。サーバを起動したときに出た URL から開き直すか、トークンを貼ってください" });
       } else setConn({ state: "offline", message: errorMessage(e) });
@@ -215,11 +215,11 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
         cellClassName: ({ row, sourceRowIndex }) => {
           if (sourceRowIndex === 0) {
             const info = desc && headerInfo(desc, cellText(row, letter));
-            return info ? `hk-head hk-head--${info.kind}` : "hk-head";
+            return info ? `pt-head pt-head--${info.kind}` : "pt-head";
           }
           const m = liveMark(marks, row, letter);
           if (!m) return undefined;
-          return [m.kind && `hk-${m.kind}`, m.warn && "hk-warn", m.read && "hk-read"].filter(Boolean).join(" ") || undefined;
+          return [m.kind && `pt-${m.kind}`, m.warn && "pt-warn", m.read && "pt-read"].filter(Boolean).join(" ") || undefined;
         },
         cellNote: ({ row, sourceRowIndex }) => {
           if (sourceRowIndex === 0) return desc ? headerInfo(desc, cellText(row, letter))?.note : undefined;
@@ -317,10 +317,10 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
   const server = serverLabel ?? (given ? undefined : location.host);
 
   return (
-    <div className="hk-app">
-      <header className="hk-bar">
-        <h1>harikit</h1>
-        <label className="hk-field">
+    <div className="pt-app">
+      <header className="pt-bar">
+        <h1>patchiri</h1>
+        <label className="pt-field">
           <span>対象</span>
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="">選んでください</option>
@@ -331,14 +331,14 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
             ))}
           </select>
         </label>
-        <div className="hk-field">
+        <div className="pt-field">
           <span>業務ルール</span>
           {rules ? (
-            <span className="hk-rules">
+            <span className="pt-rules">
               {rules.name}
               <button
                 type="button"
-                className="hk-link"
+                className="pt-link"
                 onClick={() => {
                   setRules(null);
                   storeRules(null);
@@ -348,49 +348,49 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
               </button>
             </span>
           ) : (
-            <span className="hk-muted">なし</span>
+            <span className="pt-muted">なし</span>
           )}
-          <label className="hk-button hk-button--small">
+          <label className="pt-button pt-button--small">
             ファイルを選ぶ
             <input type="file" accept=".json,application/json" hidden onChange={(e) => void onRulesFile(e.target.files?.[0]).finally(() => (e.target.value = ""))} />
           </label>
         </div>
         {(server || headerExtra) && (
-          <div className="hk-bar-end">
-            {server && <span className="hk-server">{server} につながっています</span>}
+          <div className="pt-bar-end">
+            {server && <span className="pt-server">{server} につながっています</span>}
             {headerExtra}
           </div>
         )}
       </header>
 
       {error && (
-        <div className="hk-banner hk-banner--error" role="alert">
+        <div className="pt-banner pt-banner--error" role="alert">
           {error}
-          <button type="button" className="hk-link" onClick={() => setError(null)}>
+          <button type="button" className="pt-link" onClick={() => setError(null)}>
             閉じる
           </button>
         </div>
       )}
 
-      <main className="hk-main">
-        <section className="hk-sheet">
-          <div className="hk-tabs" role="tablist">
+      <main className="pt-main">
+        <section className="pt-sheet">
+          <div className="pt-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === "input"} onClick={() => setTab("input")}>
               貼り付け
             </button>
             <button type="button" role="tab" aria-selected={tab === "diff"} disabled={!diff} onClick={() => setTab("diff")}>
               差分{diff ? `（変わる ${diff.counts.change} 行）` : ""}
             </button>
-            <span className="hk-tabs-hint">
+            <span className="pt-tabs-hint">
               {tab === "input" ? "Excel で見出しの行ごとコピーして、A1 を選んで Ctrl+V。Ctrl+Z で戻せます" : "検証した時点の DB の値（前）と、貼り付けた値（後）"}
             </span>
             {tab === "input" && (
-              <button type="button" className="hk-link" onClick={clearSheet}>
+              <button type="button" className="pt-link" onClick={clearSheet}>
                 表を空にする
               </button>
             )}
           </div>
-          <div className="hk-grid" hidden={tab !== "input"}>
+          <div className="pt-grid" hidden={tab !== "input"}>
             <SpreadsheetGrid<GridRow>
               ref={gridRef}
               rows={rows}
@@ -414,43 +414,43 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
             />
           </div>
           {diff && (
-            <div className="hk-grid" hidden={tab !== "diff"}>
+            <div className="pt-grid" hidden={tab !== "diff"}>
               <DiffGrid diff={diff} readings={prepared!.result.validation.readings} />
             </div>
           )}
         </section>
 
-        <aside className="hk-side">
+        <aside className="pt-side">
           <ColumnsCard desc={desc} target={target} onAdd={insertHeader} />
 
           <Card step="2" title="検証して差分を見る">
-            <button type="button" className="hk-button hk-button--primary" disabled={!target || preparing} onClick={() => void runPrepare()}>
+            <button type="button" className="pt-button pt-button--primary" disabled={!target || preparing} onClick={() => void runPrepare()}>
               {preparing ? "検証しています…" : "検証して差分を見る"}
             </button>
-            {stale && <p className="hk-banner hk-banner--stale">検証した後に表か設定を変えました。もう一度押してください。</p>}
+            {stale && <p className="pt-banner pt-banner--stale">検証した後に表か設定を変えました。もう一度押してください。</p>}
             {prepared && (
-              <div className={stale ? "hk-dim" : undefined}>
+              <div className={stale ? "pt-dim" : undefined}>
                 <PrepareSummary result={prepared.result} onJump={jump} />
-                <div className="hk-actions">
+                <div className="pt-actions">
                   {diff && (
-                    <button type="button" className="hk-button hk-button--small" onClick={() => download(`${base}-diff.csv`, diffToCsv(diff), "text/csv;charset=utf-8")}>
+                    <button type="button" className="pt-button pt-button--small" onClick={() => download(`${base}-diff.csv`, diffToCsv(diff), "text/csv;charset=utf-8")}>
                       差分 CSV
                     </button>
                   )}
                   {prepared.result.issues.length > 0 && (
-                    <button type="button" className="hk-button hk-button--small" onClick={() => download(`${base}-issues.csv`, issuesToCsv(prepared.result.issues), "text/csv;charset=utf-8")}>
+                    <button type="button" className="pt-button pt-button--small" onClick={() => download(`${base}-issues.csv`, issuesToCsv(prepared.result.issues), "text/csv;charset=utf-8")}>
                       問題の一覧 CSV
                     </button>
                   )}
                   {prepared.result.validation.readings.length > 0 && (
-                    <button type="button" className="hk-button hk-button--small" onClick={() => download(`${base}-readings.csv`, readingsToCsv(prepared.result.validation.readings), "text/csv;charset=utf-8")}>
+                    <button type="button" className="pt-button pt-button--small" onClick={() => download(`${base}-readings.csv`, readingsToCsv(prepared.result.validation.readings), "text/csv;charset=utf-8")}>
                       読み替えの一覧 CSV
                     </button>
                   )}
                   {diff && prepared.result.ok && diff.counts.change > 0 && (
                     <button
                       type="button"
-                      className="hk-button hk-button--small"
+                      className="pt-button pt-button--small"
                       onClick={() => download(`${base}-plan.json`, JSON.stringify(buildPlan(diff, "grid", { requestId: prepared.requestId, ...(note.trim() && { note: note.trim() }) }), null, 2) + "\n", "application/json")}
                     >
                       反映計画 plan.json
@@ -484,9 +484,9 @@ export function HarikitApp({ client: given, serverLabel, headerExtra, initialRul
 
 function Card({ step, title, children }: { step: string; title: string; children: ReactNode }) {
   return (
-    <section className="hk-card">
+    <section className="pt-card">
       <h2>
-        <span className="hk-step">{step}</span>
+        <span className="pt-step">{step}</span>
         {title}
       </h2>
       {children}
@@ -498,14 +498,14 @@ function ColumnsCard({ desc, target, onAdd }: { desc: TableDescription | null; t
   if (!target) {
     return (
       <Card step="1" title="表に貼り付ける">
-        <p className="hk-muted">上の「対象」で、更新するテーブルを選んでください。</p>
+        <p className="pt-muted">上の「対象」で、更新するテーブルを選んでください。</p>
       </Card>
     );
   }
   if (!desc) {
     return (
       <Card step="1" title="表に貼り付ける">
-        <p className="hk-muted">列を読んでいます…</p>
+        <p className="pt-muted">列を読んでいます…</p>
       </Card>
     );
   }
@@ -513,23 +513,23 @@ function ColumnsCard({ desc, target, onAdd }: { desc: TableDescription | null; t
   const cols = desc.columns.filter((c) => keys.has(c.name.toLowerCase()) || c.updatable);
   return (
     <Card step="1" title="表に貼り付ける">
-      <p className="hk-help">
+      <p className="pt-help">
         1 行目は列名です。キーの列と、変える列だけを貼ってください（列の順は自由）。貼っていない列は変わりません。日付や数は Excel の表示のまま（2024/4/1、¥1,200 など）で貼れます。
       </p>
-      <ul className="hk-columns">
+      <ul className="pt-columns">
         {cols.map((c) => {
           const isKey = keys.has(c.name.toLowerCase());
           return (
             <li key={c.name}>
-              <span className={isKey ? "hk-tag hk-tag--key" : "hk-tag"}>{isKey ? "キー" : "更新"}</span>
-              <span className="hk-colname" title={c.name}>
+              <span className={isKey ? "pt-tag pt-tag--key" : "pt-tag"}>{isKey ? "キー" : "更新"}</span>
+              <span className="pt-colname" title={c.name}>
                 {c.name}
               </span>
-              <span className="hk-muted">
+              <span className="pt-muted">
                 {c.dbType}
                 {c.nullable ? "" : "・必須"}
               </span>
-              <button type="button" className="hk-link" title={`1 行目に ${c.name} を入れる`} onClick={() => onAdd(c.name)}>
+              <button type="button" className="pt-link" title={`1 行目に ${c.name} を入れる`} onClick={() => onAdd(c.name)}>
                 ＋見出し
               </button>
             </li>
@@ -547,11 +547,11 @@ function PrepareSummary({ result, onJump }: { result: PrepareResult; onJump: (at
   const warnings = result.issues.length - errors;
   const d = result.diff;
   return (
-    <div className="hk-summary">
+    <div className="pt-summary">
       {d && (
-        <div className="hk-counts">
+        <div className="pt-counts">
           {(["change", "same", "not_found"] as const).map((s) => (
-            <div key={s} className={`hk-count hk-count--${s}`}>
+            <div key={s} className={`pt-count pt-count--${s}`}>
               <strong>{d.counts[s]}</strong>
               <span>{STATUS_TEXT[s]}</span>
             </div>
@@ -559,28 +559,28 @@ function PrepareSummary({ result, onJump }: { result: PrepareResult; onJump: (at
         </div>
       )}
       {errors > 0 ? (
-        <p className="hk-status hk-status--error">エラーが {errors} 件あるので、差分は作っていません。赤いセルを直して、もう一度押してください。</p>
+        <p className="pt-status pt-status--error">エラーが {errors} 件あるので、差分は作っていません。赤いセルを直して、もう一度押してください。</p>
       ) : d && d.counts.change === 0 ? (
-        <p className="hk-status">変わる行はありません。</p>
+        <p className="pt-status">変わる行はありません。</p>
       ) : (
-        d && <p className="hk-status hk-status--ok">差分ができました。「差分」のタブが承認資料になります。</p>
+        d && <p className="pt-status pt-status--ok">差分ができました。「差分」のタブが承認資料になります。</p>
       )}
       {result.issues.length > 0 && (
         <>
-          <p className="hk-muted">
+          <p className="pt-muted">
             エラー {errors} 件、警告 {warnings} 件
           </p>
-          <ul className="hk-issues">
+          <ul className="pt-issues">
             {result.issues.slice(0, 200).map((i, n) => (
               <li key={n}>
-                <button type="button" className={`hk-issue hk-issue--${i.severity}`} disabled={i.row === undefined} onClick={() => onJump(i)}>
-                  <span className="hk-issue-place">{issuePlace(i)}</span>
+                <button type="button" className={`pt-issue pt-issue--${i.severity}`} disabled={i.row === undefined} onClick={() => onJump(i)}>
+                  <span className="pt-issue-place">{issuePlace(i)}</span>
                   <span>{i.message}</span>
                 </button>
               </li>
             ))}
           </ul>
-          {result.issues.length > 200 && <p className="hk-muted">…ほか {result.issues.length - 200} 件（CSV を見てください）</p>}
+          {result.issues.length > 200 && <p className="pt-muted">…ほか {result.issues.length - 200} 件（CSV を見てください）</p>}
         </>
       )}
       <Readings readings={result.validation.readings} onJump={onJump} />
@@ -593,13 +593,13 @@ function Readings({ readings, onJump }: { readings: readonly Reading[]; onJump: 
   const groups = useMemo(() => groupReadings(readings), [readings]);
   if (groups.length === 0) return null;
   return (
-    <div className="hk-readings">
-      <p className="hk-muted">Excel の表示から読み替えたセル: {readings.length} 個</p>
-      <ul className="hk-issues">
+    <div className="pt-readings">
+      <p className="pt-muted">Excel の表示から読み替えたセル: {readings.length} 個</p>
+      <ul className="pt-issues">
         {groups.map((g) => (
           <li key={g.column}>
-            <button type="button" className="hk-issue hk-issue--read" title={readingNote(g.first)} onClick={() => onJump(g.first)}>
-              <span className="hk-issue-place">{g.column}</span>
+            <button type="button" className="pt-issue pt-issue--read" title={readingNote(g.first)} onClick={() => onJump(g.first)}>
+              <span className="pt-issue-place">{g.column}</span>
               <span>
                 {g.count} 個。例: {g.first.text} → {String(g.first.value)}
               </span>
@@ -607,8 +607,8 @@ function Readings({ readings, onJump }: { readings: readonly Reading[]; onJump: 
           </li>
         ))}
       </ul>
-      <p className="hk-muted hk-small">
-        表では<span className="hk-read-sample">点線の下線</span>のセルです。表示で丸めた数や秒は丸めたまま読むので、元の桁が要るときは Excel の表示形式を変えてからコピーしてください。
+      <p className="pt-muted pt-small">
+        表では<span className="pt-read-sample">点線の下線</span>のセルです。表示で丸めた数や秒は丸めたまま読むので、元の桁が要るときは Excel の表示形式を変えてからコピーしてください。
       </p>
     </div>
   );
@@ -638,37 +638,37 @@ function ApplyCard(props: {
   const checked = applied?.mode === "check" && applied.state === "ok";
   return (
     <Card step="3" title="確かめて反映する">
-      <label className="hk-note">
+      <label className="pt-note">
         <span>メモ（反映ログに残ります。依頼番号など）</span>
         <input type="text" value={props.note} disabled={executed} onChange={(e) => props.onNote(e.target.value)} />
       </label>
       {!executed && (
-        <div className="hk-actions">
-          <button type="button" className="hk-button" disabled={props.disabled || running} onClick={props.onCheck}>
+        <div className="pt-actions">
+          <button type="button" className="pt-button" disabled={props.disabled || running} onClick={props.onCheck}>
             DB で確かめる
           </button>
-          <button type="button" className="hk-button hk-button--danger" disabled={props.disabled || running || !(checked || applied?.mode === "execute")} onClick={props.onAsk}>
+          <button type="button" className="pt-button pt-button--danger" disabled={props.disabled || running || !(checked || applied?.mode === "execute")} onClick={props.onAsk}>
             反映する
           </button>
         </div>
       )}
-      {!executed && !checked && !running && applied === null && <p className="hk-muted">反映の前に「DB で確かめる」を押します（DB は変えません）。</p>}
+      {!executed && !checked && !running && applied === null && <p className="pt-muted">反映の前に「DB で確かめる」を押します（DB は変えません）。</p>}
       {props.confirming && (
-        <div className="hk-confirm" role="alertdialog" aria-label="反映の確認">
+        <div className="pt-confirm" role="alertdialog" aria-label="反映の確認">
           <p>
             <strong>{props.rows} 行</strong>を DB に反映します。よろしいですか？
           </p>
-          <div className="hk-actions">
-            <button type="button" className="hk-button hk-button--danger" onClick={props.onExecute}>
+          <div className="pt-actions">
+            <button type="button" className="pt-button pt-button--danger" onClick={props.onExecute}>
               反映する
             </button>
-            <button type="button" className="hk-button" onClick={props.onCancel}>
+            <button type="button" className="pt-button" onClick={props.onCancel}>
               やめる
             </button>
           </div>
         </div>
       )}
-      {running && <p className="hk-muted">{applied!.mode === "check" ? "確かめています…" : "反映しています…"}</p>}
+      {running && <p className="pt-muted">{applied!.mode === "check" ? "確かめています…" : "反映しています…"}</p>}
       {applied && applied.state !== "running" && <ApplyResult applied={applied} rows={props.rows} base={props.base} />}
       <div ref={ref} />
     </Card>
@@ -679,11 +679,11 @@ function ApplyResult({ applied, rows, base }: { applied: Exclude<Applied, { stat
   if (applied.state === "failed") {
     const f = applied.failure;
     return (
-      <div className="hk-status hk-status--error">
+      <div className="pt-status pt-status--error">
         <p>止めました: {f.error.message}</p>
         {f.conflicts && f.conflicts.length > 0 && (
           <>
-            <ul className="hk-plain">
+            <ul className="pt-plain">
               {f.conflicts.slice(0, 20).map((c) => (
                 <li key={c.index}>
                   {Object.values(c.key).join("・")}: {c.reason === "not_found" ? "行がなくなっています" : `${(c.columns ?? []).join("、")} が変わっています`}
@@ -694,7 +694,7 @@ function ApplyResult({ applied, rows, base }: { applied: Exclude<Applied, { stat
           </>
         )}
         {f.rowErrors && f.rowErrors.length > 0 && (
-          <ul className="hk-plain">
+          <ul className="pt-plain">
             {f.rowErrors.slice(0, 20).map((e, n) => (
               <li key={n}>
                 {e.index + 1} 番目: {e.column ? `${e.column} ` : ""}
@@ -710,7 +710,7 @@ function ApplyResult({ applied, rows, base }: { applied: Exclude<Applied, { stat
   const updated = r.results.reduce((n, x) => n + x.updated, 0);
   const sqlName = applied.mode === "execute" ? `${base}-applied.sql` : `${base}-check.sql`;
   return (
-    <div className="hk-status hk-status--ok">
+    <div className="pt-status pt-status--ok">
       {applied.mode === "execute" ? (
         <p>
           反映しました: {updated} 行（{r.appliedBy}、{new Date(r.appliedAt).toLocaleString("ja-JP")}）
@@ -718,15 +718,15 @@ function ApplyResult({ applied, rows, base }: { applied: Exclude<Applied, { stat
       ) : (
         <p>{rows} 行とも差分どおりで、反映できます（DB は変えていません）。</p>
       )}
-      <div className="hk-actions">
-        <button type="button" className="hk-button hk-button--small" onClick={() => download(sqlName, r.script, "application/sql;charset=utf-8")}>
+      <div className="pt-actions">
+        <button type="button" className="pt-button pt-button--small" onClick={() => download(sqlName, r.script, "application/sql;charset=utf-8")}>
           {applied.mode === "execute" ? "実行した SQL" : "実行する SQL"}
         </button>
-        <button type="button" className="hk-button hk-button--small" onClick={() => download(`${base}-undo.sql`, r.undoScript, "application/sql;charset=utf-8")}>
+        <button type="button" className="pt-button pt-button--small" onClick={() => download(`${base}-undo.sql`, r.undoScript, "application/sql;charset=utf-8")}>
           戻し SQL
         </button>
         {applied.mode === "execute" && (
-          <button type="button" className="hk-button hk-button--small" onClick={() => download(`${base}-result.json`, JSON.stringify(r, null, 2) + "\n", "application/json")}>
+          <button type="button" className="pt-button pt-button--small" onClick={() => download(`${base}-result.json`, JSON.stringify(r, null, 2) + "\n", "application/json")}>
             結果 JSON
           </button>
         )}
@@ -759,14 +759,14 @@ function DiffGrid({ diff, readings }: { diff: DiffResult; readings: readonly Rea
           title: `${c}（前）`,
           width: 150,
           valueFormatter: emptyIfChanged(c),
-          cellClassName: ({ row }) => (row.changed.includes(c) ? "hk-before" : undefined),
+          cellClassName: ({ row }) => (row.changed.includes(c) ? "pt-before" : undefined),
         },
         {
           key: `a:${c}`,
           title: `${c}（後）`,
           width: 150,
           valueFormatter: emptyIfChanged(c),
-          cellClassName: ({ row }) => (row.changed.includes(c) ? "hk-change" : undefined),
+          cellClassName: ({ row }) => (row.changed.includes(c) ? "pt-change" : undefined),
           cellNote: pastedNote(c),
         },
       ]),
@@ -798,26 +798,26 @@ function ConnectionScreen({ conn, onToken, onRetry }: { conn: Exclude<Connection
     if (token.trim()) onToken(token.trim());
   };
   return (
-    <div className="hk-app hk-center">
-      <div className="hk-card hk-connect">
-        <h1>harikit</h1>
-        {conn.state === "connecting" && <p className="hk-muted">サーバにつないでいます…</p>}
+    <div className="pt-app pt-center">
+      <div className="pt-card pt-connect">
+        <h1>patchiri</h1>
+        {conn.state === "connecting" && <p className="pt-muted">サーバにつないでいます…</p>}
         {conn.state === "offline" && (
           <>
-            <p className="hk-status hk-status--error">{conn.message}</p>
-            <button type="button" className="hk-button" onClick={onRetry}>
+            <p className="pt-status pt-status--error">{conn.message}</p>
+            <button type="button" className="pt-button" onClick={onRetry}>
               もう一度つなぐ
             </button>
           </>
         )}
         {conn.state === "need-token" && (
           <form onSubmit={submit}>
-            <p>{conn.message ?? "harikit サーバを起動したときに出た URL から開くと、そのまま使えます。トークンだけを貼ることもできます。"}</p>
-            <label className="hk-note">
+            <p>{conn.message ?? "patchiri サーバを起動したときに出た URL から開くと、そのまま使えます。トークンだけを貼ることもできます。"}</p>
+            <label className="pt-note">
               <span>トークン</span>
               <input type="password" value={token} autoComplete="off" onChange={(e) => setToken(e.target.value)} />
             </label>
-            <button type="submit" className="hk-button hk-button--primary">
+            <button type="submit" className="pt-button pt-button--primary">
               つなぐ
             </button>
           </form>

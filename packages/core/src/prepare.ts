@@ -1,6 +1,6 @@
 // 取込から差分までを通す。describe → 検証 → 参照先の確認 → fetch → 差分。
 
-import type { HarikitClient } from "./client.js";
+import type { PatchiriClient } from "./client.js";
 import { diff, validRows, type DiffResult } from "./diff.js";
 import { compileRules, type RulesConfig } from "./rules.js";
 import { cellRef, type Sheet } from "./table.js";
@@ -19,7 +19,7 @@ export interface PrepareResult {
 }
 
 /** キーを上限ごとに分けて fetch する。 */
-export async function fetchAll(client: HarikitClient, desc: Pick<TableDescription, "target" | "limits">, keys: Row[], columns?: string[]): Promise<FetchedRow[]> {
+export async function fetchAll(client: PatchiriClient, desc: Pick<TableDescription, "target" | "limits">, keys: Row[], columns?: string[]): Promise<FetchedRow[]> {
   const size = Math.max(1, desc.limits.maxFetchKeys);
   const out: FetchedRow[] = [];
   for (let start = 0; start < keys.length; start += size) {
@@ -30,7 +30,7 @@ export async function fetchAll(client: HarikitClient, desc: Pick<TableDescriptio
 }
 
 /** 外部キーの参照先に値があるかを確かめる。 */
-export async function checkReferences(client: HarikitClient, desc: TableDescription, v: ValidationResult): Promise<Issue[]> {
+export async function checkReferences(client: PatchiriClient, desc: TableDescription, v: ValidationResult): Promise<Issue[]> {
   const issues: Issue[] = [];
   const types = new Map(desc.columns.map((c) => [c.name, c.type]));
   for (const fk of desc.foreignKeys) {
@@ -76,7 +76,7 @@ export interface PrepareOptions extends Omit<ValidateOptions, "rules"> {
 }
 
 /** シートを検証して差分まで作る。エラーがあれば差分は作らない（変動率のエラーは差分を作ってから出る）。 */
-export async function prepare(client: HarikitClient, target: string, sheet: Sheet, options: PrepareOptions = {}): Promise<PrepareResult> {
+export async function prepare(client: PatchiriClient, target: string, sheet: Sheet, options: PrepareOptions = {}): Promise<PrepareResult> {
   const description = await client.describe(target);
   if (description.access !== "update") throw new Error(`${target} は読むだけのターゲットです`);
   const targets = options.rules?.targets;

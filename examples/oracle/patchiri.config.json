@@ -1,20 +1,25 @@
 {
-  "connectionStringName": "Harikit",
+  "listen": { "host": "127.0.0.1", "port": 7357 },
+  "database": {
+    "dialect": "oracle",
+    "connectString": "localhost:1521/FREEPDB1",
+    "user": "patchiri"
+  },
   "targets": {
     "product": {
-      "table": "dbo.M_Product",
+      "table": "M_Product",
       "access": "update",
       "key": ["ProductCode"],
       "readable": ["ProductCode", "ProductName", "CategoryCode", "UnitPrice", "ReleaseDate", "UpdatedAt"],
       "updatable": ["ProductName", "CategoryCode", "UnitPrice", "ReleaseDate"]
     },
     "category": {
-      "table": "dbo.M_Category",
+      "table": "M_Category",
       "access": "read",
       "key": ["CategoryCode"],
       "readable": ["CategoryCode", "CategoryName"]
     }
   },
   "limits": { "maxFetchKeys": 1000, "maxApplyRows": 5000 },
-  "logDir": "~/App_Data/harikit-log"
+  "logDir": "patchiri-log"
 }

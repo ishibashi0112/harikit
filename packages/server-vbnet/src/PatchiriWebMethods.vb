@@ -1,8 +1,8 @@
 ﻿' ASP.NET WebForms の WebMethod から呼ぶ入口（webmethod スタイル、仕様 1.1）。
-' Harikit.aspx の <WebMethod()> Describe / Fetch / Apply は、ここの Call を呼ぶだけにする。
+' Patchiri.aspx の <WebMethod()> Describe / Fetch / Apply は、ここの Call を呼ぶだけにする。
 '
-' 設定: web.config の appSettings "harikit:config"（既定 ~/App_Data/harikit.config.json）に許可リストを置き、
-' 接続文字列は connectionStrings の名前（既定 "Harikit"）で指す。認証と権限は載せ先のアプリに任せる（仕様 1.4）。
+' 設定: web.config の appSettings "patchiri:config"（既定 ~/App_Data/patchiri.config.json）に許可リストを置き、
+' 接続文字列は connectionStrings の名前（既定 "Patchiri"）で指す。認証と権限は載せ先のアプリに任せる（仕様 1.4）。
 
 Option Strict On
 Option Explicit On
@@ -19,15 +19,15 @@ Imports System.Web
 Imports System.Web.Configuration
 Imports System.Web.Hosting
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
-    Public NotInheritable Class HarikitWebMethods
+    Public NotInheritable Class PatchiriWebMethods
 
-        Private Const DefaultConfigPath As String = "~/App_Data/harikit.config.json"
-        Private Const DefaultLogDir As String = "~/App_Data/harikit-log"
+        Private Const DefaultConfigPath As String = "~/App_Data/patchiri.config.json"
+        Private Const DefaultLogDir As String = "~/App_Data/patchiri-log"
 
         Private Shared ReadOnly sync As New Object()
-        Private Shared cachedService As HarikitService
+        Private Shared cachedService As PatchiriService
         Private Shared cachedPath As String
         Private Shared cachedStamp As DateTime
 
@@ -39,11 +39,11 @@ Namespace Global.Harikit.Server
             ctx.Response.Cache.SetCacheability(HttpCacheability.NoCache)
             ctx.Response.Cache.SetNoStore()
             ' CSRF 対策（仕様 1.4）。application/json でない呼び出しは ASP.NET が WebMethod に回さない。
-            If Not String.Equals(ctx.Request.Headers("X-Harikit"), "1", StringComparison.Ordinal) Then
+            If Not String.Equals(ctx.Request.Headers("X-Patchiri"), "1", StringComparison.Ordinal) Then
                 ctx.Response.StatusCode = 403
-                Return New Dictionary(Of String, Object) From {{"message", "X-Harikit: 1 header required"}}
+                Return New Dictionary(Of String, Object) From {{"message", "X-Patchiri: 1 header required"}}
             End If
-            Dim s As HarikitService
+            Dim s As PatchiriService
             Try
                 s = Service()
             Catch e As Exception
@@ -51,29 +51,29 @@ Namespace Global.Harikit.Server
                 Return New Dictionary(Of String, Object) From {
                     {"ok", False},
                     {"v", 1},
-                    {"error", New Dictionary(Of String, Object) From {{"code", "internal_error"}, {"message", "harikit の設定を読めません（詳細はサーバのログ）"}}}
+                    {"error", New Dictionary(Of String, Object) From {{"code", "internal_error"}, {"message", "patchiri の設定を読めません（詳細はサーバのログ）"}}}
                 }
             End Try
             Return s.Handle(name, req)
         End Function
 
         ''' <summary>設定ファイルを読んでサービスを作る。設定ファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
-        Private Shared Function Service() As HarikitService
-            Dim configPath = MapPath(If(ConfigurationManager.AppSettings("harikit:config"), DefaultConfigPath))
+        Private Shared Function Service() As PatchiriService
+            Dim configPath = MapPath(If(ConfigurationManager.AppSettings("patchiri:config"), DefaultConfigPath))
             Dim stamp = File.GetLastWriteTimeUtc(configPath)
             SyncLock sync
                 If cachedService IsNot Nothing AndAlso String.Equals(configPath, cachedPath, StringComparison.Ordinal) AndAlso stamp = cachedStamp Then Return cachedService
-                Dim config = HarikitConfig.Parse(File.ReadAllText(configPath, Encoding.UTF8))
+                Dim config = PatchiriConfig.Parse(File.ReadAllText(configPath, Encoding.UTF8))
                 Dim cs = ConfigurationManager.ConnectionStrings(config.ConnectionStringName)
                 If cs Is Nothing OrElse String.IsNullOrEmpty(cs.ConnectionString) Then
-                    Throw New HarikitConfigException("web.config の connectionStrings に " & config.ConnectionStringName & " がありません")
+                    Throw New PatchiriConfigException("web.config の connectionStrings に " & config.ConnectionStringName & " がありません")
                 End If
                 Dim logDir = MapPath(config.LogDir)
-                cachedService = New HarikitService(New HarikitServiceOptions With {
+                cachedService = New PatchiriService(New PatchiriServiceOptions With {
                     .Config = config,
                     .Dialect = New SqlServerDialect(cs.ConnectionString, config.LockWaitSeconds),
                     .WhoAmI = AddressOf CurrentUser,
-                    .Log = Sub(entry) HarikitFileLog.WriteApply(logDir, entry),
+                    .Log = Sub(entry) PatchiriFileLog.WriteApply(logDir, entry),
                     .LogError = Sub(e) WriteError(logDir, e),
                     .MaxResponseLength = MaxJsonLength()
                 })
@@ -105,9 +105,9 @@ Namespace Global.Harikit.Server
         End Function
 
         Private Shared Sub WriteError(dir As String, e As Exception)
-            Trace.TraceError("harikit: " & e.ToString())
+            Trace.TraceError("patchiri: " & e.ToString())
             Try
-                HarikitFileLog.WriteError(dir, e)
+                PatchiriFileLog.WriteError(dir, e)
             Catch ex As Exception
                 ' ログのフォルダに書けないときは Trace だけに残す。
             End Try

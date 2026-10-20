@@ -12,8 +12,8 @@
 // - 列の文字コードで表せない字はエラー（22P05）になり、「?」に置き換わらない。varchar(n) の n は文字数。
 // - UPDATE の行数は文そのものの行数で、トリガーの中の行数は入らない。
 
-import type { ColumnType, Row, Value } from "@harikit/core";
-import { canonical, DATE_RE, DATETIME_RE, DECIMAL_RE, TIME_RE } from "@harikit/core";
+import type { ColumnType, Row, Value } from "patchiri-core";
+import { canonical, DATE_RE, DATETIME_RE, DECIMAL_RE, TIME_RE } from "patchiri-core";
 import { DbError, LOCKED_MESSAGE, scriptKeyText, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
 
 /** 1 本のつなぎ。値は文字列か null で渡す。 */
@@ -544,28 +544,28 @@ export class PostgresDialect implements Dialect {
    */
   renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[], kind: "apply" | "undo"): string {
     const m = meta as PgMeta;
-    const body: string[] = ["#variable_conflict use_column", "DECLARE", "  harikit_rows integer;"];
-    if (kind === "undo") body.push("  harikit_done integer := 0;");
+    const body: string[] = ["#variable_conflict use_column", "DECLARE", "  patchiri_rows integer;"];
+    if (kind === "undo") body.push("  patchiri_done integer := 0;");
     body.push("BEGIN");
     for (const u of updates) {
-      body.push(`  ${this.renderUpdate(m, u)};`, "  GET DIAGNOSTICS harikit_rows = ROW_COUNT;");
+      body.push(`  ${this.renderUpdate(m, u)};`, "  GET DIAGNOSTICS patchiri_rows = ROW_COUNT;");
       if (kind === "apply") {
-        const msg = quoteString(`harikit: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`);
-        body.push(`  IF harikit_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = ${msg}; END IF;`);
+        const msg = quoteString(`patchiri: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`);
+        body.push(`  IF patchiri_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = ${msg}; END IF;`);
       } else {
-        const msg = quoteString(`harikit: 戻していない行（後から別の更新が入った）: ${scriptKeyText(u.key)}`);
-        body.push(`  IF harikit_rows = 1 THEN harikit_done := harikit_done + 1; ELSE RAISE NOTICE USING MESSAGE = ${msg}; END IF;`);
+        const msg = quoteString(`patchiri: 戻していない行（後から別の更新が入った）: ${scriptKeyText(u.key)}`);
+        body.push(`  IF patchiri_rows = 1 THEN patchiri_done := patchiri_done + 1; ELSE RAISE NOTICE USING MESSAGE = ${msg}; END IF;`);
       }
     }
-    if (kind === "undo") body.push(`  RAISE NOTICE 'harikit: % / ${updates.length} 行を戻しました', harikit_done;`);
+    if (kind === "undo") body.push(`  RAISE NOTICE 'patchiri: % / ${updates.length} 行を戻しました', patchiri_done;`);
     body.push("END");
     const text = body.join("\n");
     // 値に区切りの文字列が入っていたら、別の区切りにする。
-    let tag = "$harikit$";
-    for (let i = 1; text.includes(tag); i++) tag = `$harikit_${i}$`;
+    let tag = "$patchiri$";
+    for (let i = 1; text.includes(tag); i++) tag = `$patchiri_${i}$`;
     const lines = [head];
-    if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（harikit: で始まるエラー）。");
-    else lines.push("-- 今の値が harikit で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、NOTICE に出す。");
+    if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（patchiri: で始まるエラー）。");
+    else lines.push("-- 今の値が patchiri で入れた値のままの行だけ戻す。その後に別の更新が入った行は戻さず、NOTICE に出す。");
     lines.push(
       "-- psql、pgAdmin、DBeaver などで流せる素の SQL（DO ブロック 1 つ）。自動コミットを切っているときは、流した後に COMMIT する。",
       "SET client_encoding = 'UTF8';",
