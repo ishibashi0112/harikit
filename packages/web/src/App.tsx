@@ -1,7 +1,10 @@
+"use client";
+
 // harikit の画面。表に貼り付けて、検証 → 差分 → DB で確かめる → 反映、を順に行う。
 // 検証・差分・反映の中身はコア（@harikit/core）で、CLI と同じ。
+// Node 版サーバが配る同梱アプリ（main.tsx）でも、ほかの React アプリに埋め込むとき（index.ts）でも、この HarikitApp を使う。
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { SpreadsheetGrid, type GridColumn, type SpreadsheetGridHandle } from "@ishibashi0112/spreadsheet-grid";
 import {
   buildApplyRequest,
@@ -37,6 +40,7 @@ import {
   issuePlace,
   liveMark,
   readingNote,
+  rowsFromCells,
   stamp,
   toSheet,
   type DiffGridRow,
@@ -76,10 +80,22 @@ type Applied =
   | { mode: ApplyMode; state: "ok"; response: ApplyResponse }
   | { mode: ApplyMode; state: "failed"; failure: Failure };
 
+const tokenClient = (token: string | null) => (token ? makeClient(token) : null);
+
 function errorMessage(e: unknown): string {
   if (e instanceof HarikitApiError) return `${e.failure.error.message}（${e.failure.error.code}）`;
   if (e instanceof TypeError) return "サーバに届きません。harikit サーバが動いているか確かめてください";
   return e instanceof Error ? e.message : String(e);
+}
+
+/** 最初の業務ルール。渡されたものがあればそれを、無ければこのブラウザが覚えたものを使う。 */
+function startRules(given: { name: string; text: string } | undefined): { rules: RulesFile | null; error: string | null } {
+  if (!given) return { rules: loadRules(), error: null };
+  try {
+    return { rules: parseRules(given.name, given.text), error: null };
+  } catch (e) {
+    return { rules: null, error: `業務ルールを読めません: ${errorMessage(e)}` };
+  }
 }
 
 function remembered(key: string): string {
@@ -98,11 +114,36 @@ function remember(key: string, value: string): void {
   }
 }
 
-export function App() {
+export interface HarikitAppProps {
+  /**
+   * つなぐ先。渡すとトークンの画面を出さず、このクライアントでつなぐ（ほかのアプリに埋め込むとき）。
+   * 渡さなければ、画面を配ったサーバ（同じオリジン）に URL の #token= のトークンでつなぐ。
+   * 描くたびに作り直すとつなぎ直すので、コンポーネントの外か useMemo で作っておく。
+   */
+  client?: HarikitClient;
+  /** 見出しの右に「… につながっています」と出す名前。既定は client を渡したときは出さず、渡さないときは location.host。 */
+  serverLabel?: string;
+  /** 見出しの右端に置くもの（埋め込む側のボタンなど）。 */
+  headerExtra?: ReactNode;
+  /** 最初に読み込んでおく業務ルール（harikit.rules.json の名前と中身）。このブラウザが覚えたものより優先する。最初に描いたときだけ読む。 */
+  initialRules?: { name: string; text: string };
+  ref?: Ref<HarikitAppHandle>;
+}
+
+export interface HarikitAppHandle {
+  /**
+   * 表を入れ替える。1 行目が見出し（列名）で、空文字は空のセル。行や列が足りなければ増やす。
+   * 検証した後なら、その結果は古い扱いになる（もう一度「検証して差分を見る」を押す）。
+   */
+  loadCells(cells: readonly (readonly string[])[]): void;
+}
+
+export function HarikitApp({ client: given, serverLabel, headerExtra, initialRules, ref }: HarikitAppProps) {
+  const [start] = useState(() => startRules(initialRules));
   const [conn, setConn] = useState<Connection>({ state: "connecting" });
   const [target, setTarget] = useState("");
   const [desc, setDesc] = useState<TableDescription | null>(null);
-  const [rules, setRules] = useState<RulesFile | null>(() => loadRules());
+  const [rules, setRules] = useState<RulesFile | null>(start.rules);
   const [rows, setRows] = useState<GridRow[]>(() => blankRows(INITIAL_ROWS, nextId));
   const [columnCount, setColumnCount] = useState(INITIAL_COLUMNS);
   const [version, setVersion] = useState(0);
@@ -112,13 +153,12 @@ export function App() {
   const [confirming, setConfirming] = useState(false);
   const [note, setNote] = useState("");
   const [tab, setTab] = useState<"input" | "diff">("input");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(start.error);
   const gridRef = useRef<SpreadsheetGridHandle<GridRow>>(null);
 
-  const connect = useCallback(async (token: string | null) => {
-    if (!token) return setConn({ state: "need-token" });
+  const connect = useCallback(async (client: HarikitClient | null) => {
+    if (!client) return setConn({ state: "need-token" });
     setConn({ state: "connecting" });
-    const client = makeClient(token);
     try {
       const res = await client.targets();
       const targets = res.targets.filter((t) => t.access === "update");
@@ -126,16 +166,17 @@ export function App() {
       const last = remembered(TARGET_KEY);
       setTarget((cur) => cur || (targets.some((t) => t.target === last) ? last : targets.length === 1 ? targets[0]!.target : ""));
     } catch (e) {
-      if (e instanceof HarikitHttpError && e.status === 401) {
+      if (e instanceof HarikitHttpError && e.status === 401 && !given) {
         saveToken(null);
         setConn({ state: "need-token", message: "トークンが違います。サーバを起動したときに出た URL から開き直すか、トークンを貼ってください" });
       } else setConn({ state: "offline", message: errorMessage(e) });
     }
-  }, []);
+  }, [given]);
 
-  useEffect(() => {
-    void connect(takeToken());
-  }, [connect]);
+  // 埋め込む側がクライアントを渡したときは、アドレス欄のトークンには触らない。
+  const connectDefault = useCallback(() => void connect(given ?? tokenClient(takeToken())), [connect, given]);
+
+  useEffect(() => connectDefault(), [connectDefault]);
 
   useEffect(() => {
     setDesc(null);
@@ -190,6 +231,16 @@ export function App() {
   );
 
   const columns = useMemo(() => Array.from({ length: columnCount }, (_, c) => sheetColumn(c)), [columnCount, sheetColumn]);
+
+  const loadCells = useCallback((cells: readonly (readonly string[])[]) => {
+    const { rows: next, columnCount: n } = rowsFromCells(cells, INITIAL_ROWS, nextId);
+    setRows(next);
+    setColumnCount(Math.max(INITIAL_COLUMNS, n));
+    setVersion((v) => v + 1);
+    setTab("input");
+  }, []);
+
+  useImperativeHandle(ref, () => ({ loadCells }), [loadCells]);
 
   const clearSheet = () => {
     setRows(blankRows(INITIAL_ROWS, nextId));
@@ -260,9 +311,10 @@ export function App() {
     }
   };
 
-  if (conn.state !== "ready") return <ConnectionScreen conn={conn} onToken={(t) => (saveToken(t), void connect(t))} onRetry={() => void connect(takeToken())} />;
+  if (conn.state !== "ready") return <ConnectionScreen conn={conn} onToken={(t) => (saveToken(t), void connect(makeClient(t)))} onRetry={connectDefault} />;
 
   const base = prepared ? `${prepared.target}-${stamp(prepared.at)}` : "";
+  const server = serverLabel ?? (given ? undefined : location.host);
 
   return (
     <div className="hk-app">
@@ -303,7 +355,12 @@ export function App() {
             <input type="file" accept=".json,application/json" hidden onChange={(e) => void onRulesFile(e.target.files?.[0]).finally(() => (e.target.value = ""))} />
           </label>
         </div>
-        <span className="hk-server">{location.host} につながっています</span>
+        {(server || headerExtra) && (
+          <div className="hk-bar-end">
+            {server && <span className="hk-server">{server} につながっています</span>}
+            {headerExtra}
+          </div>
+        )}
       </header>
 
       {error && (
@@ -741,7 +798,7 @@ function ConnectionScreen({ conn, onToken, onRetry }: { conn: Exclude<Connection
     if (token.trim()) onToken(token.trim());
   };
   return (
-    <div className="hk-center">
+    <div className="hk-app hk-center">
       <div className="hk-card hk-connect">
         <h1>harikit</h1>
         {conn.state === "connecting" && <p className="hk-muted">サーバにつないでいます…</p>}

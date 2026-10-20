@@ -1,0 +1,12 @@
+/* 同梱アプリ（Node 版サーバが配る dist/app）のページ全体。ほかのアプリに埋め込むときは読まない。 */
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
