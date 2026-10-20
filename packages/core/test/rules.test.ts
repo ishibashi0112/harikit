@@ -28,6 +28,7 @@ test("バイト数: shift_jis、windows-1252、UTF-8、UTF-16", () => {
   assert.deepEqual(byteCount("鍵", "windows-1252"), { unencodable: "鍵" });
   assert.deepEqual(byteCount("鍵", "utf-8"), { bytes: 3 });
   assert.deepEqual(byteCount("𠮷a", "utf-16le"), { bytes: 6 });
+  assert.deepEqual(byteCount("𠮷a", "utf-16be"), { bytes: 6 });
   assert.equal(byteCount("x", "no-such-encoding"), null);
 });
 

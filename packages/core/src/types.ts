@@ -34,6 +34,12 @@ export interface ColumnDef {
   emptyIsNull?: boolean;
   precision?: number;
   scale?: number;
+  /**
+   * 整数の列（integer / bigint）の範囲。値と同じ書き方で、integer は数値、bigint は文字列。
+   * 無ければ dbType の型名で決める（tinyint は 0〜255 など）。同じ型名でも範囲が DB で違う（MySQL の tinyint は -128〜127、unsigned）ときに付く。
+   */
+  min?: number | string;
+  max?: number | string;
   identity?: boolean;
   computed?: boolean;
   hasDefault?: boolean;

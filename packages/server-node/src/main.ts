@@ -2,7 +2,7 @@
 // harikit-server --config harikit.config.json
 
 import { parseArgs } from "node:util";
-import { loadConfig } from "./config.js";
+import { loadConfig } from "./load-config.js";
 import { startServer } from "./start.js";
 
 const { values } = parseArgs({ options: { config: { type: "string", short: "c", default: "harikit.config.json" } } });

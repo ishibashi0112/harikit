@@ -1,7 +1,7 @@
 # harikit サーバ API 仕様（v1 草案）
 
-> 2026-10-17 草案。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
-> 範囲は「SQL Server と Oracle、1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
+> 2026-10-17 草案（2026-10-20 に PostgreSQL と MySQL / MariaDB を追記）。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
+> 範囲は「SQL Server、Oracle、PostgreSQL、MySQL / MariaDB の 1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
 
 ## 1. 全体の約束
 
@@ -33,21 +33,24 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 
 .NET Framework の `JavaScriptSerializer` と JS の数値で精度や日付が崩れないよう、迷う型は文字列で送る。
 
-| 正規化した型 `type` | SQL Server の例 | Oracle の例 | JSON での値 |
-| --- | --- | --- | --- |
-| `string` | char, varchar, nchar, nvarchar, text | VARCHAR2, CHAR, NVARCHAR2, NCHAR | 文字列 |
-| `integer` | tinyint, smallint, int | （使わない。NUMBER(p,0) は JS の数値に収まるとは限らない） | 数値 |
-| `bigint` | bigint | （使わない） | **文字列**（`"9007199254740993"`） |
-| `decimal` | decimal, numeric, money | NUMBER, NUMBER(p,s), INTEGER, FLOAT(p) | **文字列**（`"1234.50"`） |
-| `float` | real, float | BINARY_FLOAT, BINARY_DOUBLE | 数値 |
-| `boolean` | bit | BOOLEAN（23ai 以降） | `true` / `false` |
-| `date` | date | （使わない。Oracle の DATE は時刻を持つ） | `"2026-10-17"` |
-| `datetime` | datetime, datetime2, smalldatetime | DATE（`scale: 0`）, TIMESTAMP(n) | `"2026-10-17T09:30:00.123"`（タイムゾーンなし。秒の小数は 0〜9 桁で、上限は `scale`） |
-| `time` | time | （使わない） | `"09:30:00"` |
-| `other` | binary, xml, uniqueidentifier など | 負の scale の NUMBER, TIMESTAMP WITH (LOCAL) TIME ZONE, INTERVAL, RAW, CLOB / BLOB, ROWID など | v1 では更新対象外（describe には出す） |
+| 正規化した型 `type` | SQL Server の例 | Oracle の例 | PostgreSQL の例 | MySQL / MariaDB の例 | JSON での値 |
+| --- | --- | --- | --- | --- | --- |
+| `string` | char, varchar, nchar, nvarchar, text | VARCHAR2, CHAR, NVARCHAR2, NCHAR | varchar, char, text, enum | char, varchar, tinytext〜longtext, enum | 文字列 |
+| `integer` | tinyint, smallint, int | （使わない。NUMBER(p,0) は JS の数値に収まるとは限らない） | smallint, integer | tinyint, smallint, mediumint, int（unsigned も。tinyint(1) も整数） | 数値 |
+| `bigint` | bigint | （使わない） | bigint | bigint（unsigned も） | **文字列**（`"9007199254740993"`） |
+| `decimal` | decimal, numeric, money | NUMBER, NUMBER(p,s), INTEGER, FLOAT(p) | numeric, numeric(p,s) | decimal(p,s) | **文字列**（`"1234.50"`） |
+| `float` | real, float | BINARY_FLOAT, BINARY_DOUBLE | real, double precision | float, double | 数値 |
+| `boolean` | bit | BOOLEAN（23ai 以降） | boolean | bit(1) | `true` / `false` |
+| `date` | date | （使わない。Oracle の DATE は時刻を持つ） | date | date | `"2026-10-17"` |
+| `datetime` | datetime, datetime2, smalldatetime | DATE（`scale: 0`）, TIMESTAMP(n) | timestamp(n)（タイムゾーンなし） | datetime(n) | `"2026-10-17T09:30:00.123"`（タイムゾーンなし。秒の小数は 0〜9 桁で、上限は `scale`） |
+| `time` | time | （使わない） | time(n)（タイムゾーンなし） | time(n) | `"09:30:00"` |
+| `other` | binary, xml, uniqueidentifier など | 負の scale の NUMBER, TIMESTAMP WITH (LOCAL) TIME ZONE, INTERVAL, RAW, CLOB / BLOB, ROWID など | 負の scale の numeric, timestamptz, timetz, interval, money, uuid, json / jsonb, bytea, 配列など | timestamp, year, set, bit(n)（n > 1）, binary / varbinary / blob, json など | v1 では更新対象外（describe には出す） |
 
 - SQL の NULL は JSON の `null`。空文字 `""` とは区別する。ただし Oracle のように空文字を NULL として保存する DB では、describe の `emptyIsNull` で知らせる（[3](#3-describeテーブル定義)）。
-- NUMBER(5,-2) のような負の scale は入れた値が丸められ、戻し SQL の条件が合わなくなるので `other` にする。
+- NUMBER(5,-2) のような負の scale は入れた値が丸められ、戻し SQL の条件が合わなくなるので `other` にする（PostgreSQL 15 以降の numeric(5,-2) も同じ）。
+- タイムゾーンで値が変わる型（PostgreSQL の timestamptz、MySQL の timestamp）は、`datetime` がタイムゾーンを持たないので `other` にする。読む人のセッションの設定で同じ値が違って見え、戻し SQL の条件も合わなくなるため。
+- PostgreSQL の money は `lc_monetary` で書き方が変わるので `other`。domain は基の型として扱う（domain の CHECK は DB が確かめる）。enum はラベルの文字列で、ラベルにない値は DB がエラーにする（`db_error`）。
+- MySQL の tinyint(1)（`BOOLEAN` の別名）は 0 / 1 以外も入るので `integer` のまま扱う。`boolean` にするのは bit(1) だけ。整数の範囲は型名だけでは決まらない（MySQL の tinyint は -128〜127、unsigned もある）ので、describe の `min` / `max` で知らせる（[3](#3-describeテーブル定義)）。
 - 入力の揺れ（全角半角、前後空白）を直すかどうかはコア側の話で、サーバは受け取った値をそのまま使う。
 
 ### 1.4 認証と CSRF
@@ -140,6 +143,18 @@ Oracle での書き方:
 - `NVARCHAR2` / `NCHAR` の値は `NVARCHAR2` のパラメータで渡す（`VARCHAR2` で渡すと DB の文字コードを通り、表せない字が崩れる）。
 - 戻し SQL のリテラルは、`NVARCHAR2` / `NCHAR` なら `N'…'`。DB の文字コードで表せない字を含むときは `UNISTR('\D842\DFB7…')` で書く（スクリプトのファイルが DB の文字コードを通ると `N'…'` の中身も崩れるため）。
 
+PostgreSQL での書き方:
+- 値が変わっていないかは `"name" COLLATE "C" = $1::text` と書く。`"C"` はバイトの並びで比べるので、列に ICU の nondeterministic な照合順序（大文字小文字を区別しないなど）が付いていても厳密になる。既定の（deterministic な）照合順序の `=` ももともと1字ずつ比べるが、列ごとに確かめずに済むよう、いつも `"C"` を付ける。キーは列の照合順序のまま。
+- `char(n)`（bpchar）はパラメータも bpchar にして比べる（`$1::bpchar`）。bpchar どうしは末尾の空白を見ないので、「固定長の末尾の空白だけは区別しない」と合う。text にすると末尾の空白まで比べて当たらない。読むときも text に CAST しない（`char(n)` を text にすると末尾の空白が落ちる）。
+- 列の文字コードで表せない字は DB がエラー（SQLSTATE 22P05）にし、「?」に置き換わらない。
+- 戻し SQL のリテラルは `'…'`。`\` を含む値は `E'…'` で書く（`standard_conforming_strings` が off のセッションでも同じ値になるように）。
+
+MySQL / MariaDB での書き方:
+- 既定の照合順序（MySQL 8 の utf8mb4_0900_ai_ci、MariaDB 11 の utf8mb4_uca1400_ai_ci）は、大文字小文字に加えて全角半角、ひらがなとカタカナ、濁点も区別しない（'ボールペン' = 'ﾎﾞｰﾙﾍﾟﾝ'、'ボ' = 'ホ'。MySQL 8.4 と MariaDB 11.4 で確かめた）。
+- 値が変わっていないかは、utf8mb4 に直してからバイト列で比べる: ``CAST(CONVERT(`name` USING utf8mb4) AS BINARY) = CAST(CONVERT(? USING utf8mb4) AS BINARY)``。`COLLATE utf8mb4_bin` に頼らないのは、`_bin` の照合順序の多くが PAD SPACE（末尾の空白を見ない）だから。cp932 などの列も utf8mb4 に直してから比べる（文字コードの違うバイト列どうしは比べられない）。
+- `CHAR` は読むと末尾の空白が落ちる（`PAD_CHAR_TO_FULL_LENGTH` でないとき）。比べるときも両方を `RTRIM` してから比べる。
+- 戻し SQL のリテラルは `'…'`。`\` か NUL を含む値は `_utf8mb4 X'…'`（UTF-8 のバイト列の 16 進）で書く（`NO_BACKSLASH_ESCAPES` の有無で読み方が変わらないように）。
+
 ## 2. 許可リスト（サーバ側の設定）
 
 サーバだけが持つ設定。クライアントからは変えられない。形は実装ごとに自由（JSON、web.config など）だが、持つ情報は次のとおり。
@@ -167,6 +182,7 @@ Oracle での書き方:
 
 - `access: "read"` は外部キーの存在確認用など、読むだけのターゲット。
 - `table` はその DB の書き方で読む。Oracle では `"` で囲まない名前は大文字にし（`app.m_product` は `APP.M_PRODUCT`）、囲めばそのまま使う。スキーマを省くと接続ユーザーのスキーマ。シノニムもたどる（自分のスキーマのもの、スキーマを省いたときは PUBLIC も）。DB リンク（`@`）は受けない。
+- PostgreSQL では `"` で囲まない名前は小文字にし（`App.M_Product` は `app.m_product`）、スキーマを省くと `search_path` で探す。テーブルのほか、ビュー、パーティションテーブル、外部テーブルも指せる。MySQL / MariaDB では `` ` `` で囲んでも囲まなくてもよく、データベースを省くと接続先のデータベース。大文字小文字を区別するかは DB の `lower_case_table_names` に従う。
 - `key` は主キー（または一意キー）の列。指定がなければ DB の主キーを使う。
 - `updatable` は `readable` の部分集合。キー列は更新できない（v1）。
 - 「更新日時」や「更新者」を自動で入れたい場合のために、将来 `stamp` 設定を足す余地を残す（v1 では持たない）。
@@ -243,11 +259,12 @@ Oracle での書き方:
 }
 ```
 
-- `dialect` は `"sqlserver"` か `"oracle"`。
-- `table` は実際の名前（Oracle なら `OWNER.NAME`。シノニムで書いた場合もたどった先）。
+- `dialect` は `"sqlserver"`、`"oracle"`、`"postgresql"`、`"mysql"`（MariaDB も `"mysql"`）のどれか。
+- `table` は実際の名前（Oracle なら `OWNER.NAME`。シノニムで書いた場合もたどった先。PostgreSQL は `スキーマ.名前`、MySQL / MariaDB は `データベース.名前`）。
 - `columns` は `readable` に載った列だけ。並びは DB の列順。
-- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `maxBytes`, `encoding`（この2つは [文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）, `emptyIsNull`（下記）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
+- 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `maxBytes`, `encoding`（この2つは [文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）, `emptyIsNull`（下記）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `min` / `max`（下記）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
 - `emptyIsNull: true` は、空文字 `""` を NULL として保存する文字列の列に付ける（Oracle の文字列の列は全部）。コアは取込でその列の空のセルを `null` にし、`""` を値として渡されたら検証エラーにする（「この列では空文字は NULL になります。空にするなら null」）。サーバはその列に `""` が来たら `invalid_value`。
+- `min` / `max` は `integer` / `bigint` の列の範囲で、値と同じ書き方（`integer` は数値、`bigint` は文字列）。型名だけで範囲が決まらないときに付ける（MySQL の `tinyint` は `-128`〜`127`、`int unsigned` は `0`〜`4294967295`、`bigint unsigned` は `"0"`〜`"18446744073709551615"`）。無ければコアは `dbType` の型名で決める（SQL Server の `tinyint` は 0〜255 など）。サーバは範囲外の値を `invalid_value` にする。
 - `foreignKeys[].referencedTarget` は、参照先が許可リストに読めるターゲットとして載っていればその名前、なければ `null`。許可リストの各ターゲットを DB で解決した名前と、外部キーの参照先の名前で照らし合わせる（シノニムやスキーマ省略で書いてあっても見つかるように）。`null` のときコアは存在確認を飛ばし、「確認できない」と警告を出す。
 - 業務ルール（価格は0より大きい等）は describe に含めない。コア側の設定で持つ。
 
@@ -291,6 +308,34 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 | WE8ISO8859P1 | `windows-1252` |
 | WE8ISO8859P15 | `iso-8859-15` |
 
+- PostgreSQL の `varchar(n)` / `char(n)` の `n` は文字数なので `maxBytes` は付けない（`text` と `varchar` は `maxLength: -1`）。`encoding` は DB の文字コード（`server_encoding`）から次のように直す。列ごとの文字コードは無い。表にない文字コード（`SQL_ASCII`、`MULE_INTERNAL` など）は `encoding` を付けない。
+
+| PostgreSQL の文字コード | `encoding` |
+| --- | --- |
+| UTF8 | `utf-8` |
+| EUC_JP | `euc-jp` |
+| EUC_KR | `euc-kr` |
+| EUC_CN | `gbk` |
+| LATIN1 | `windows-1252` |
+| LATIN2〜LATIN10、ISO_8859_5〜8 | `iso-8859-2` など（LATIN5 は `windows-1254`） |
+| WIN874、WIN1250〜WIN1258 | `windows-874`、`windows-1250`〜`windows-1258` |
+| WIN866、KOI8R、KOI8U | `ibm866`、`koi8-r`、`koi8-u` |
+
+- MySQL / MariaDB の `varchar(n)` / `char(n)` の `n` は文字数なので `maxBytes` は付けない。`tinytext`〜`longtext` は上限がバイト数なので、`maxLength: -1` と `maxBytes`（`text` なら `65535`）を付ける。`encoding` は列の文字コード（`CHARACTER_SET_NAME`）から次のように直す。
+
+| MySQL / MariaDB の文字コード | `encoding` |
+| --- | --- |
+| utf8mb4、utf8mb3（utf8） | `utf-8` |
+| cp932、sjis | `shift_jis` |
+| ujis、eucjpms | `euc-jp` |
+| gbk、gb2312 | `gbk` |
+| big5 | `big5` |
+| euckr | `euc-kr` |
+| latin1 | `windows-1252` |
+| cp1250、cp1251、cp1256、cp1257 | `windows-1250` など |
+| utf16、utf16le | `utf-16be`、`utf-16le` |
+
+- utf8mb3 は 3 バイトまで（「𠮷」や絵文字は入らない）、sjis は NEC・IBM の拡張文字を持たないなど、表の名前より狭い文字コードもある。Node 版は utf8mb4 以外の列の値を、反映の前に DB で変換して確かめる（`CONVERT(… USING cp932)` で元に戻るか、`LENGTH` が上限以内か）。
 - WHATWG の名前と DB のコードページは完全には一致しない（WHATWG の `big5` は HKSCS を含み cp950 より広い、Oracle の `UTF8` は CESU-8、`JA16SJISTILDE` の波ダッシュ、など）。コアの確認は目安で、最後に確かめるのはサーバの `invalid_value`。サーバはこの確認を DB に聞いてもよい（Oracle なら `TO_CHAR` / `TO_NCHAR` に通して元に戻るか、`LENGTHB` が `maxBytes` 以内か）。
 
 ### レスポンス（target 省略）
@@ -404,7 +449,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 1. ターゲット・列・キーを許可リストで照合し、値が列の型の形か（`invalid_value`）も確かめる。違えばすぐ失敗（DB に触らない）。戻し SQL に値を埋め込むので、この確認は省けない。
    返せる応答の大きさに上限がある実装（C# 版の `maxJsonLength` など）は、ここで結果（`script`、`undoScript` を含む）を組み立てて長さを見積もり、超えるなら `too_many_rows` で止める。コミットした後に結果が返せないと、戻し SQL がクライアントに届かないため。fetch も同じ。
 2. トランザクションを開始する。
-3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`、Oracle なら `SELECT … FOR UPDATE WAIT n`）。待つ秒数 `n` はサーバ設定（`lockWaitSeconds`、既定 10 秒）。待っても取れなければ全体をロールバックして `db_error`（`message` は [1.5](#15-結果とエラーの返し方) の固定の文でよい）。SQL Server も `SET LOCK_TIMEOUT` で同じ設定を使ってよい。キーごとに、
+3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`、Oracle なら `SELECT … FOR UPDATE WAIT n`）。待つ秒数 `n` はサーバ設定（`lockWaitSeconds`、既定 10 秒）。待っても取れなければ全体をロールバックして `db_error`（`message` は [1.5](#15-結果とエラーの返し方) の固定の文でよい）。SQL Server も `SET LOCK_TIMEOUT` で同じ設定を使ってよい。PostgreSQL は `SELECT … FOR UPDATE` と、トランザクションの中だけ効く `SET LOCAL lock_timeout`（`set_config('lock_timeout', '10s', true)`）、MySQL / MariaDB は `SELECT … FOR UPDATE` とセッションの `innodb_lock_wait_timeout`。キーごとに、
    - 行がない → 衝突（`reason: "not_found"`）
    - `before` の列のどれかが今の値と違う → 衝突（`reason: "changed"`）。比較は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の「厳密に同じ」で行う（NULL 同士は一致）。行の特定（キー）は照合順序のまま。
 4. 読んだ行の実際のキー値で、2行が同じ DB 行を指していないかを確かめる（`duplicate_key`。あればロールバックして `rowErrors` で返す）。
@@ -415,7 +460,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
       SET [UnitPrice] = @p1
     WHERE [ProductCode] = @k1
    ```
-   テーブル名と列名は許可リストの値から組み、`[]`（Oracle は `"`）で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
+   テーブル名と列名は許可リストの値から組み、`[]`（Oracle と PostgreSQL は `"`、MySQL / MariaDB は `` ` ``）で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
 7. コミットする。`check` のときは手順 3〜5 の後でロールバックして終わる（手順 6 は流さず、SQL を組むだけ）。
 8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
 
@@ -439,6 +484,20 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう包み、**どれかの行の UPDATE が1行でなければ（行が見つからないか値が変わっていれば）全部戻して止まる**形にする（`check` で出した SQL を後から人が流したときに、変わっていた行だけ黙って飛ばさないため）。SQL Server では `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包み、UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, N'harikit: 行が見つからないか、値が変わっています（ProductCode=A001）。何も反映していません', 1;` を続ける（トリガーがあっても `@@ROWCOUNT` は UPDATE 文そのものの行数。SQL Server 2022 で確かめた）。メッセージにキーの値を入れるときは、リテラルと同じく引用を直す。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。
 - `undoScript`: 戻し用 SQL。「今の値が harikit で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。値の条件は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の厳密な比べ方で書く（キーの条件は照合順序のまま）。`script` と同じくトランザクションで包むが、0行の UPDATE があっても止めずに続ける（戻さなかった行を出力に出してよい）。`check` のときも返す。
 - `script` と `undoScript` は方言ごとの書き方（引用、日付リテラル、NULL 比較）を知っているサーバが作る。コアはそれをファイルに保存する。トランザクションの包み方と止め方も方言の書き方でよい。Oracle では PL/SQL の無名ブロックにし、`SET DEFINE OFF`（値の `&` を置き換えさせない）、UPDATE ごとに `IF SQL%ROWCOUNT <> 1 THEN RAISE_APPLICATION_ERROR(-20001, '…'); END IF;`、`EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;` とする。戻し用は `SET SERVEROUTPUT ON` にして、戻さなかった行と「n / m 行を戻しました」を `DBMS_OUTPUT` に出す。
+- PostgreSQL では `DO` ブロック 1 つにする（1 文なので、途中のエラーでも全部戻る）。先頭で `SET client_encoding = 'UTF8';` にし、UPDATE ごとに `GET DIAGNOSTICS harikit_rows = ROW_COUNT;` と `IF harikit_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = 'harikit: …'; END IF;`（`USING MESSAGE` は `%` を書式として読まない）。ブロックの区切りは `$harikit$` で、値にその文字列が入っていたら `$harikit_1$` などに変える。PL/pgSQL の変数と列名がぶつからないよう `#variable_conflict use_column` を付ける。戻し用は戻さなかった行と「n / m 行を戻しました」を `RAISE NOTICE` で出す。
+- MySQL / MariaDB は、ストアドプログラムの外では `IF` も例外も使えないので、**先に全部の行をロックして数え、1 行でも合わなければどの UPDATE も当たらない**形にする（MySQL 8.4 と MariaDB 11.4 の mysql コマンドで確かめた）。結果は最後の `SELECT` に出す（流したツールの結果の欄に出る）。
+  ```sql
+  SET NAMES utf8mb4;
+  SET @harikit_ok = 1, @harikit_ng = NULL;
+  START TRANSACTION;
+  SELECT COUNT(*) INTO @harikit_n FROM `app`.`m_product` WHERE `code` = 'A001' AND `price` = 120.00 FOR UPDATE;
+  SET @harikit_ok = @harikit_ok AND @harikit_n = 1, @harikit_ng = IF(@harikit_n = 1, @harikit_ng, CONCAT_WS(', ', @harikit_ng, 'code=A001'));
+  -- （行の数だけ繰り返す）
+  UPDATE `app`.`m_product` SET `price` = 130.00 WHERE `code` = 'A001' AND `price` = 120.00 AND @harikit_ok = 1;
+  COMMIT;
+  SELECT CONVERT(IF(@harikit_ok = 1, 'harikit: 1 行を反映しました', CONCAT('harikit: 行が見つからないか、値が変わっています（', @harikit_ng, '）。何も反映していません')) USING utf8mb4) AS `harikit`;
+  ```
+  途中の文がエラーになっても、MySQL はその文だけを戻してトランザクションを続ける。mysql コマンドはエラーで止まり、`COMMIT` まで行かずに切れて全部戻るが、エラーを飛ばして続ける設定のツールで流すと一部の行だけ反映される。スクリプトの先頭のコメントにそう書く。戻し用は UPDATE ごとに同じ条件で数えて足し、「n / m 行を戻しました」と戻さなかった行を最後の `SELECT` に出す。
 - `appliedBy` はサーバが認証から判定した名前。
 
 ### レスポンス（衝突で止めた）
@@ -483,11 +542,14 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 ## 8. 実装メモ
 
 ### Node 版
-- 依存は DB ドライバ（SQL Server は `mssql`、Oracle は `oracledb`）だけを目安に。HTTP は標準の `http` で足りる。
+- 依存は DB ドライバ（SQL Server は `mssql`、Oracle は `oracledb`、PostgreSQL は `pg`、MySQL / MariaDB は `mysql2`）だけを目安に。HTTP は標準の `http` で足りる。
 - 既定で `127.0.0.1` にだけ待ち受け、起動時にトークンを出す（[1.4](#14-認証と-csrf)）。`appliedBy` は OS のユーザー名。
 - `decimal` / `bigint` はドライバから文字列で受けて文字列で返す。
 - Oracle のドライバは `oracledb`（node-oracledb）の Thin モード（Oracle Client 不要、12.1 以降）。11g は Thick モード（Oracle Instant Client が要る）。
 - Oracle の NUMBER は文字列で受けて文字列で返し、パラメータも文字列で渡して `TO_NUMBER(:p)`（セッションの `NLS_NUMERIC_CHARACTERS = '.,'`）。DATE / TIMESTAMP は `TO_CHAR(…, 'YYYY-MM-DD"T"HH24:MI:SS.FF9')` で読み、`TO_DATE` / `TO_TIMESTAMP` で渡す（タイムゾーンをドライバに任せない）。
+- PostgreSQL は値をすべて文字列のパラメータで渡して SQL 側で型を付け（`$1::numeric`、`$1::bpchar`、enum は `$1::"スキーマ"."型名"`）、読むときも SQL 側で文字列にする（`::text`、`to_char(…, 'YYYY-MM-DD"T"HH24:MI:SS.US')`）。ドライバの型の読み替えは使わない。方言はドライバを import せず、つなぎ（`PgConnector`）を差し替えればブラウザの PGlite でも動く。PostgreSQL 14 と 18 で確かめる。
+- MySQL / MariaDB はサーバ側のプリペアドステートメント（mysql2 の `execute`）で渡す。パラメータをじかに CAST すると値が崩れる（MySQL 8.4 で `CAST(? AS UNSIGNED)` が 9223372036854775807 で頭打ち、`'09:00:00'` の `CAST(? AS TIME(6))` が 00:00:00）ので、数値と日時は文字列で渡して `CAST(CAST(? AS CHAR) AS …)` で読む。FLOAT の列は `CAST(? AS FLOAT)` と比べ、`CAST(… AS CHAR)` で読む（DOUBLE の 0.1 と FLOAT の 0.1 は違う値）。
+- MySQL / MariaDB の反映のトランザクションは、先にセッションを `sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'` にする（厳格でないと桁あふれや表せない字が黙って切り詰められる）。影響行数は当たった行の数（mysql2 は `CLIENT_FOUND_ROWS` でつなぐ）で、トリガーの中の行数は入らない。MySQL 8.0 / 8.4 と MariaDB 10.11 / 11.4 で確かめる。
 
 ### C#（.NET Framework、WebForms）版
 - 1つの `.aspx`（例 `Harikit.aspx`）に `[WebMethod]` を3つ置く: `Describe`、`Fetch`、`Apply`。引数は `Dictionary<string, object> req`、戻り値は `Dictionary<string, object>`（`{"d": ...}` は ASP.NET が付ける）。
@@ -522,5 +584,5 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - **INSERT / DELETE**: `rows[].op` に `"insert"`（`after` だけ）、`"delete"`（`before` だけ、全列一致で消す）を足す。許可リストに `insertable` / `deletable` を足す。
 - **複数テーブル**: `changes` に複数のターゲットを並べ、まとめて1トランザクションにする。並び順＝実行順（親→子）。
 - **一部だけ反映**: `onConflict: "skipRow"` を足す（既定は今のまま全部止める）。
-- **PostgreSQL、MySQL など**: `dialect` を増やす。API の形は変えない（Oracle はこの形で足した）。
+- **ほかの DB**: `dialect` を増やす。API の形は変えない（Oracle、PostgreSQL、MySQL / MariaDB はこの形で足した。SQLite はまだ）。C# 版と VB.NET 版はまだ SQL Server だけ。
 - **自動で入れる列**: 許可リストに `stamp`（例 `UpdatedAt = 現在時刻`、`UpdatedBy = 実行者`）を足し、サーバが UPDATE に加える。

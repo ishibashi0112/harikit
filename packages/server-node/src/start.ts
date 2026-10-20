@@ -12,7 +12,10 @@ import { Handlers } from "./handlers.js";
 import { createHttpServer, type StaticFile } from "./http.js";
 import { fileLogger } from "./log.js";
 import { SqlServerDialect } from "./mssql.js";
+import { MySqlDialect } from "./mysql.js";
 import { OracleDialect } from "./oracle.js";
+import { PgPoolConnector } from "./pg-pool.js";
+import { PostgresDialect } from "./postgres.js";
 
 export interface StartOptions {
   /** 省くと乱数で作る。 */
@@ -73,7 +76,16 @@ export async function loadWebFiles(dir: string): Promise<Map<string, StaticFile>
 
 /** 設定の database.dialect に合う方言を作る。 */
 export function createDialect(database: ServerConfig["database"]): Dialect {
-  return database.dialect === "oracle" ? new OracleDialect(database) : new SqlServerDialect(database);
+  switch (database.dialect) {
+    case "oracle":
+      return new OracleDialect(database);
+    case "postgresql":
+      return new PostgresDialect(new PgPoolConnector(database), { ...(database.lockWaitSeconds !== undefined && { lockWaitSeconds: database.lockWaitSeconds }) });
+    case "mysql":
+      return new MySqlDialect(database);
+    default:
+      return new SqlServerDialect(database);
+  }
 }
 
 export async function startServer(config: ServerConfig, options: StartOptions = {}): Promise<RunningServer> {

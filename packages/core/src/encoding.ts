@@ -42,7 +42,7 @@ export type ByteCount = { bytes: number } | { unencodable: string } | null;
 export function byteCount(s: string, encoding: string): ByteCount {
   const enc = encoding.toLowerCase();
   if (enc === "utf-8") return { bytes: new TextEncoder().encode(s).length };
-  if (enc === "utf-16le") return { bytes: s.length * 2 };
+  if (enc === "utf-16le" || enc === "utf-16be") return { bytes: s.length * 2 };
   if (!tables.has(enc)) tables.set(enc, buildTable(enc));
   const table = tables.get(enc);
   if (!table) return null;

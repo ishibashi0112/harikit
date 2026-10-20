@@ -7,7 +7,9 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": "./dist/src/index.js",
+    "./handlers": "./dist/src/handlers.js",
+    "./postgres": "./dist/src/postgres.js"
   },
   "bin": {
     "harikit-server": "dist/src/main.js"
@@ -19,6 +21,8 @@
     "@harikit/core": "0.0.0",
     "@harikit/web": "0.0.0",
     "mssql": "^12.7.9",
-    "oracledb": "^6.10.0"
+    "mysql2": "^3.24.6",
+    "oracledb": "^6.10.0",
+    "pg": "^8.23.1"
   }
 }

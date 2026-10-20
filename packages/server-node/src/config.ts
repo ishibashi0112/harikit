@@ -1,6 +1,6 @@
 // サーバの設定（許可リスト、接続先、待ち受け）。仕様 2 の許可リストを含む。
+// handlers がブラウザでも動くよう、ここでは node: のモジュールを使わない（ファイルから読むのは load-config.ts）。
 
-import { readFile } from "node:fs/promises";
 import type { Access, Limits } from "@harikit/core";
 
 export interface TargetConfig {
@@ -43,7 +43,39 @@ export interface OracleConnection {
   lockWaitSeconds?: number;
 }
 
-export type DatabaseConnection = SqlServerConnection | OracleConnection;
+export interface PostgresConnection {
+  dialect: "postgresql";
+  host: string;
+  port?: number;
+  database: string;
+  user: string;
+  /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
+  password?: string;
+  /** TLS でつなぐ。rejectUnauthorized: false は自己署名の証明書を受ける（社内の検証用など）。 */
+  ssl?: boolean | { rejectUnauthorized?: boolean };
+  /** 反映のとき、ほかのセッションがロックしている行を待つ秒数。既定は 10。 */
+  lockWaitSeconds?: number;
+}
+
+/** MySQL と MariaDB。 */
+export interface MySqlConnection {
+  dialect: "mysql";
+  host: string;
+  port?: number;
+  /** スキーマを省いたテーブル名はこのデータベースのものとして読む。 */
+  database: string;
+  user: string;
+  /** 設定ファイルに書かず、環境変数 HARIKIT_DB_PASSWORD で渡してもよい。 */
+  password?: string;
+  /** TLS でつなぐ。rejectUnauthorized: false は自己署名の証明書を受ける（社内の検証用など）。 */
+  ssl?: boolean | { rejectUnauthorized?: boolean };
+  /** 反映のとき、ほかのセッションがロックしている行を待つ秒数。既定は 10。 */
+  lockWaitSeconds?: number;
+}
+
+export type DatabaseConnection = SqlServerConnection | OracleConnection | PostgresConnection | MySqlConnection;
+
+const DIALECTS = ["sqlserver", "oracle", "postgresql", "mysql"];
 
 export interface ServerConfig {
   listen?: { host?: string; port?: number };
@@ -66,10 +98,13 @@ export function checkConfig(config: ServerConfig): void {
     throw new Error(`設定の誤り: ${m}`);
   };
   const db = config.database;
-  if (!db || (db.dialect !== "sqlserver" && db.dialect !== "oracle")) fail("database.dialect は \"sqlserver\" か \"oracle\" です");
+  if (!db || !DIALECTS.includes(db.dialect)) fail(`database.dialect は ${DIALECTS.map((d) => `"${d}"`).join("、")} のどれかです`);
   if (db.dialect === "oracle") {
     if (typeof db.connectString !== "string" || !db.connectString) fail("database.connectString がありません（例 \"localhost:1521/FREEPDB1\"）");
     if (typeof db.user !== "string" || !db.user) fail("database.user がありません");
+  }
+  if (db.dialect === "postgresql" || db.dialect === "mysql") {
+    for (const k of ["host", "database", "user"] as const) if (typeof db[k] !== "string" || !db[k]) fail(`database.${k} がありません`);
   }
   if (db.lockWaitSeconds !== undefined && !(Number.isInteger(db.lockWaitSeconds) && db.lockWaitSeconds >= 1)) fail("database.lockWaitSeconds は 1 以上の整数です");
   if (!config.targets || typeof config.targets !== "object") fail("targets がありません");
@@ -90,11 +125,4 @@ export function checkConfig(config: ServerConfig): void {
       for (const c of t.updatable) if (t.key?.some((k) => k.toLowerCase() === c.toLowerCase())) fail(`${name} のキー列 ${c} は更新できません`);
     }
   }
-}
-
-export async function loadConfig(path: string): Promise<ServerConfig> {
-  const config = JSON.parse(await readFile(path, "utf8")) as ServerConfig;
-  if (process.env.HARIKIT_DB_PASSWORD) config.database.password = process.env.HARIKIT_DB_PASSWORD;
-  checkConfig(config);
-  return config;
 }

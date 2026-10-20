@@ -70,6 +70,82 @@ jobs:
         env:
           HARIKIT_TEST_ORACLE: '{"connectString":"localhost:1521/${{ matrix.service }}","user":"harikit","password":"Harikit1"}'
 
+  # Node 版を実際の PostgreSQL で通す。サポート中でいちばん古い 14 と最新の 18。
+  postgres:
+    name: postgres (${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["14", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.version }}
+        env:
+          POSTGRES_USER: harikit
+          POSTGRES_PASSWORD: Harikit1
+          POSTGRES_DB: harikit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U harikit -d harikit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          HARIKIT_TEST_POSTGRES: '{"host":"localhost","database":"harikit","user":"harikit","password":"Harikit1"}'
+
+  # Node 版を実際の MySQL と MariaDB で通す。それぞれ長期サポートの 2 つ。
+  # テストはトリガーを作るので root でつなぐ（バイナリログが有効だと、ふつうのユーザーでは作れない）。
+  mysql:
+    name: mysql (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mysql:8.0
+            health: mysqladmin ping -h 127.0.0.1 -uroot -pHarikit1
+          - image: mysql:8.4
+            health: mysqladmin ping -h 127.0.0.1 -uroot -pHarikit1
+          - image: mariadb:10.11
+            health: healthcheck.sh --connect --innodb_initialized
+          - image: mariadb:11.4
+            health: healthcheck.sh --connect --innodb_initialized
+    services:
+      mysql:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: Harikit1
+          MYSQL_DATABASE: harikit
+          MARIADB_ROOT_PASSWORD: Harikit1
+          MARIADB_DATABASE: harikit
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "${{ matrix.health }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          HARIKIT_TEST_MYSQL: '{"host":"127.0.0.1","port":3306,"database":"harikit","user":"root","password":"Harikit1"}'
+
   # .NET 版（C# と VB.NET）を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通す。
   dotnet:
     name: dotnet (${{ matrix.package }})

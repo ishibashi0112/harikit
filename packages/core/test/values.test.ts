@@ -33,6 +33,18 @@ test("整数の範囲は dbType で決まる", () => {
   assert.match(checkValue(col({ type: "bigint", dbType: "bigint" }), "9223372036854775808")!, /範囲外/);
 });
 
+test("整数の範囲は min / max があればそちら（MySQL の tinyint、unsigned）", () => {
+  const tiny = col({ type: "integer", dbType: "tinyint", min: -128, max: 127 });
+  assert.equal(checkValue(tiny, -5), null);
+  assert.match(checkValue(tiny, 200)!, /範囲外です（-128〜127）/);
+  const uint = col({ type: "integer", dbType: "int unsigned", min: 0, max: 4294967295 });
+  assert.equal(checkValue(uint, 4294967295), null);
+  assert.match(checkValue(uint, -1)!, /範囲外/);
+  const ubig = col({ type: "bigint", dbType: "bigint unsigned", min: "0", max: "18446744073709551615" });
+  assert.equal(checkValue(ubig, "18446744073709551615"), null);
+  assert.match(checkValue(ubig, "-1")!, /範囲外です（0〜18446744073709551615）/);
+});
+
 test("日付と日時", () => {
   const d = col({ type: "date", dbType: "date" });
   assert.equal(checkValue(d, "2024-02-29"), null);

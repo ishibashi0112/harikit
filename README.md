@@ -2,7 +2,7 @@
 
 Excel やグリッドの値を、検証してから DB に貼り替える道具。
 
-> 作りはじめの段階です。今動くのは「SQL Server と Oracle、1 テーブル、UPDATE だけ」の細い道で、入口は表への貼り付け（画面）と Excel / CSV 取込（CLI）です。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
+> 作りはじめの段階です。今動くのは「SQL Server、Oracle、PostgreSQL、MySQL / MariaDB で、1 テーブル、UPDATE だけ」の細い道で、入口は表への貼り付け（画面）と Excel / CSV 取込（CLI）です。考え方は [docs/concept.md](docs/concept.md)、サーバ API の仕様は [docs/api-spec.md](docs/api-spec.md)（作成中）にあります。
 
 ## 何をするものか
 
@@ -36,7 +36,7 @@ Excel やグリッドの値を、検証してから DB に貼り替える道具�
 
 ## 最初に通す道
 
-SQL Server と Oracle で「1 テーブル、UPDATE だけ、Excel 取込」。PostgreSQL、MySQL はその後。Oracle は今のところ Node 版サーバだけ（C# 版と VB.NET 版は SQL Server だけ）。
+SQL Server、Oracle、PostgreSQL、MySQL / MariaDB で「1 テーブル、UPDATE だけ、Excel 取込」。SQL Server 以外は今のところ Node 版サーバだけ（C# 版と VB.NET 版は SQL Server だけ）。
 
 ## 試し方（SQL Server）
 
@@ -169,18 +169,80 @@ harikit が合わせているところ:
 - **出力する SQL**: PL/SQL のブロックで、SQL*Plus、SQLcl、SQL Developer で流せる。反映 SQL は 1 行でも合わなければ全部取り消して止まり、戻し SQL は合わない行（後から別の更新が入った行）を飛ばして、DBMS_OUTPUT にその行を出す。先頭で `ALTER SESSION SET NLS_COMP = 'BINARY' NLS_SORT = 'BINARY'` をする（キーを大文字小文字を区別して比べるため。流したセッションはその後もこの設定のまま）。
 - **扱えない型**: CLOB、BLOB、RAW、TIMESTAMP WITH TIME ZONE などは読めるが更新できない。
 
+## 試し方（PostgreSQL）
+
+PostgreSQL 14 以降。手元で試すならコンテナが手軽。
+
+```sh
+docker run -d -p 5432:5432 -e POSTGRES_USER=harikit -e POSTGRES_PASSWORD=... -e POSTGRES_DB=harikit postgres:18
+
+# 例のテーブルを作る（public スキーマに m_product と m_category）
+psql -h localhost -U harikit -d harikit -f examples/postgres/setup.sql
+
+cd examples/postgres
+HARIKIT_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c harikit.config.json
+```
+
+画面と CLI の使い方は SQL Server と同じ（`node $H diff ../sqlserver/price-update.xlsx -t product`）。接続先は `harikit.config.json` の `database` に書く。
+
+```json
+{ "dialect": "postgresql", "host": "dbhost", "port": 5432, "database": "app", "user": "app", "ssl": true }
+```
+
+- `ssl`: `true` で TLS でつなぐ（証明書を確かめない自己署名の DB なら `{ "rejectUnauthorized": false }`）。省くと TLS なし。
+- `lockWaitSeconds`: 反映のとき、ほかのセッションがロックしている行を待つ秒数（既定 10）。
+
+### PostgreSQL で気をつけること
+
+- **テーブル名と列名**: `"` で囲まない名前は小文字として探す（PostgreSQL と同じ）。スキーマを省くと `search_path` で探す。列名は大文字小文字を区別しないので、Excel の見出しは `ProductCode` でも `productcode` でもよい（差分には DB の名前で出る）。
+- **値が変わっていないか**: 列に大文字小文字を区別しない照合順序（ICU の nondeterministic）が付いていても、値は 1 字ずつ比べる。キーは列の照合順序で探す。
+- **char(n)**: 末尾の空白を詰めずに書けば当たる。
+- **出力する SQL**: DO ブロック 1 つで、psql、pgAdmin、DBeaver などで流せる。反映 SQL は 1 行でも合わなければ全部取り消して止まり（`harikit:` で始まるエラー）、戻し SQL は合わない行を飛ばして NOTICE に出す。自動コミットを切ったツールでは、流した後に COMMIT する。
+- **扱えない型**: timestamptz（タイムゾーンつき）、uuid、json / jsonb、bytea、money、配列などは読めるが更新できない。enum は文字列として更新できる（ラベルにない値は DB のエラー）。
+
+## 試し方（MySQL / MariaDB）
+
+MySQL 8.0 以降、MariaDB 10.11 以降。手元で試すならコンテナが手軽（MariaDB なら `mariadb:11.4`、変数名は同じ）。
+
+```sh
+docker run -d -p 3306:3306 -e MYSQL_ROOT_PASSWORD=... -e MYSQL_DATABASE=harikit -e MYSQL_USER=harikit -e MYSQL_PASSWORD=... mysql:8.4
+
+# 例のテーブルを作る（harikit データベースに M_Product と M_Category）
+mysql -h 127.0.0.1 -u harikit -p --default-character-set=utf8mb4 harikit < examples/mysql/setup.sql
+
+cd examples/mysql
+HARIKIT_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c harikit.config.json
+```
+
+画面と CLI の使い方は SQL Server と同じ。接続先は `harikit.config.json` の `database` に書く（MariaDB も `"dialect": "mysql"`）。
+
+```json
+{ "dialect": "mysql", "host": "dbhost", "port": 3306, "database": "app", "user": "app" }
+```
+
+- `ssl` と `lockWaitSeconds` は PostgreSQL と同じ。
+
+### MySQL / MariaDB で気をつけること
+
+- **テーブル名**: `` ` `` で囲んでも囲まなくてもよい。データベースを省くと `database` のもの。大文字小文字を区別するかは DB の設定（`lower_case_table_names`）次第。
+- **値が変わっていないか**: 既定の照合順序（utf8mb4_0900_ai_ci など）は 'ボールペン' と 'ﾎﾞｰﾙﾍﾟﾝ'、'ボ' と 'ホ' も同じとみなす。harikit は値をバイト列で比べるので、差分を取った後に半角に直された行や濁点だけ直された行も「変わっていた」として止まる。キーは列の照合順序で探すので、`a001` でも `A001` の行に当たる。
+- **桁と文字コード**: varchar(n) は文字数で数える。cp932、sjis、utf8mb3 などの列は、その文字コードで表せない字（utf8mb3 に絵文字など）をエラーにする。反映は厳格な sql_mode で流すので、黙って切り詰められることはない。
+- **整数**: tinyint は -128〜127、unsigned は 0 から。tinyint(1)（BOOLEAN）は整数のまま扱い、bit(1) を真偽にする。
+- **出力する SQL**: mysql コマンド、MySQL Workbench、DBeaver、HeidiSQL などで流せる素の SQL。先に全部の行をロックして確かめ、1 行でも合わなければどの行も変えない。結果は最後の行に出る。途中でエラーが出たら、そこで止めて流し直す（エラーを飛ばして続けると、COMMIT で一部の行だけ反映される）。
+- **扱えない型**: timestamp（タイムゾーンで値が変わる）、year、set、json、binary / blob などは読めるが更新できない。
+
 ## 中身
 
 | パッケージ | 役割 |
 | --- | --- |
 | [packages/core](packages/core) | コア。Excel / CSV の読み込み、DB 定義での検証、差分、API クライアント。依存なしで、ブラウザでも Node でも動く |
-| [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server は `mssql`、Oracle は `oracledb` を使う） |
+| [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server は `mssql`、Oracle は `oracledb`、PostgreSQL は `pg`、MySQL / MariaDB は `mysql2` を使う） |
 | [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server） |
 | [packages/server-vbnet](packages/server-vbnet) | C# 版を VB.NET に書き直したもの。VB.NET の WebForms のアプリ（Web サイトの App_Code など）に載せる |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
 | [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配るほか、React の部品（`HarikitApp`）としてほかのアプリに埋め込める |
 
-テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`、Oracle は `HARIKIT_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"harikit","password":"..."}' npm test`（そのユーザーのスキーマにテスト用のテーブルを作り直す）。
+テスト: `npm test`。実際の SQL Server でも通すときは `HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`、Oracle は `HARIKIT_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"harikit","password":"..."}' npm test`（そのユーザーのスキーマにテスト用のテーブルを作り直す）、PostgreSQL は `HARIKIT_TEST_POSTGRES='{"host":"localhost","database":"harikit","user":"harikit","password":"..."}' npm test`（`ht` スキーマを作り直す）、MySQL / MariaDB は `HARIKIT_TEST_MYSQL='{"host":"127.0.0.1","database":"harikit","user":"root","password":"..."}' npm test`（そのデータベースにテスト用のテーブルを作り直す。トリガーを作るので root で）。
 C# 版は `HARIKIT_TEST_MSSQL=... npm run test:dotnet`（Mono が要る。詳しくは [packages/server-dotnet](packages/server-dotnet)）。VB.NET 版は `HARIKIT_TEST_DOTNET_PKG=packages/server-vbnet` を足す（.NET SDK も要る。詳しくは [packages/server-vbnet](packages/server-vbnet)）。CI では Windows の IIS と .NET Framework 4.8 にも載せて同じテストを流す。
 
 ## ライセンス
