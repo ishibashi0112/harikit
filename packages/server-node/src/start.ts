@@ -22,7 +22,7 @@ export interface StartOptions {
   token?: string;
   /** テスト用に方言を差し替える。 */
   dialect?: Dialect;
-  /** 配る画面のフォルダ。省くとビルドした @harikit/web、false で配らない。 */
+  /** 配る画面のフォルダ。省くとビルドした patchiri-web、false で配らない。 */
   web?: string | false;
 }
 
@@ -44,10 +44,10 @@ const TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-/** ビルドした画面（@harikit/web の dist/app）のフォルダ。入っていなければ null。 */
+/** ビルドした画面（patchiri-web の dist/app）のフォルダ。入っていなければ null。 */
 export function defaultWebDir(): string | null {
   try {
-    return join(dirname(createRequire(import.meta.url).resolve("@harikit/web/package.json")), "dist", "app");
+    return join(dirname(createRequire(import.meta.url).resolve("patchiri-web/package.json")), "dist", "app");
   } catch {
     return null;
   }
@@ -95,7 +95,7 @@ export async function startServer(config: ServerConfig, options: StartOptions = 
     config,
     dialect,
     whoAmI: () => userInfo().username,
-    log: fileLogger(config.logDir ?? "harikit-log"),
+    log: fileLogger(config.logDir ?? "patchiri-log"),
     logError: (e) => console.error(e),
   });
   const webDir = options.web === undefined ? defaultWebDir() : options.web;

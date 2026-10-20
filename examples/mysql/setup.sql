@@ -1,5 +1,5 @@
--- harikit の例で使うテーブル。MySQL 8.0 以降、MariaDB 10.11 以降。
---   mysql -h 127.0.0.1 -u harikit -p --default-character-set=utf8mb4 harikit < setup.sql
+-- patchiri の例で使うテーブル。MySQL 8.0 以降、MariaDB 10.11 以降。
+--   mysql -h 127.0.0.1 -u patchiri -p --default-character-set=utf8mb4 patchiri < setup.sql
 SET NAMES utf8mb4;
 DROP TABLE IF EXISTS M_Product, M_Category;
 CREATE TABLE M_Category (

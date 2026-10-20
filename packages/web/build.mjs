@@ -1,5 +1,5 @@
 // 画面を dist/app にまとめる（index.html、main.js、main.css）。Node 版サーバがこのフォルダを配る。
-// ほかのアプリに埋め込むときの CSS（@harikit/web/style.css）も dist に置く。JS は tsc が dist/src に出す。
+// ほかのアプリに埋め込むときの CSS（patchiri-web/style.css）も dist に置く。JS は tsc が dist/src に出す。
 
 import { copyFile, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";

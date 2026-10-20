@@ -1,4 +1,4 @@
-﻿' API 3 本（describe / fetch / apply）の中身。Node 版の handlers.ts、C# 版の HarikitService.cs と同じ手順で動く。
+﻿' API 3 本（describe / fetch / apply）の中身。Node 版の handlers.ts、C# 版の PatchiriService.cs と同じ手順で動く。
 ' HTTP（WebMethod）と DB の違いはここの外に置く。
 
 Option Strict On
@@ -13,10 +13,10 @@ Imports System.Globalization
 Imports System.Text.RegularExpressions
 Imports Row = System.Collections.Generic.Dictionary(Of String, Object)
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
     ''' <summary>業務上の失敗。HTTP 200 の ok:false で返す（仕様 1.5）。</summary>
-    Public Class HarikitFailure
+    Public Class PatchiriFailure
         Inherits Exception
 
         Public ReadOnly Code As String
@@ -30,9 +30,9 @@ Namespace Global.Harikit.Server
         End Sub
     End Class
 
-    Public NotInheritable Class HarikitServiceOptions
-        Public Config As HarikitConfig
-        Public Dialect As IHarikitDialect
+    Public NotInheritable Class PatchiriServiceOptions
+        Public Config As PatchiriConfig
+        Public Dialect As IPatchiriDialect
         ''' <summary>反映した人。WebForms では HttpContext.Current.User.Identity.Name。</summary>
         Public WhoAmI As Func(Of String)
         ''' <summary>反映ログを 1 件書く。</summary>
@@ -47,7 +47,7 @@ Namespace Global.Harikit.Server
         Public MaxResponseLength As Integer?
     End Class
 
-    Public NotInheritable Class HarikitService
+    Public NotInheritable Class PatchiriService
 
         Private Shared ReadOnly RequestIdRe As New Regex("\A[0-9A-Za-z][0-9A-Za-z-]{7,63}\z")
         ''' <summary>二度押し・再送対策に覚えておく execute の結果の数。</summary>
@@ -85,29 +85,29 @@ Namespace Global.Harikit.Server
             Public After As Row
         End Class
 
-        Private ReadOnly o As HarikitServiceOptions
+        Private ReadOnly o As PatchiriServiceOptions
         Private ReadOnly sync As New Object()
         Private ReadOnly metaCache As New Dictionary(Of String, TableMeta)(StringComparer.Ordinal)
         Private ReadOnly applied As New Dictionary(Of String, Dictionary(Of String, Object))(StringComparer.Ordinal)
         Private ReadOnly appliedOrder As New Queue(Of String)()
 
-        Public Sub New(options As HarikitServiceOptions)
+        Public Sub New(options As PatchiriServiceOptions)
             If options.Config Is Nothing OrElse options.Dialect Is Nothing Then Throw New ArgumentException("Config と Dialect は必須です")
             o = options
         End Sub
 
         Public Function Handle(name As String, body As Object) As Dictionary(Of String, Object)
             Try
-                Dim b = HarikitJson.AsObject(body)
-                If b Is Nothing Then Throw New HarikitFailure("bad_request", "リクエストが JSON のオブジェクトではありません")
-                Dim v = HarikitJson.Get(b, "v")
-                If Not HarikitJson.IsNumber(v) OrElse HarikitJson.ToDouble(v) <> 1 Then
-                    Throw New HarikitFailure("version_unsupported", "v=" & Show(v) & " には対応していません（1 だけ）")
+                Dim b = PatchiriJson.AsObject(body)
+                If b Is Nothing Then Throw New PatchiriFailure("bad_request", "リクエストが JSON のオブジェクトではありません")
+                Dim v = PatchiriJson.Get(b, "v")
+                If Not PatchiriJson.IsNumber(v) OrElse PatchiriJson.ToDouble(v) <> 1 Then
+                    Throw New PatchiriFailure("version_unsupported", "v=" & Show(v) & " には対応していません（1 だけ）")
                 End If
                 If name = "describe" Then Return Describe(b)
                 If name = "fetch" Then Return Fetch(b)
                 If name = "apply" Then Return Apply(b)
-                Throw New HarikitFailure("bad_request", "API " & name & " はありません")
+                Throw New PatchiriFailure("bad_request", "API " & name & " はありません")
             Catch e As Exception
                 Return Failure(e, body)
             End Try
@@ -115,10 +115,10 @@ Namespace Global.Harikit.Server
 
         Private Shared Function Show(v As Object) As String
             If v Is Nothing Then Return "null"
-            If TypeOf v Is String Then Return HarikitJson.Stringify(v)
+            If TypeOf v Is String Then Return PatchiriJson.Stringify(v)
             If TypeOf v Is Boolean Then Return If(DirectCast(v, Boolean), "true", "false")
-            If HarikitJson.IsNumber(v) Then Return HarikitJson.FormatDouble(HarikitJson.ToDouble(v))
-            Return HarikitJson.Stringify(v)
+            If PatchiriJson.IsNumber(v) Then Return PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v))
+            Return PatchiriJson.Stringify(v)
         End Function
 
         Private Shared Function Ok() As Dictionary(Of String, Object)
@@ -127,25 +127,25 @@ Namespace Global.Harikit.Server
 
         Private Function Failure(e As Exception, body As Object) As Dictionary(Of String, Object)
             Dim errorInfo As New Dictionary(Of String, Object)()
-            Dim f = TryCast(e, HarikitFailure)
+            Dim f = TryCast(e, PatchiriFailure)
             If f IsNot Nothing Then
                 errorInfo("code") = f.Code
                 errorInfo("message") = f.Message
                 If f.Details IsNot Nothing Then errorInfo("details") = f.Details
-            ElseIf TypeOf e Is HarikitDbException Then
+            ElseIf TypeOf e Is PatchiriDbException Then
                 LogError(e)
                 errorInfo("code") = "db_error"
-                errorInfo("message") = If(o.Config.ExposeDbErrors, e.Message, If(DirectCast(e, HarikitDbException).PublicMessage, "DB がエラーを返しました（詳細はサーバのログ）"))
+                errorInfo("message") = If(o.Config.ExposeDbErrors, e.Message, If(DirectCast(e, PatchiriDbException).PublicMessage, "DB がエラーを返しました（詳細はサーバのログ）"))
             Else
                 LogError(e)
                 errorInfo("code") = "internal_error"
                 errorInfo("message") = "サーバでエラーが起きました（詳細はサーバのログ）"
             End If
             Dim res As New Dictionary(Of String, Object) From {{"ok", False}, {"v", 1}}
-            Dim b = HarikitJson.AsObject(body)
-            Dim requestId = TryCast(HarikitJson.Get(b, "requestId"), String)
+            Dim b = PatchiriJson.AsObject(body)
+            Dim requestId = TryCast(PatchiriJson.Get(b, "requestId"), String)
             If requestId IsNot Nothing Then res("requestId") = requestId
-            Dim mode = TryCast(HarikitJson.Get(b, "mode"), String)
+            Dim mode = TryCast(PatchiriJson.Get(b, "mode"), String)
             If mode = "check" OrElse mode = "execute" Then res("mode") = mode
             res("error") = errorInfo
             If f IsNot Nothing AndAlso f.RowErrors IsNot Nothing Then res("rowErrors") = f.RowErrors
@@ -177,7 +177,7 @@ Namespace Global.Harikit.Server
         Private Function Resolve(nameObj As Object) As Resolved
             Dim name = TryCast(nameObj, String)
             If name Is Nothing OrElse Not o.Config.Targets.ContainsKey(name) Then
-                Throw New HarikitFailure("unknown_target", "ターゲット " & If(name, Show(nameObj)) & " はありません") With {
+                Throw New PatchiriFailure("unknown_target", "ターゲット " & If(name, Show(nameObj)) & " はありません") With {
                     .Details = New Dictionary(Of String, Object) From {{"target", nameObj}}
                 }
             End If
@@ -313,7 +313,7 @@ Namespace Global.Harikit.Server
 
         ''' <summary>キーのオブジェクトを確かめ、列名を DB の綴りにそろえる。</summary>
         Private Shared Function NormalizeKey(r As Resolved, keyObj As Object) As KeyResult
-            Dim key = HarikitJson.AsObject(keyObj)
+            Dim key = PatchiriJson.AsObject(keyObj)
             If key Is Nothing Then Return New KeyResult With {.ErrorCode = "key_mismatch", .ErrorMessage = "キーがオブジェクトではありません"}
             Dim output As New Row()
             For Each kv In key
@@ -323,9 +323,9 @@ Namespace Global.Harikit.Server
                     Return New KeyResult With {.ErrorCode = "key_mismatch", .ErrorColumn = given, .ErrorMessage = "キーに列 " & given & " は使えません"}
                 End If
                 Dim col = r.Meta.Column(name)
-                Dim msg = If(kv.Value Is Nothing, "キーが null です", HarikitValues.CheckValue(col, kv.Value, True))
+                Dim msg = If(kv.Value Is Nothing, "キーが null です", PatchiriValues.CheckValue(col, kv.Value, True))
                 If msg IsNot Nothing Then Return New KeyResult With {.ErrorCode = "invalid_value", .ErrorColumn = name, .ErrorMessage = msg}
-                output(name) = HarikitJson.Normalize(kv.Value)
+                output(name) = PatchiriJson.Normalize(kv.Value)
             Next
             If output.Count <> r.Key.Count Then
                 Return New KeyResult With {.ErrorCode = "key_mismatch", .ErrorMessage = "キーの列は " & String.Join(", ", r.Key) & " です"}
@@ -334,11 +334,11 @@ Namespace Global.Harikit.Server
         End Function
 
         Private Function Fetch(body As IDictionary(Of String, Object)) As Dictionary(Of String, Object)
-            Dim r = Resolve(HarikitJson.Get(body, "target"))
-            Dim rawKeys = HarikitJson.AsArray(HarikitJson.Get(body, "keys"))
-            If rawKeys Is Nothing Then Throw New HarikitFailure("bad_request", "keys がありません")
+            Dim r = Resolve(PatchiriJson.Get(body, "target"))
+            Dim rawKeys = PatchiriJson.AsArray(PatchiriJson.Get(body, "keys"))
+            If rawKeys Is Nothing Then Throw New PatchiriFailure("bad_request", "keys がありません")
             If rawKeys.Count > o.Config.MaxFetchKeys Then
-                Throw New HarikitFailure("too_many_rows", "keys は " & o.Config.MaxFetchKeys & " 件までです") With {
+                Throw New PatchiriFailure("too_many_rows", "keys は " & o.Config.MaxFetchKeys & " 件までです") With {
                     .Details = New Dictionary(Of String, Object) From {{"limit", o.Config.MaxFetchKeys}}
                 }
             End If
@@ -348,12 +348,12 @@ Namespace Global.Harikit.Server
                     columns.Add(c.Name)
                 Next
             Else
-                Dim raw = HarikitJson.AsArray(body("columns"))
-                If raw Is Nothing Then Throw New HarikitFailure("bad_request", "columns は列名の配列です")
+                Dim raw = PatchiriJson.AsArray(body("columns"))
+                If raw Is Nothing Then Throw New PatchiriFailure("bad_request", "columns は列名の配列です")
                 For Each c In raw
                     Dim col = r.Find(TryCast(c, String))
                     If col Is Nothing Then
-                        Throw New HarikitFailure("column_not_allowed", "列 " & If(TryCast(c, String), Show(c)) & " は読めません") With {
+                        Throw New PatchiriFailure("column_not_allowed", "列 " & If(TryCast(c, String), Show(c)) & " は読めません") With {
                             .Details = New Dictionary(Of String, Object) From {{"column", c}}
                         }
                     End If
@@ -364,7 +364,7 @@ Namespace Global.Harikit.Server
             For i = 0 To rawKeys.Count - 1
                 Dim n = NormalizeKey(r, rawKeys(i))
                 If n.ErrorCode IsNot Nothing Then
-                    Throw New HarikitFailure(If(n.ErrorCode = "invalid_value", "bad_request", n.ErrorCode), "keys[" & i & "]: " & n.ErrorMessage) With {
+                    Throw New PatchiriFailure(If(n.ErrorCode = "invalid_value", "bad_request", n.ErrorCode), "keys[" & i & "]: " & n.ErrorMessage) With {
                         .Details = New Dictionary(Of String, Object) From {{"index", i}}
                     }
                 End If
@@ -391,9 +391,9 @@ Namespace Global.Harikit.Server
         Private Sub EnsureFits(result As Dictionary(Of String, Object), message As String)
             If Not o.MaxResponseLength.HasValue Then Return
             ' WebMethod は {"d": 結果} で返す。
-            Dim length = HarikitJson.Stringify(New Dictionary(Of String, Object) From {{"d", result}}).Length
+            Dim length = PatchiriJson.Stringify(New Dictionary(Of String, Object) From {{"d", result}}).Length
             If length <= o.MaxResponseLength.Value Then Return
-            Throw New HarikitFailure("too_many_rows", message) With {
+            Throw New PatchiriFailure("too_many_rows", message) With {
                 .Details = New Dictionary(Of String, Object) From {{"maxJsonLength", o.MaxResponseLength.Value}, {"length", length}}
             }
         End Sub
@@ -403,14 +403,14 @@ Namespace Global.Harikit.Server
         End Function
 
         Private Function Apply(body As IDictionary(Of String, Object)) As Dictionary(Of String, Object)
-            Dim requestId = TryCast(HarikitJson.Get(body, "requestId"), String)
-            If requestId Is Nothing OrElse Not RequestIdRe.IsMatch(requestId) Then Throw New HarikitFailure("bad_request", "requestId がないか、形が違います")
-            Dim mode = TryCast(HarikitJson.Get(body, "mode"), String)
-            If mode <> "check" AndAlso mode <> "execute" Then Throw New HarikitFailure("bad_request", "mode は ""check"" か ""execute"" です")
+            Dim requestId = TryCast(PatchiriJson.Get(body, "requestId"), String)
+            If requestId Is Nothing OrElse Not RequestIdRe.IsMatch(requestId) Then Throw New PatchiriFailure("bad_request", "requestId がないか、形が違います")
+            Dim mode = TryCast(PatchiriJson.Get(body, "mode"), String)
+            If mode <> "check" AndAlso mode <> "execute" Then Throw New PatchiriFailure("bad_request", "mode は ""check"" か ""execute"" です")
             Dim note As String = Nothing
             If body.ContainsKey("note") Then
                 note = TryCast(body("note"), String)
-                If note Is Nothing Then Throw New HarikitFailure("bad_request", "note は文字列です")
+                If note Is Nothing Then Throw New PatchiriFailure("bad_request", "note は文字列です")
             End If
             If mode = "execute" Then
                 SyncLock sync
@@ -418,17 +418,17 @@ Namespace Global.Harikit.Server
                     If applied.TryGetValue(requestId, done) Then Return done
                 End SyncLock
             End If
-            Dim changes = HarikitJson.AsArray(HarikitJson.Get(body, "changes"))
-            If changes Is Nothing OrElse changes.Count <> 1 OrElse HarikitJson.AsObject(changes(0)) Is Nothing Then
-                Throw New HarikitFailure("bad_request", "changes は要素 1 つの配列です（v1 は 1 テーブルだけ）")
+            Dim changes = PatchiriJson.AsArray(PatchiriJson.Get(body, "changes"))
+            If changes Is Nothing OrElse changes.Count <> 1 OrElse PatchiriJson.AsObject(changes(0)) Is Nothing Then
+                Throw New PatchiriFailure("bad_request", "changes は要素 1 つの配列です（v1 は 1 テーブルだけ）")
             End If
-            Dim change = HarikitJson.AsObject(changes(0))
-            Dim r = Resolve(HarikitJson.Get(change, "target"))
-            If r.Target.Access <> "update" Then Throw New HarikitFailure("bad_request", r.Name & " は読むだけのターゲットです")
-            Dim rawRows = HarikitJson.AsArray(HarikitJson.Get(change, "rows"))
-            If rawRows Is Nothing OrElse rawRows.Count = 0 Then Throw New HarikitFailure("bad_request", "rows がありません")
+            Dim change = PatchiriJson.AsObject(changes(0))
+            Dim r = Resolve(PatchiriJson.Get(change, "target"))
+            If r.Target.Access <> "update" Then Throw New PatchiriFailure("bad_request", r.Name & " は読むだけのターゲットです")
+            Dim rawRows = PatchiriJson.AsArray(PatchiriJson.Get(change, "rows"))
+            If rawRows Is Nothing OrElse rawRows.Count = 0 Then Throw New PatchiriFailure("bad_request", "rows がありません")
             If rawRows.Count > o.Config.MaxApplyRows Then
-                Throw New HarikitFailure("too_many_rows", "rows は " & o.Config.MaxApplyRows & " 行までです") With {
+                Throw New PatchiriFailure("too_many_rows", "rows は " & o.Config.MaxApplyRows & " 行までです") With {
                     .Details = New Dictionary(Of String, Object) From {{"limit", o.Config.MaxApplyRows}}
                 }
             End If
@@ -447,7 +447,7 @@ Namespace Global.Harikit.Server
                         e("message") = message
                         rowErrors.Add(e)
                     End Sub
-                Dim raw = HarikitJson.AsObject(rawRows(index))
+                Dim raw = PatchiriJson.AsObject(rawRows(index))
                 If raw Is Nothing Then
                     rowErr("bad_request", "行がオブジェクトではありません", Nothing)
                     Continue For
@@ -456,13 +456,13 @@ Namespace Global.Harikit.Server
                     rowErr("bad_request", "op " & If(TryCast(raw("op"), String), Show(raw("op"))) & " には対応していません（update だけ）", Nothing)
                     Continue For
                 End If
-                Dim k = NormalizeKey(r, HarikitJson.Get(raw, "key"))
+                Dim k = NormalizeKey(r, PatchiriJson.Get(raw, "key"))
                 If k.ErrorCode IsNot Nothing Then
                     rowErr(k.ErrorCode, k.ErrorMessage, k.ErrorColumn)
                     Continue For
                 End If
-                Dim rawBefore = HarikitJson.AsObject(HarikitJson.Get(raw, "before"))
-                Dim rawAfter = HarikitJson.AsObject(HarikitJson.Get(raw, "after"))
+                Dim rawBefore = PatchiriJson.AsObject(PatchiriJson.Get(raw, "before"))
+                Dim rawAfter = PatchiriJson.AsObject(PatchiriJson.Get(raw, "after"))
                 If rawBefore Is Nothing OrElse rawAfter Is Nothing Then
                     rowErr("bad_request", "before と after がありません", Nothing)
                     Continue For
@@ -497,16 +497,16 @@ Namespace Global.Harikit.Server
                     End If
                     Dim bv = kv.Value
                     Dim av = rawAfter(ac)
-                    Dim bMsg = HarikitValues.CheckValue(col, bv, True)
-                    Dim aMsg = HarikitValues.CheckValue(col, av, col.Nullable)
+                    Dim bMsg = PatchiriValues.CheckValue(col, bv, True)
+                    Dim aMsg = PatchiriValues.CheckValue(col, av, col.Nullable)
                     If bMsg IsNot Nothing OrElse aMsg IsNot Nothing Then
                         rowErr("invalid_value", If(bMsg IsNot Nothing, "before: " & bMsg, "after: " & aMsg), col.Name)
                         bad = True
                         Continue For
                     End If
-                    bv = HarikitJson.Normalize(bv)
-                    av = HarikitJson.Normalize(av)
-                    If HarikitValues.SameColumnValue(col, bv, av) Then
+                    bv = PatchiriJson.Normalize(bv)
+                    av = PatchiriJson.Normalize(av)
+                    If PatchiriValues.SameColumnValue(col, bv, av) Then
                         rowErr("bad_request", "before と after が同じです", col.Name)
                         bad = True
                         Continue For
@@ -515,7 +515,7 @@ Namespace Global.Harikit.Server
                     after(col.Name) = av
                 Next
                 If bad Then Continue For
-                Dim id = HarikitValues.KeyIdentity(r.KeyColumns, k.Key)
+                Dim id = PatchiriValues.KeyIdentity(r.KeyColumns, k.Key)
                 Dim seen As Integer
                 If seenKeys.TryGetValue(id, seen) Then
                     rowErr("duplicate_key", seen & " 番目の行とキーが同じです", Nothing)
@@ -531,7 +531,7 @@ Namespace Global.Harikit.Server
                 For Each e As Dictionary(Of String, Object) In rowErrors
                     indexes.Add(CInt(e("index")))
                 Next
-                Throw New HarikitFailure("bad_request", indexes.Count & " 行に誤りがあります") With {.RowErrors = rowErrors}
+                Throw New PatchiriFailure("bad_request", indexes.Count & " 行に誤りがあります") With {.RowErrors = rowErrors}
             End If
 
             Dim appliedBy = If(o.WhoAmI IsNot Nothing, o.WhoAmI.Invoke(), "")
@@ -583,7 +583,7 @@ Namespace Global.Harikit.Server
                                 conflicts.Add(New Dictionary(Of String, Object) From {{"target", r.Name}, {"index", index}, {"key", item.Key}, {"reason", "not_found"}})
                                 Continue For
                             End If
-                            Dim dbKey = HarikitValues.KeyIdentity(r.KeyColumns, locked.DbKey)
+                            Dim dbKey = PatchiriValues.KeyIdentity(r.KeyColumns, locked.DbKey)
                             Dim other As Integer
                             If dbKeys.TryGetValue(dbKey, other) Then
                                 duplicate = New Integer() {other, index}
@@ -604,7 +604,7 @@ Namespace Global.Harikit.Server
                         If conflicts.Count > 0 OrElse mode = "check" Then Return False
                         For Each item In rows
                             Dim n = tx.Update(r.Meta, r.Key, item.Key, item.After)
-                            If n <> 1 Then Throw New HarikitDbException("UPDATE の影響行数が " & n & " でした（1 のはず）: " & HarikitJson.Stringify(item.Key))
+                            If n <> 1 Then Throw New PatchiriDbException("UPDATE の影響行数が " & n & " でした（1 のはず）: " & PatchiriJson.Stringify(item.Key))
                             updated += n
                         Next
                         Return True
@@ -617,7 +617,7 @@ Namespace Global.Harikit.Server
             End Try
 
             If duplicate IsNot Nothing Then
-                Throw New HarikitFailure("bad_request", "1 行に誤りがあります") With {
+                Throw New PatchiriFailure("bad_request", "1 行に誤りがあります") With {
                     .RowErrors = New List(Of Object) From {
                         New Dictionary(Of String, Object) From {
                             {"target", r.Name},
@@ -632,7 +632,7 @@ Namespace Global.Harikit.Server
                 Dim entry = logEntry("conflict")
                 entry("conflicts") = conflicts
                 SafeLog(entry)
-                Throw New HarikitFailure("conflict", conflicts.Count & " 行が差分を取った後に変わっていたため、何も反映していません") With {.Conflicts = conflicts}
+                Throw New PatchiriFailure("conflict", conflicts.Count & " 行が差分を取った後に変わっていたため、何も反映していません") With {.Conflicts = conflicts}
             End If
 
             targetResult("updated") = updated
@@ -654,7 +654,7 @@ Namespace Global.Harikit.Server
 
         ''' <summary>
         ''' 書き込む文字列が列の文字コードで表せるか、バイト数に収まるかを DB で確かめる。
-        ''' HarikitValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、最後はここで見る。
+        ''' PatchiriValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、最後はここで見る。
         ''' </summary>
         Private Function CheckStrings(r As Resolved, rows As List(Of ApplyRow), rowIndexes As List(Of Integer)) As List(Of Object)
             Dim errors As New List(Of Object)()
@@ -703,7 +703,7 @@ Namespace Global.Harikit.Server
 
         Private Sub RenderScripts(r As Resolved, requestId As String, mode As String, rows As List(Of ApplyRow), ByRef script As String, ByRef undoScript As String)
             Dim d = o.Dialect
-            Dim head = "-- harikit " & requestId & " " & r.Name & " (" & r.Meta.Table & ") " & rows.Count & "行"
+            Dim head = "-- patchiri " & requestId & " " & r.Name & " (" & r.Meta.Table & ") " & rows.Count & "行"
             Dim updates As New List(Of ScriptUpdate)()
             Dim undoUpdates As New List(Of ScriptUpdate)()
             For Each item In rows

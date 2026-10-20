@@ -15,9 +15,9 @@ Imports System.Globalization
 Imports System.Text
 Imports System.Web.Script.Serialization
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
-    Public NotInheritable Class HarikitJson
+    Public NotInheritable Class PatchiriJson
 
         Private Sub New()
         End Sub

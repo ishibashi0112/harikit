@@ -2,8 +2,8 @@
 // テーブル名と列名は許可リストと DB の定義から取り、[] で囲む。
 
 import sql from "mssql";
-import type { ColumnType, Row, Value } from "@harikit/core";
-import { canonical } from "@harikit/core";
+import type { ColumnType, Row, Value } from "patchiri-core";
+import { canonical } from "patchiri-core";
 import type { SqlServerConnection } from "./config.js";
 import { DbError, LOCKED_MESSAGE, scriptKeyText, type ColumnMeta, type Dialect, type ForeignKeyMeta, type LockedRow, type ScriptUpdate, type TableMeta, type Transaction } from "./dialect.js";
 
@@ -498,13 +498,13 @@ export class SqlServerDialect implements Dialect {
   renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[], kind: "apply" | "undo"): string {
     const lines = [head];
     if (kind === "apply") lines.push("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（エラー 50001）。");
-    else lines.push("-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。");
+    else lines.push("-- 今の値が patchiri で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。");
     lines.push("SET XACT_ABORT ON;", "BEGIN TRANSACTION;");
     for (const u of updates) {
       lines.push(this.renderUpdate(meta, u.set, u.key, u.expect) + ";");
       if (kind === "apply") {
         // トリガーがあっても @@ROWCOUNT は UPDATE 文そのものの行数。XACT_ABORT ON なので THROW で全部戻る。
-        const msg = `harikit: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`;
+        const msg = `patchiri: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`;
         lines.push(`IF @@ROWCOUNT <> 1 THROW 50001, N'${msg.replace(/'/g, "''")}', 1;`);
       }
     }

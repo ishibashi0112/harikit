@@ -87,7 +87,7 @@ export function createHttpServer(handlers: Handlers, options: HttpOptions): Serv
       const name = path.replace(/^\/+/, "");
       if (req.method !== "POST" || !ROUTES.has(name)) return send(res, 404, { message: "not found" });
       if (!tokenOk(req.headers.authorization, options.token)) return send(res, 401, { message: "token required" });
-      if (req.headers["x-harikit"] !== "1") return send(res, 403, { message: "X-Harikit: 1 header required" });
+      if (req.headers["x-patchiri"] !== "1") return send(res, 403, { message: "X-Patchiri: 1 header required" });
       if (!/^application\/json\b/i.test(req.headers["content-type"] ?? "")) return send(res, 415, { message: "application/json required" });
       const body = await readBody(req, limit);
       if (body === null) return send(res, 413, { message: "request too large" });

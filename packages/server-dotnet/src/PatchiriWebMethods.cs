@@ -1,8 +1,8 @@
 ﻿// ASP.NET WebForms の WebMethod から呼ぶ入口（webmethod スタイル、仕様 1.1）。
-// Harikit.aspx の [WebMethod] Describe / Fetch / Apply は、ここの Call を呼ぶだけにする。
+// Patchiri.aspx の [WebMethod] Describe / Fetch / Apply は、ここの Call を呼ぶだけにする。
 //
-// 設定: web.config の appSettings "harikit:config"（既定 ~/App_Data/harikit.config.json）に許可リストを置き、
-// 接続文字列は connectionStrings の名前（既定 "Harikit"）で指す。認証と権限は載せ先のアプリに任せる（仕様 1.4）。
+// 設定: web.config の appSettings "patchiri:config"（既定 ~/App_Data/patchiri.config.json）に許可リストを置き、
+// 接続文字列は connectionStrings の名前（既定 "Patchiri"）で指す。認証と権限は載せ先のアプリに任せる（仕様 1.4）。
 
 using System;
 using System.Collections.Generic;
@@ -14,15 +14,15 @@ using System.Web;
 using System.Web.Configuration;
 using System.Web.Hosting;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
-    public static class HarikitWebMethods
+    public static class PatchiriWebMethods
     {
-        const string DefaultConfigPath = "~/App_Data/harikit.config.json";
-        const string DefaultLogDir = "~/App_Data/harikit-log";
+        const string DefaultConfigPath = "~/App_Data/patchiri.config.json";
+        const string DefaultLogDir = "~/App_Data/patchiri-log";
 
         static readonly object sync = new object();
-        static HarikitService service;
+        static PatchiriService service;
         static string servicePath;
         static DateTime serviceStamp;
 
@@ -32,12 +32,12 @@ namespace Harikit.Server
             ctx.Response.Cache.SetCacheability(HttpCacheability.NoCache);
             ctx.Response.Cache.SetNoStore();
             // CSRF 対策（仕様 1.4）。application/json でない呼び出しは ASP.NET が WebMethod に回さない。
-            if (ctx.Request.Headers["X-Harikit"] != "1")
+            if (ctx.Request.Headers["X-Patchiri"] != "1")
             {
                 ctx.Response.StatusCode = 403;
-                return new Dictionary<string, object> { { "message", "X-Harikit: 1 header required" } };
+                return new Dictionary<string, object> { { "message", "X-Patchiri: 1 header required" } };
             }
-            HarikitService s;
+            PatchiriService s;
             try
             {
                 s = Service();
@@ -49,31 +49,31 @@ namespace Harikit.Server
                 {
                     { "ok", false },
                     { "v", 1 },
-                    { "error", new Dictionary<string, object> { { "code", "internal_error" }, { "message", "harikit の設定を読めません（詳細はサーバのログ）" } } },
+                    { "error", new Dictionary<string, object> { { "code", "internal_error" }, { "message", "patchiri の設定を読めません（詳細はサーバのログ）" } } },
                 };
             }
             return s.Handle(name, req);
         }
 
         /// <summary>設定ファイルを読んでサービスを作る。設定ファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
-        static HarikitService Service()
+        static PatchiriService Service()
         {
-            var path = MapPath(ConfigurationManager.AppSettings["harikit:config"] ?? DefaultConfigPath);
+            var path = MapPath(ConfigurationManager.AppSettings["patchiri:config"] ?? DefaultConfigPath);
             var stamp = File.GetLastWriteTimeUtc(path);
             lock (sync)
             {
                 if (service != null && path == servicePath && stamp == serviceStamp) return service;
-                var config = HarikitConfig.Parse(File.ReadAllText(path, Encoding.UTF8));
+                var config = PatchiriConfig.Parse(File.ReadAllText(path, Encoding.UTF8));
                 var cs = ConfigurationManager.ConnectionStrings[config.ConnectionStringName];
                 if (cs == null || string.IsNullOrEmpty(cs.ConnectionString))
-                    throw new HarikitConfigException("web.config の connectionStrings に " + config.ConnectionStringName + " がありません");
+                    throw new PatchiriConfigException("web.config の connectionStrings に " + config.ConnectionStringName + " がありません");
                 var logDir = MapPath(config.LogDir);
-                service = new HarikitService(new HarikitServiceOptions
+                service = new PatchiriService(new PatchiriServiceOptions
                 {
                     Config = config,
                     Dialect = new SqlServerDialect(cs.ConnectionString, config.LockWaitSeconds),
                     WhoAmI = CurrentUser,
-                    Log = entry => HarikitFileLog.WriteApply(logDir, entry),
+                    Log = entry => PatchiriFileLog.WriteApply(logDir, entry),
                     LogError = e => WriteError(logDir, e),
                     MaxResponseLength = MaxJsonLength(),
                 });
@@ -108,10 +108,10 @@ namespace Harikit.Server
 
         static void WriteError(string dir, Exception e)
         {
-            Trace.TraceError("harikit: " + e);
+            Trace.TraceError("patchiri: " + e);
             try
             {
-                HarikitFileLog.WriteError(dir, e);
+                PatchiriFileLog.WriteError(dir, e);
             }
             catch (Exception)
             {

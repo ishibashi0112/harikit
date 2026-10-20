@@ -14,7 +14,7 @@ import {
   type Sheet,
   type TableDescription,
   type Value,
-} from "@harikit/core";
+} from "patchiri-core";
 
 export interface GridRow {
   id: number;

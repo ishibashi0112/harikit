@@ -1,4 +1,4 @@
-# harikit サーバ API 仕様（v1 草案）
+# patchiri サーバ API 仕様（v1 草案）
 
 > 2026-10-17 草案（2026-10-20 に PostgreSQL と MySQL / MariaDB を追記）。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
 > 範囲は「SQL Server、Oracle、PostgreSQL、MySQL / MariaDB の 1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
@@ -19,10 +19,10 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | スタイル | URL の例 | 送る本文 | 返る本文 |
 | --- | --- | --- | --- |
 | `rest`（Node 版など） | `{baseUrl}/describe` | リクエスト JSON そのまま | レスポンス JSON そのまま |
-| `webmethod`（ASP.NET） | `{baseUrl}/Describe`（例 `Harikit.aspx/Describe`） | `{"req": リクエスト}` | `{"d": レスポンス}` |
+| `webmethod`（ASP.NET） | `{baseUrl}/Describe`（例 `Patchiri.aspx/Describe`） | `{"req": リクエスト}` | `{"d": レスポンス}` |
 
 - WebMethod の引数名は `req` に固定する（`public static object Describe(Dictionary<string, object> req)` など）。
-- クライアント設定の例: `{ baseUrl: "/Admin/Harikit.aspx", style: "webmethod" }`
+- クライアント設定の例: `{ baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }`
 
 ### 1.2 バージョン
 
@@ -55,15 +55,15 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 
 ### 1.4 認証と CSRF
 
-- **認証と認可は載せ先のアプリに任せる。** WebForms ならフォーム認証やセッションをそのまま使い、ログインしていない・権限がないときは載せ先の流儀で 401/403 を返す。harikit 自体はユーザー管理を持たない。
+- **認証と認可は載せ先のアプリに任せる。** WebForms ならフォーム認証やセッションをそのまま使い、ログインしていない・権限がないときは載せ先の流儀で 401/403 を返す。patchiri 自体はユーザー管理を持たない。
 - サーバは「誰が反映したか」を自分で判定して記録する（クライアントが名乗る名前は信じない）。
-- CSRF 対策として、すべての呼び出しに `X-Harikit: 1` ヘッダを必須にする。`application/json` 必須と合わせ、他サイトのフォームからは呼べない。
+- CSRF 対策として、すべての呼び出しに `X-Patchiri: 1` ヘッダを必須にする。`application/json` 必須と合わせ、他サイトのフォームからは呼べない。
 - Node 版をローカル（`127.0.0.1`）で立てるときは、起動時に乱数トークンを表示し、`Authorization: Bearer <token>` を必須にする。同じ PC の別タブのページから叩かれないため。
 
 ### 1.5 結果とエラーの返し方
 
 - **業務上の結果はすべて HTTP 200** で返し、本文の `ok` で成否を表す。WebMethod は例外を投げると 500 で中身が読みにくいので、例外は捕まえてこの形に直す。
-- HTTP 200 以外は「届かなかった」場合だけ: 401（未ログイン、Node 版のトークン違い）、403（権限なし、`X-Harikit` ヘッダなし）、404、413（大きすぎ）、415（`Content-Type` が `application/json` でない）、5xx（サーバが落ちた）。
+- HTTP 200 以外は「届かなかった」場合だけ: 401（未ログイン、Node 版のトークン違い）、403（権限なし、`X-Patchiri` ヘッダなし）、404、413（大きすぎ）、415（`Content-Type` が `application/json` でない）、5xx（サーバが落ちた）。
 
 成功:
 ```json
@@ -117,7 +117,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | 何を比べるか | 比べ方 | 使うところ |
 | --- | --- | --- |
 | どの行か（キー） | DB の比較規則（列の照合順序） | fetch のキーの引き当て、apply の行の特定と `duplicate_key`、戻し SQL のキーの条件 |
-| 値が変わっていないか | **厳密に同じ値** | apply の `before` の確認（[7](#7-apply反映) の手順 3）、戻し SQL の「harikit で入れた値のままか」の条件、コアの差分 |
+| 値が変わっていないか | **厳密に同じ値** | apply の `before` の確認（[7](#7-apply反映) の手順 3）、戻し SQL の「patchiri で入れた値のままか」の条件、コアの差分 |
 
 「厳密に同じ」とは次のとおり。
 
@@ -125,7 +125,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 - NULL は NULL とだけ同じ。
 - 数値や日付などは DB の `=` で比べる（もともと厳密）。
 
-Japanese_CI_AS などの照合順序は 'ボールペン' と 'ﾎﾞｰﾙﾍﾟﾝ' を同じとみなす。照合順序で比べると、差分を取った後や反映した後に別の人が半角に直した行を、harikit が上書きしてしまう。これは「後から入った別の更新を上書きしない」という約束に反する。入力の揺れを自動で直さず厳しく扱う方針とも合わせた。一方でキーを照合順序で探すのは、DB 自身がその規則で行の一意性を決めているから。
+Japanese_CI_AS などの照合順序は 'ボールペン' と 'ﾎﾞｰﾙﾍﾟﾝ' を同じとみなす。照合順序で比べると、差分を取った後や反映した後に別の人が半角に直した行を、patchiri が上書きしてしまう。これは「後から入った別の更新を上書きしない」という約束に反する。入力の揺れを自動で直さず厳しく扱う方針とも合わせた。一方でキーを照合順序で探すのは、DB 自身がその規則で行の一意性を決めているから。
 
 SQL Server での書き方（可変長の文字列の列。`@b1` は nvarchar で渡す）:
 ```sql
@@ -476,26 +476,26 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
   "results": [
     { "target": "product", "updated": 2 }
   ],
-  "script": "-- harikit 6f1c2a8e... product (dbo.M_Product) 2行\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 130.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 120.00;\n...\nCOMMIT;",
-  "undoScript": "-- harikit 6f1c2a8e... の戻し（0行の UPDATE は後から別の更新が入った行）\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 120.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 130.00;\n...\nCOMMIT;"
+  "script": "-- patchiri 6f1c2a8e... product (dbo.M_Product) 2行\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 130.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 120.00;\n...\nCOMMIT;",
+  "undoScript": "-- patchiri 6f1c2a8e... の戻し（0行の UPDATE は後から別の更新が入った行）\nSET XACT_ABORT ON;\nBEGIN TRANSACTION;\nUPDATE [dbo].[M_Product] SET [UnitPrice] = 120.00 WHERE [ProductCode] = 'A001' AND [UnitPrice] = 130.00;\n...\nCOMMIT;"
 }
 ```
 
-- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう包み、**どれかの行の UPDATE が1行でなければ（行が見つからないか値が変わっていれば）全部戻して止まる**形にする（`check` で出した SQL を後から人が流したときに、変わっていた行だけ黙って飛ばさないため）。SQL Server では `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包み、UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, N'harikit: 行が見つからないか、値が変わっています（ProductCode=A001）。何も反映していません', 1;` を続ける（トリガーがあっても `@@ROWCOUNT` は UPDATE 文そのものの行数。SQL Server 2022 で確かめた）。メッセージにキーの値を入れるときは、リテラルと同じく引用を直す。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。
-- `undoScript`: 戻し用 SQL。「今の値が harikit で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。値の条件は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の厳密な比べ方で書く（キーの条件は照合順序のまま）。`script` と同じくトランザクションで包むが、0行の UPDATE があっても止めずに続ける（戻さなかった行を出力に出してよい）。`check` のときも返す。
+- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう包み、**どれかの行の UPDATE が1行でなければ（行が見つからないか値が変わっていれば）全部戻して止まる**形にする（`check` で出した SQL を後から人が流したときに、変わっていた行だけ黙って飛ばさないため）。SQL Server では `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包み、UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, N'patchiri: 行が見つからないか、値が変わっています（ProductCode=A001）。何も反映していません', 1;` を続ける（トリガーがあっても `@@ROWCOUNT` は UPDATE 文そのものの行数。SQL Server 2022 で確かめた）。メッセージにキーの値を入れるときは、リテラルと同じく引用を直す。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。
+- `undoScript`: 戻し用 SQL。「今の値が patchiri で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。値の条件は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の厳密な比べ方で書く（キーの条件は照合順序のまま）。`script` と同じくトランザクションで包むが、0行の UPDATE があっても止めずに続ける（戻さなかった行を出力に出してよい）。`check` のときも返す。
 - `script` と `undoScript` は方言ごとの書き方（引用、日付リテラル、NULL 比較）を知っているサーバが作る。コアはそれをファイルに保存する。トランザクションの包み方と止め方も方言の書き方でよい。Oracle では PL/SQL の無名ブロックにし、`SET DEFINE OFF`（値の `&` を置き換えさせない）、UPDATE ごとに `IF SQL%ROWCOUNT <> 1 THEN RAISE_APPLICATION_ERROR(-20001, '…'); END IF;`、`EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;` とする。戻し用は `SET SERVEROUTPUT ON` にして、戻さなかった行と「n / m 行を戻しました」を `DBMS_OUTPUT` に出す。
-- PostgreSQL では `DO` ブロック 1 つにする（1 文なので、途中のエラーでも全部戻る）。先頭で `SET client_encoding = 'UTF8';` にし、UPDATE ごとに `GET DIAGNOSTICS harikit_rows = ROW_COUNT;` と `IF harikit_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = 'harikit: …'; END IF;`（`USING MESSAGE` は `%` を書式として読まない）。ブロックの区切りは `$harikit$` で、値にその文字列が入っていたら `$harikit_1$` などに変える。PL/pgSQL の変数と列名がぶつからないよう `#variable_conflict use_column` を付ける。戻し用は戻さなかった行と「n / m 行を戻しました」を `RAISE NOTICE` で出す。
+- PostgreSQL では `DO` ブロック 1 つにする（1 文なので、途中のエラーでも全部戻る）。先頭で `SET client_encoding = 'UTF8';` にし、UPDATE ごとに `GET DIAGNOSTICS patchiri_rows = ROW_COUNT;` と `IF patchiri_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = 'patchiri: …'; END IF;`（`USING MESSAGE` は `%` を書式として読まない）。ブロックの区切りは `$patchiri$` で、値にその文字列が入っていたら `$patchiri_1$` などに変える。PL/pgSQL の変数と列名がぶつからないよう `#variable_conflict use_column` を付ける。戻し用は戻さなかった行と「n / m 行を戻しました」を `RAISE NOTICE` で出す。
 - MySQL / MariaDB は、ストアドプログラムの外では `IF` も例外も使えないので、**先に全部の行をロックして数え、1 行でも合わなければどの UPDATE も当たらない**形にする（MySQL 8.4 と MariaDB 11.4 の mysql コマンドで確かめた）。結果は最後の `SELECT` に出す（流したツールの結果の欄に出る）。
   ```sql
   SET NAMES utf8mb4;
-  SET @harikit_ok = 1, @harikit_ng = NULL;
+  SET @patchiri_ok = 1, @patchiri_ng = NULL;
   START TRANSACTION;
-  SELECT COUNT(*) INTO @harikit_n FROM `app`.`m_product` WHERE `code` = 'A001' AND `price` = 120.00 FOR UPDATE;
-  SET @harikit_ok = @harikit_ok AND @harikit_n = 1, @harikit_ng = IF(@harikit_n = 1, @harikit_ng, CONCAT_WS(', ', @harikit_ng, 'code=A001'));
+  SELECT COUNT(*) INTO @patchiri_n FROM `app`.`m_product` WHERE `code` = 'A001' AND `price` = 120.00 FOR UPDATE;
+  SET @patchiri_ok = @patchiri_ok AND @patchiri_n = 1, @patchiri_ng = IF(@patchiri_n = 1, @patchiri_ng, CONCAT_WS(', ', @patchiri_ng, 'code=A001'));
   -- （行の数だけ繰り返す）
-  UPDATE `app`.`m_product` SET `price` = 130.00 WHERE `code` = 'A001' AND `price` = 120.00 AND @harikit_ok = 1;
+  UPDATE `app`.`m_product` SET `price` = 130.00 WHERE `code` = 'A001' AND `price` = 120.00 AND @patchiri_ok = 1;
   COMMIT;
-  SELECT CONVERT(IF(@harikit_ok = 1, 'harikit: 1 行を反映しました', CONCAT('harikit: 行が見つからないか、値が変わっています（', @harikit_ng, '）。何も反映していません')) USING utf8mb4) AS `harikit`;
+  SELECT CONVERT(IF(@patchiri_ok = 1, 'patchiri: 1 行を反映しました', CONCAT('patchiri: 行が見つからないか、値が変わっています（', @patchiri_ng, '）。何も反映していません')) USING utf8mb4) AS `patchiri`;
   ```
   途中の文がエラーになっても、MySQL はその文だけを戻してトランザクションを続ける。mysql コマンドはエラーで止まり、`COMMIT` まで行かずに切れて全部戻るが、エラーを飛ばして続ける設定のツールで流すと一部の行だけ反映される。スクリプトの先頭のコメントにそう書く。戻し用は UPDATE ごとに同じ条件で数えて足し、「n / m 行を戻しました」と戻さなかった行を最後の `SELECT` に出す。
 - `appliedBy` はサーバが認証から判定した名前。
@@ -552,7 +552,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - MySQL / MariaDB の反映のトランザクションは、先にセッションを `sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'` にする（厳格でないと桁あふれや表せない字が黙って切り詰められる）。影響行数は当たった行の数（mysql2 は `CLIENT_FOUND_ROWS` でつなぐ）で、トリガーの中の行数は入らない。MySQL 8.0 / 8.4 と MariaDB 10.11 / 11.4 で確かめる。
 
 ### C#（.NET Framework、WebForms）版
-- 1つの `.aspx`（例 `Harikit.aspx`）に `[WebMethod]` を3つ置く: `Describe`、`Fetch`、`Apply`。引数は `Dictionary<string, object> req`、戻り値は `Dictionary<string, object>`（`{"d": ...}` は ASP.NET が付ける）。
+- 1つの `.aspx`（例 `Patchiri.aspx`）に `[WebMethod]` を3つ置く: `Describe`、`Fetch`、`Apply`。引数は `Dictionary<string, object> req`、戻り値は `Dictionary<string, object>`（`{"d": ...}` は ASP.NET が付ける）。
 - 例外は WebMethod の中で捕まえて `ok:false` に直す（[1.5](#15-結果とエラーの返し方)）。
 - WebMethod の受け取りと返しの両方に効くのは `web.config` の `system.web.extensions/scripting/webServices/jsonSerialization` の `maxJsonLength`（Mono の既定は 2097152）。超えると HTTP 500（`Maximum length exceeded`）になるので、上げる手順を README に書き、apply と fetch は DB を変える前に結果の長さを見て `too_many_rows`（`details.maxJsonLength`、`details.length`）で止める（[7](#7-apply反映) の手順 1）。
 - `application/json` でない POST は WebMethod に届かずページそのものが動くので、ページ側で 415 を返す（GET は 404）。

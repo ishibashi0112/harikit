@@ -1,6 +1,6 @@
 // DB ごとの違いを閉じ込める入口。handlers はこの形だけを使う。
 
-import type { ColumnDef, Row } from "@harikit/core";
+import type { ColumnDef, Row } from "patchiri-core";
 
 /** DB から読んだ列の定義。updatable は許可リストと合わせて handlers が決める。 */
 export type ColumnMeta = Omit<ColumnDef, "updatable">;

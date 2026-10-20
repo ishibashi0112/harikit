@@ -1,7 +1,7 @@
 {
-  "name": "@harikit/server-node",
+  "name": "patchiri-server-node",
   "version": "0.0.0",
-  "description": "harikit のサーバ API（describe / fetch / apply）の Node 版参考実装。",
+  "description": "patchiri のサーバ API（describe / fetch / apply）の Node 版参考実装。",
   "license": "MIT",
   "type": "module",
   "main": "dist/src/index.js",
@@ -12,14 +12,14 @@
     "./postgres": "./dist/src/postgres.js"
   },
   "bin": {
-    "harikit-server": "dist/src/main.js"
+    "patchiri-server": "dist/src/main.js"
   },
   "files": [
     "dist/src"
   ],
   "dependencies": {
-    "@harikit/core": "0.0.0",
-    "@harikit/web": "0.0.0",
+    "patchiri-core": "0.0.0",
+    "patchiri-web": "0.0.0",
     "mssql": "^12.7.9",
     "mysql2": "^3.24.6",
     "oracledb": "^6.10.0",

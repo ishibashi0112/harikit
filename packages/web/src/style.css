@@ -1,124 +1,124 @@
 /*
- * harikit の画面。色はここの変数だけで決め、ダークは OS の設定に合わせる。
- * ほかのアプリに埋め込んでも外に効かないよう、すべて .hk-app の中に閉じる（ページ全体の指定は page.css）。
- * 要素への指定は :where で詳細度を下げ、spreadsheet-grid や hk- のクラスの指定に負けるようにしておく。
- * 見出しと段落の余白だけは .hk-app を残し、埋め込む側の p { margin: … } などに負けないようにする。
+ * patchiri の画面。色はここの変数だけで決め、ダークは OS の設定に合わせる。
+ * ほかのアプリに埋め込んでも外に効かないよう、すべて .pt-app の中に閉じる（ページ全体の指定は page.css）。
+ * 要素への指定は :where で詳細度を下げ、spreadsheet-grid や pt- のクラスの指定に負けるようにしておく。
+ * 見出しと段落の余白だけは .pt-app を残し、埋め込む側の p { margin: … } などに負けないようにする。
  */
 
-.hk-app {
-  --hk-bg: #f6f7f9;
-  --hk-surface: #ffffff;
-  --hk-border: #dde1e6;
-  --hk-text: #1f2328;
-  --hk-muted: #66707a;
-  --hk-accent: #1f6feb;
-  --hk-accent-text: #ffffff;
-  --hk-danger: #c62828;
-  --hk-danger-bg: #fdecec;
-  --hk-ok: #1a7f37;
-  --hk-ok-bg: #e9f6ec;
-  --hk-warn: #9a6700;
-  --hk-warn-bg: #fff4d6;
-  --hk-change-bg: #e3eeff;
-  --hk-before-bg: #f1f2f4;
-  --hk-notfound-bg: #fff4d6;
-  --hk-head-bg: #eef1f5;
-  --hk-key: #6639ba;
-  --hk-read: #0b7a75;
+.pt-app {
+  --pt-bg: #f6f7f9;
+  --pt-surface: #ffffff;
+  --pt-border: #dde1e6;
+  --pt-text: #1f2328;
+  --pt-muted: #66707a;
+  --pt-accent: #1f6feb;
+  --pt-accent-text: #ffffff;
+  --pt-danger: #c62828;
+  --pt-danger-bg: #fdecec;
+  --pt-ok: #1a7f37;
+  --pt-ok-bg: #e9f6ec;
+  --pt-warn: #9a6700;
+  --pt-warn-bg: #fff4d6;
+  --pt-change-bg: #e3eeff;
+  --pt-before-bg: #f1f2f4;
+  --pt-notfound-bg: #fff4d6;
+  --pt-head-bg: #eef1f5;
+  --pt-key: #6639ba;
+  --pt-read: #0b7a75;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
-  .hk-app {
-    --hk-bg: #15181c;
-    --hk-surface: #1d2126;
-    --hk-border: #343a42;
-    --hk-text: #e6e9ec;
-    --hk-muted: #9aa4ae;
-    --hk-accent: #4c8dff;
-    --hk-accent-text: #0b1220;
-    --hk-danger: #ff7b72;
-    --hk-danger-bg: #3a1d1d;
-    --hk-ok: #56d364;
-    --hk-ok-bg: #16301d;
-    --hk-warn: #e3b341;
-    --hk-warn-bg: #3a2e12;
-    --hk-change-bg: #1c2f4d;
-    --hk-before-bg: #262a30;
-    --hk-notfound-bg: #3a2e12;
-    --hk-head-bg: #262b33;
-    --hk-key: #b392f0;
-    --hk-read: #3fb9b1;
+  .pt-app {
+    --pt-bg: #15181c;
+    --pt-surface: #1d2126;
+    --pt-border: #343a42;
+    --pt-text: #e6e9ec;
+    --pt-muted: #9aa4ae;
+    --pt-accent: #4c8dff;
+    --pt-accent-text: #0b1220;
+    --pt-danger: #ff7b72;
+    --pt-danger-bg: #3a1d1d;
+    --pt-ok: #56d364;
+    --pt-ok-bg: #16301d;
+    --pt-warn: #e3b341;
+    --pt-warn-bg: #3a2e12;
+    --pt-change-bg: #1c2f4d;
+    --pt-before-bg: #262a30;
+    --pt-notfound-bg: #3a2e12;
+    --pt-head-bg: #262b33;
+    --pt-key: #b392f0;
+    --pt-read: #3fb9b1;
     color-scheme: dark;
   }
 }
 
-:where(.hk-app, .hk-app *) {
+:where(.pt-app, .pt-app *) {
   box-sizing: border-box;
 }
 
-.hk-app :where(h1, h2, p) {
+.pt-app :where(h1, h2, p) {
   margin: 0;
 }
 
-:where(.hk-app) :where(button, input, select) {
+:where(.pt-app) :where(button, input, select) {
   font: inherit;
   color: inherit;
 }
 
 /* 高さは親いっぱい。親の高さ（100vh など）は使う側で決める。 */
-.hk-app {
+.pt-app {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--hk-bg);
-  color: var(--hk-text);
+  background: var(--pt-bg);
+  color: var(--pt-text);
   font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
   font-size: 14px;
   line-height: 1.5;
 }
 
-.hk-bar {
+.pt-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 20px;
   padding: 10px 16px;
-  background: var(--hk-surface);
-  border-bottom: 1px solid var(--hk-border);
+  background: var(--pt-surface);
+  border-bottom: 1px solid var(--pt-border);
 }
 
-.hk-bar h1 {
+.pt-bar h1 {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
-.hk-field {
+.pt-field {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.hk-field > span:first-child {
-  color: var(--hk-muted);
+.pt-field > span:first-child {
+  color: var(--pt-muted);
 }
 
-.hk-field select {
+.pt-field select {
   min-width: 220px;
   padding: 4px 8px;
-  border: 1px solid var(--hk-border);
+  border: 1px solid var(--pt-border);
   border-radius: 6px;
-  background: var(--hk-surface);
+  background: var(--pt-surface);
 }
 
-.hk-rules {
+.pt-rules {
   display: inline-flex;
   gap: 6px;
   font-weight: 600;
 }
 
-.hk-bar-end {
+.pt-bar-end {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -126,18 +126,18 @@
   margin-left: auto;
 }
 
-.hk-server {
-  color: var(--hk-muted);
+.pt-server {
+  color: var(--pt-muted);
   font-size: 12px;
 }
 
-.hk-main {
+.pt-main {
   flex: 1;
   min-height: 0;
   display: flex;
 }
 
-.hk-sheet {
+.pt-sheet {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -145,14 +145,14 @@
   padding: 12px 0 12px 16px;
 }
 
-.hk-tabs {
+.pt-tabs {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-bottom: 8px;
 }
 
-.hk-tabs [role="tab"] {
+.pt-tabs [role="tab"] {
   padding: 5px 12px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -160,34 +160,34 @@
   cursor: pointer;
 }
 
-.hk-tabs [role="tab"][aria-selected="true"] {
-  background: var(--hk-surface);
-  border-color: var(--hk-border);
+.pt-tabs [role="tab"][aria-selected="true"] {
+  background: var(--pt-surface);
+  border-color: var(--pt-border);
   font-weight: 600;
 }
 
-.hk-tabs [role="tab"]:disabled {
-  color: var(--hk-muted);
+.pt-tabs [role="tab"]:disabled {
+  color: var(--pt-muted);
   cursor: default;
 }
 
-.hk-tabs-hint {
+.pt-tabs-hint {
   flex: 1;
   margin-left: 8px;
-  color: var(--hk-muted);
+  color: var(--pt-muted);
   font-size: 12px;
 }
 
-.hk-grid {
+.pt-grid {
   flex: 1;
   min-height: 0;
 }
 
-.hk-grid[hidden] {
+.pt-grid[hidden] {
   display: none;
 }
 
-.hk-side {
+.pt-side {
   width: 360px;
   flex-shrink: 0;
   overflow-y: auto;
@@ -197,9 +197,9 @@
   gap: 12px;
 }
 
-.hk-card {
-  background: var(--hk-surface);
-  border: 1px solid var(--hk-border);
+.pt-card {
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border);
   border-radius: 8px;
   padding: 14px;
   display: flex;
@@ -207,7 +207,7 @@
   gap: 10px;
 }
 
-.hk-card h2 {
+.pt-card h2 {
   font-size: 14px;
   font-weight: 700;
   display: flex;
@@ -215,81 +215,81 @@
   gap: 8px;
 }
 
-.hk-step {
+.pt-step {
   display: inline-grid;
   place-items: center;
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--hk-accent);
-  color: var(--hk-accent-text);
+  background: var(--pt-accent);
+  color: var(--pt-accent-text);
   font-size: 12px;
 }
 
-.hk-help,
-.hk-muted {
-  color: var(--hk-muted);
+.pt-help,
+.pt-muted {
+  color: var(--pt-muted);
   font-size: 12px;
 }
 
-.hk-button {
+.pt-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 6px 14px;
-  border: 1px solid var(--hk-border);
+  border: 1px solid var(--pt-border);
   border-radius: 6px;
-  background: var(--hk-surface);
-  color: var(--hk-text);
+  background: var(--pt-surface);
+  color: var(--pt-text);
   cursor: pointer;
   white-space: nowrap;
 }
 
-.hk-button:hover:not(:disabled) {
-  border-color: var(--hk-muted);
+.pt-button:hover:not(:disabled) {
+  border-color: var(--pt-muted);
 }
 
-.hk-button:disabled {
+.pt-button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.hk-button--primary {
-  background: var(--hk-accent);
-  border-color: var(--hk-accent);
-  color: var(--hk-accent-text);
+.pt-button--primary {
+  background: var(--pt-accent);
+  border-color: var(--pt-accent);
+  color: var(--pt-accent-text);
   font-weight: 600;
 }
 
-.hk-button--danger {
-  background: var(--hk-danger);
-  border-color: var(--hk-danger);
+.pt-button--danger {
+  background: var(--pt-danger);
+  border-color: var(--pt-danger);
   color: #ffffff;
   font-weight: 600;
 }
 
-.hk-button--small {
+.pt-button--small {
   padding: 3px 10px;
   font-size: 12px;
 }
 
-.hk-link {
+.pt-link {
   padding: 0;
   border: none;
   background: none;
-  color: var(--hk-accent);
+  color: var(--pt-accent);
   cursor: pointer;
   font-size: 12px;
 }
 
-.hk-actions {
+.pt-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.hk-columns {
+.pt-columns {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -298,214 +298,214 @@
   gap: 4px;
 }
 
-.hk-columns li {
+.pt-columns li {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   column-gap: 8px;
   align-items: center;
   padding: 3px 0;
-  border-bottom: 1px solid var(--hk-border);
+  border-bottom: 1px solid var(--pt-border);
   line-height: 1.3;
 }
 
-.hk-columns li:last-child {
+.pt-columns li:last-child {
   border-bottom: none;
 }
 
-.hk-columns .hk-tag {
+.pt-columns .pt-tag {
   grid-row: span 2;
 }
 
-.hk-columns .hk-muted {
+.pt-columns .pt-muted {
   grid-column: 2;
   font-size: 11px;
 }
 
-.hk-columns .hk-link {
+.pt-columns .pt-link {
   grid-column: 3;
   grid-row: 1 / span 2;
 }
 
-.hk-colname {
+.pt-colname {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.hk-summary + .hk-actions {
+.pt-summary + .pt-actions {
   margin-top: 8px;
 }
 
-.hk-tag {
+.pt-tag {
   display: inline-block;
   min-width: 40px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: var(--hk-before-bg);
-  color: var(--hk-muted);
+  background: var(--pt-before-bg);
+  color: var(--pt-muted);
   font-size: 11px;
   text-align: center;
 }
 
-.hk-tag--key {
-  background: var(--hk-key);
+.pt-tag--key {
+  background: var(--pt-key);
   color: #ffffff;
 }
 
-.hk-summary {
+.pt-summary {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-top: 4px;
 }
 
-.hk-counts {
+.pt-counts {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 
-.hk-count {
+.pt-count {
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 6px 0;
   border-radius: 6px;
-  background: var(--hk-before-bg);
+  background: var(--pt-before-bg);
 }
 
-.hk-count strong {
+.pt-count strong {
   font-size: 20px;
   line-height: 1.2;
 }
 
-.hk-count span {
+.pt-count span {
   font-size: 12px;
-  color: var(--hk-muted);
+  color: var(--pt-muted);
 }
 
-.hk-count--change {
-  background: var(--hk-change-bg);
+.pt-count--change {
+  background: var(--pt-change-bg);
 }
 
-.hk-count--not_found {
-  background: var(--hk-notfound-bg);
+.pt-count--not_found {
+  background: var(--pt-notfound-bg);
 }
 
-.hk-status {
+.pt-status {
   font-size: 13px;
 }
 
-.hk-status--ok {
-  color: var(--hk-ok);
+.pt-status--ok {
+  color: var(--pt-ok);
 }
 
-.hk-status--error {
-  color: var(--hk-danger);
+.pt-status--error {
+  color: var(--pt-danger);
 }
 
-.hk-status ul,
-.hk-plain {
+.pt-status ul,
+.pt-plain {
   margin: 4px 0;
   padding-left: 18px;
 }
 
-.hk-issues {
+.pt-issues {
   list-style: none;
   margin: 0;
   padding: 0;
   max-height: 260px;
   overflow-y: auto;
-  border: 1px solid var(--hk-border);
+  border: 1px solid var(--pt-border);
   border-radius: 6px;
 }
 
-.hk-issue {
+.pt-issue {
   display: flex;
   gap: 8px;
   width: 100%;
   padding: 4px 8px;
   border: none;
-  border-bottom: 1px solid var(--hk-border);
+  border-bottom: 1px solid var(--pt-border);
   background: none;
   text-align: left;
   font-size: 12px;
   cursor: pointer;
 }
 
-.hk-issues li:last-child .hk-issue {
+.pt-issues li:last-child .pt-issue {
   border-bottom: none;
 }
 
-.hk-issue:disabled {
+.pt-issue:disabled {
   cursor: default;
 }
 
-.hk-issue:hover:not(:disabled) {
-  background: var(--hk-before-bg);
+.pt-issue:hover:not(:disabled) {
+  background: var(--pt-before-bg);
 }
 
-.hk-issue-place {
+.pt-issue-place {
   flex-shrink: 0;
   min-width: 36px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-weight: 600;
 }
 
-.hk-issue--error .hk-issue-place {
-  color: var(--hk-danger);
+.pt-issue--error .pt-issue-place {
+  color: var(--pt-danger);
 }
 
-.hk-issue--warning .hk-issue-place {
-  color: var(--hk-warn);
+.pt-issue--warning .pt-issue-place {
+  color: var(--pt-warn);
 }
 
-.hk-issue--read .hk-issue-place {
-  color: var(--hk-read);
+.pt-issue--read .pt-issue-place {
+  color: var(--pt-read);
 }
 
-.hk-readings {
+.pt-readings {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.hk-read-sample {
-  text-decoration: underline dotted var(--hk-read) 2px;
+.pt-read-sample {
+  text-decoration: underline dotted var(--pt-read) 2px;
   text-underline-offset: 3px;
 }
 
-.hk-small {
+.pt-small {
   font-size: 12px;
 }
 
-.hk-note {
+.pt-note {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: var(--hk-muted);
+  color: var(--pt-muted);
 }
 
-.hk-note input {
+.pt-note input {
   padding: 5px 8px;
-  border: 1px solid var(--hk-border);
+  border: 1px solid var(--pt-border);
   border-radius: 6px;
-  background: var(--hk-surface);
-  color: var(--hk-text);
+  background: var(--pt-surface);
+  color: var(--pt-text);
   font-size: 14px;
 }
 
-.hk-confirm {
+.pt-confirm {
   padding: 10px;
-  border: 1px solid var(--hk-danger);
+  border: 1px solid var(--pt-danger);
   border-radius: 6px;
-  background: var(--hk-danger-bg);
+  background: var(--pt-danger-bg);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.hk-banner {
+.pt-banner {
   margin: 8px 16px 0;
   padding: 8px 12px;
   border-radius: 6px;
@@ -514,37 +514,37 @@
   gap: 12px;
 }
 
-.hk-card .hk-banner {
+.pt-card .pt-banner {
   margin: 0;
   font-size: 13px;
 }
 
-.hk-banner--error {
-  background: var(--hk-danger-bg);
-  color: var(--hk-danger);
+.pt-banner--error {
+  background: var(--pt-danger-bg);
+  color: var(--pt-danger);
 }
 
-.hk-banner--stale {
-  background: var(--hk-warn-bg);
-  color: var(--hk-warn);
+.pt-banner--stale {
+  background: var(--pt-warn-bg);
+  color: var(--pt-warn);
 }
 
-.hk-dim {
+.pt-dim {
   opacity: 0.5;
 }
 
-.hk-center {
+.pt-center {
   height: 100%;
   display: grid;
   place-items: center;
   padding: 16px;
 }
 
-.hk-connect {
+.pt-connect {
   width: min(420px, 100%);
 }
 
-.hk-connect form {
+.pt-connect form {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -552,60 +552,60 @@
 
 /* グリッドのセル。.ssg-body-cell と連ねて基底のスタイルに勝たせる。 */
 
-.ssg-body-cell.hk-head {
-  background: var(--hk-head-bg);
+.ssg-body-cell.pt-head {
+  background: var(--pt-head-bg);
   font-weight: 600;
 }
 
-.ssg-body-cell.hk-head--key {
-  color: var(--hk-key);
+.ssg-body-cell.pt-head--key {
+  color: var(--pt-key);
 }
 
-.ssg-body-cell.hk-head--unknown,
-.ssg-body-cell.hk-head--readonly {
-  color: var(--hk-danger);
+.ssg-body-cell.pt-head--unknown,
+.ssg-body-cell.pt-head--readonly {
+  color: var(--pt-danger);
   text-decoration: underline wavy;
 }
 
-.ssg-body-cell.hk-change {
-  background: var(--hk-change-bg);
+.ssg-body-cell.pt-change {
+  background: var(--pt-change-bg);
 }
 
-.ssg-body-cell.hk-before {
-  background: var(--hk-before-bg);
-  color: var(--hk-muted);
+.ssg-body-cell.pt-before {
+  background: var(--pt-before-bg);
+  color: var(--pt-muted);
 }
 
-.ssg-body-cell.hk-not_found {
-  background: var(--hk-notfound-bg);
+.ssg-body-cell.pt-not_found {
+  background: var(--pt-notfound-bg);
 }
 
-.ssg-body-cell.hk-warn {
-  box-shadow: inset 0 -2px 0 var(--hk-warn);
+.ssg-body-cell.pt-warn {
+  box-shadow: inset 0 -2px 0 var(--pt-warn);
 }
 
 /* Excel の表示の形から読み替えたセル。値の色は変えず、下線だけで示す。 */
-.ssg-body-cell.hk-read {
-  text-decoration: underline dotted var(--hk-read) 2px;
+.ssg-body-cell.pt-read {
+  text-decoration: underline dotted var(--pt-read) 2px;
   text-underline-offset: 3px;
 }
 
-.ssg-body-cell.hk-conflict {
-  background: var(--hk-danger-bg);
+.ssg-body-cell.pt-conflict {
+  background: var(--pt-danger-bg);
 }
 
 @media (max-width: 860px) {
-  .hk-main {
+  .pt-main {
     flex-direction: column;
     overflow-y: auto;
   }
 
-  .hk-sheet {
+  .pt-sheet {
     min-height: 70vh;
     padding: 12px 16px;
   }
 
-  .hk-side {
+  .pt-side {
     width: auto;
     overflow: visible;
   }

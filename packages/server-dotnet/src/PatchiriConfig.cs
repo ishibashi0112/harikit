@@ -1,5 +1,5 @@
 ﻿// サーバの設定（許可リスト、上限、ログ）。仕様 2 の許可リストを含む。
-// 形は Node 版の harikit.config.json と同じ（targets と limits はそのまま写せる）。
+// 形は Node 版の patchiri.config.json と同じ（targets と limits はそのまま写せる）。
 // 接続文字列は設定ファイルに書かず、web.config の connectionStrings を名前で指す。
 
 using System;
@@ -7,7 +7,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
     public sealed class TargetConfig
     {
@@ -20,12 +20,12 @@ namespace Harikit.Server
         public List<string> Updatable = new List<string>();
     }
 
-    public class HarikitConfigException : Exception
+    public class PatchiriConfigException : Exception
     {
-        public HarikitConfigException(string message) : base("設定の誤り: " + message) { }
+        public PatchiriConfigException(string message) : base("設定の誤り: " + message) { }
     }
 
-    public sealed class HarikitConfig
+    public sealed class PatchiriConfig
     {
         static readonly Regex TargetNameRe = new Regex(@"\A[A-Za-z0-9_-]+\z");
 
@@ -34,10 +34,10 @@ namespace Harikit.Server
         public Dictionary<string, TargetConfig> Targets = new Dictionary<string, TargetConfig>(StringComparer.Ordinal);
         public int MaxFetchKeys = 1000;
         public int MaxApplyRows = 5000;
-        /// <summary>web.config の connectionStrings の名前。既定は "Harikit"。</summary>
-        public string ConnectionStringName = "Harikit";
-        /// <summary>反映ログ（JSON Lines）を置くフォルダ。既定は ~/App_Data/harikit-log。</summary>
-        public string LogDir = "~/App_Data/harikit-log";
+        /// <summary>web.config の connectionStrings の名前。既定は "Patchiri"。</summary>
+        public string ConnectionStringName = "Patchiri";
+        /// <summary>反映ログ（JSON Lines）を置くフォルダ。既定は ~/App_Data/patchiri-log。</summary>
+        public string LogDir = "~/App_Data/patchiri-log";
         /// <summary>db_error の message に DB の生のエラー文を出すか。既定は出さない。</summary>
         public bool ExposeDbErrors;
         /// <summary>反映で行のロックを待つ秒数（仕様 7 の手順 3）。既定は 10 秒。</summary>
@@ -45,12 +45,12 @@ namespace Harikit.Server
 
         static void Fail(string message)
         {
-            throw new HarikitConfigException(message);
+            throw new PatchiriConfigException(message);
         }
 
         static List<string> Names(object x, string what)
         {
-            var list = HarikitJson.AsArray(x);
+            var list = PatchiriJson.AsArray(x);
             if (list == null) Fail(what + " は列名の配列です");
             var names = new List<string>();
             foreach (var item in list)
@@ -70,42 +70,42 @@ namespace Harikit.Server
 
         static int PositiveInt(object x, string what)
         {
-            if (!HarikitJson.IsNumber(x)) Fail(what + " は正の整数です");
-            var d = HarikitJson.ToDouble(x);
+            if (!PatchiriJson.IsNumber(x)) Fail(what + " は正の整数です");
+            var d = PatchiriJson.ToDouble(x);
             if (d < 1 || d > int.MaxValue || Math.Floor(d) != d) Fail(what + " は正の整数です");
             return (int)d;
         }
 
-        /// <summary>設定の JSON を読み、形を確かめる。おかしければ HarikitConfigException。</summary>
-        public static HarikitConfig Parse(string json)
+        /// <summary>設定の JSON を読み、形を確かめる。おかしければ PatchiriConfigException。</summary>
+        public static PatchiriConfig Parse(string json)
         {
             object root;
             try
             {
-                root = HarikitJson.Parse(json);
+                root = PatchiriJson.Parse(json);
             }
             catch (Exception e)
             {
-                throw new HarikitConfigException("JSON として読めません（" + e.Message + "）");
+                throw new PatchiriConfigException("JSON として読めません（" + e.Message + "）");
             }
-            var o = HarikitJson.AsObject(root);
+            var o = PatchiriJson.AsObject(root);
             if (o == null) Fail("JSON のオブジェクトではありません");
-            var config = new HarikitConfig();
+            var config = new PatchiriConfig();
 
-            var targets = HarikitJson.AsObject(HarikitJson.Get(o, "targets"));
+            var targets = PatchiriJson.AsObject(PatchiriJson.Get(o, "targets"));
             if (targets == null) Fail("targets がありません");
             foreach (var kv in targets)
             {
                 var name = kv.Key;
                 if (!TargetNameRe.IsMatch(name)) Fail("ターゲット名 " + name + " に使えない文字があります");
-                var t = HarikitJson.AsObject(kv.Value);
+                var t = PatchiriJson.AsObject(kv.Value);
                 if (t == null) Fail(name + " がオブジェクトではありません");
                 var target = new TargetConfig();
-                target.Table = HarikitJson.Get(t, "table") as string;
+                target.Table = PatchiriJson.Get(t, "table") as string;
                 if (string.IsNullOrEmpty(target.Table)) Fail(name + ".table がありません");
-                target.Access = HarikitJson.Get(t, "access") as string;
+                target.Access = PatchiriJson.Get(t, "access") as string;
                 if (target.Access != "update" && target.Access != "read") Fail(name + ".access は \"update\" か \"read\" です");
-                target.Readable = Names(HarikitJson.Get(t, "readable"), name + ".readable");
+                target.Readable = Names(PatchiriJson.Get(t, "readable"), name + ".readable");
                 if (t.ContainsKey("key"))
                 {
                     target.Key = Names(t["key"], name + ".key");
@@ -126,7 +126,7 @@ namespace Harikit.Server
                 config.Targets[name] = target;
             }
 
-            var limits = HarikitJson.AsObject(HarikitJson.Get(o, "limits"));
+            var limits = PatchiriJson.AsObject(PatchiriJson.Get(o, "limits"));
             if (limits != null)
             {
                 if (limits.ContainsKey("maxFetchKeys")) config.MaxFetchKeys = PositiveInt(limits["maxFetchKeys"], "limits.maxFetchKeys");

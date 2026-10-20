@@ -1,4 +1,4 @@
-﻿' DB ごとの違いを閉じ込める入口。HarikitService はこの形だけを使う。
+﻿' DB ごとの違いを閉じ込める入口。PatchiriService はこの形だけを使う。
 
 Option Strict On
 Option Explicit On
@@ -9,9 +9,9 @@ Imports System
 Imports System.Collections.Generic
 Imports Row = System.Collections.Generic.Dictionary(Of String, Object)
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
-    ''' <summary>DB から読んだ列の定義。updatable は許可リストと合わせて HarikitService が決める。</summary>
+    ''' <summary>DB から読んだ列の定義。updatable は許可リストと合わせて PatchiriService が決める。</summary>
     Public NotInheritable Class ColumnMeta
         Public Name As String
         ''' <summary>正規化した型（仕様 1.3）: string, integer, bigint, decimal, float, boolean, date, datetime, time, other。</summary>
@@ -92,7 +92,7 @@ Namespace Global.Harikit.Server
         Public Bytes As Integer
     End Class
 
-    Public Interface IHarikitTransaction
+    Public Interface IPatchiriTransaction
         ''' <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。</summary>
         Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row) As LockedRow
         ''' <summary>パラメータ付き UPDATE を 1 行流し、UPDATE そのものの影響行数を返す（トリガーの行数は含めない）。</summary>
@@ -100,7 +100,7 @@ Namespace Global.Harikit.Server
     End Interface
 
     ''' <summary>DB がエラーを返したとき。Message は生のエラー文。</summary>
-    Public Class HarikitDbException
+    Public Class PatchiriDbException
         Inherits Exception
 
         ''' <summary>
@@ -124,7 +124,7 @@ Namespace Global.Harikit.Server
         Public Expect As Row
     End Class
 
-    Public Interface IHarikitDialect
+    Public Interface IPatchiriDialect
         ReadOnly Property Name As String
         ''' <summary>テーブル名をこの DB の正規の形（比較用）にする。</summary>
         Function NormalizeTable(table As String) As String
@@ -132,10 +132,10 @@ Namespace Global.Harikit.Server
         ''' <summary>keys と同じ順で、見つかった行（キー列と columns）か Nothing を返す。</summary>
         Function FetchRows(meta As TableMeta, keyColumns As IList(Of String), columns As IList(Of String), keys As IList(Of Row)) As List(Of Row)
         ''' <summary>fn の後、fn が True を返せばコミット、False ならロールバックする。例外でもロールバック。</summary>
-        Sub RunTransaction(fn As Func(Of IHarikitTransaction, Boolean))
+        Sub RunTransaction(fn As Func(Of IPatchiriTransaction, Boolean))
         ''' <summary>
         ''' 文字列の値（列名と値の組）が列の文字コードで表せるか、何バイトになるかを DB 自身に確かめる。
-        ''' HarikitValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、これが最後の確認。
+        ''' PatchiriValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、これが最後の確認。
         ''' 確かめない列（nvarchar など）の値には Nothing を返す。
         ''' </summary>
         Function CheckStrings(meta As TableMeta, items As IList(Of KeyValuePair(Of String, String))) As List(Of StringCheck)

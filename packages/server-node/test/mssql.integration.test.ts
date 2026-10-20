@@ -1,5 +1,5 @@
-// 実際の SQL Server で通すテスト。HARIKIT_TEST_MSSQL があるときだけ動く。
-//   HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test
+// 実際の SQL Server で通すテスト。PATCHIRI_TEST_MSSQL があるときだけ動く。
+//   PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test
 
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -7,17 +7,17 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sql from "mssql";
-import { buildApplyRequest, HarikitClient, prepare, type ApplyResponse, type Failure } from "@harikit/core";
+import { buildApplyRequest, PatchiriClient, prepare, type ApplyResponse, type Failure } from "patchiri-core";
 import { startServer, type RunningServer, type ServerConfig } from "../src/index.js";
 
-const env = process.env.HARIKIT_TEST_MSSQL;
-const skip = env ? false : "HARIKIT_TEST_MSSQL がないので飛ばす";
+const env = process.env.PATCHIRI_TEST_MSSQL;
+const skip = env ? false : "PATCHIRI_TEST_MSSQL がないので飛ばす";
 const conn = env ? (JSON.parse(env) as { server: string; port?: number; user: string; password: string }) : undefined;
-const DB = "HarikitTest";
+const DB = "PatchiriTest";
 
 let admin: sql.ConnectionPool;
 let server: RunningServer;
-let client: HarikitClient;
+let client: PatchiriClient;
 
 const q = async (text: string) => (await admin.request().query(text)).recordset;
 
@@ -79,10 +79,10 @@ before(async () => {
       },
       kind: { table: "Kind", access: "read", readable: ["KindCode"] },
     },
-    logDir: await mkdtemp(join(tmpdir(), "harikit-log-")),
+    logDir: await mkdtemp(join(tmpdir(), "patchiri-log-")),
   };
   server = await startServer(config, { token: "test" });
-  client = new HarikitClient({ baseUrl: server.url, token: "test" });
+  client = new PatchiriClient({ baseUrl: server.url, token: "test" });
 });
 
 after(async () => {
@@ -184,7 +184,7 @@ test("Excel 相当の取込から反映、衝突、戻しまで", { skip }, asyn
   // 反映用の SQL は、1 行でも合わなければ全部戻して止まる（A001 は当たるが、A002 は後から変わった）。
   await q(done.undoScript);
   await q(`UPDATE dbo.Item SET Price = 50 WHERE Code = 'A002'`);
-  await assert.rejects(q(done.script), /harikit: 行が見つからないか、値が変わっています（Code=A002）。何も反映していません/);
+  await assert.rejects(q(done.script), /patchiri: 行が見つからないか、値が変わっています（Code=A002）。何も反映していません/);
   const after = await q(`SELECT Code, CONVERT(varchar(30), Price) AS Price FROM dbo.Item ORDER BY Code`);
   assert.deepEqual(after.map((r) => ({ ...r })), [
     { Code: "A001", Price: "120.00" },
@@ -266,7 +266,7 @@ test("値が変わっていないかは厳密に比べる。全角半角、か�
   const kept = await q(`SELECT Memo, Name, Grade FROM dbo.Item WHERE Code = 'A002'`);
   assert.deepEqual({ ...kept[0] }, { Memo: "ぼーるぺん替芯", Name: "PENCIL", Grade: "C  " });
 
-  // harikit で入れた値のままなら戻す。
+  // patchiri で入れた値のままなら戻す。
   await q(`UPDATE dbo.Item SET Memo = N'ボールペン替芯', Name = N'Pencil' WHERE Code = 'A002'`);
   await q(done.undoScript);
   const undone = await q(`SELECT Memo, Name, Grade FROM dbo.Item WHERE Code = 'A002'`);

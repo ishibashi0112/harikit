@@ -1,10 +1,10 @@
 // ブラウザまわり（トークン、業務ルールの置き場所、ファイルの保存）。
 // 画面は Node 版サーバ（127.0.0.1）から配られ、同じオリジンの API を呼ぶ。
 
-import { HarikitClient, type RulesConfig } from "@harikit/core";
+import { PatchiriClient, type RulesConfig } from "patchiri-core";
 
-const TOKEN_KEY = "harikit.token";
-const RULES_KEY = "harikit.rules";
+const TOKEN_KEY = "patchiri.token";
+const RULES_KEY = "patchiri.rules";
 
 /**
  * サーバが起動時に出す URL（http://127.0.0.1:7357/#token=…）からトークンを受け取る。
@@ -34,8 +34,8 @@ export function saveToken(token: string | null): void {
   }
 }
 
-export function makeClient(token: string): HarikitClient {
-  return new HarikitClient({ baseUrl: location.origin, token });
+export function makeClient(token: string): PatchiriClient {
+  return new PatchiriClient({ baseUrl: location.origin, token });
 }
 
 export interface RulesFile {
@@ -43,7 +43,7 @@ export interface RulesFile {
   config: RulesConfig;
 }
 
-/** 業務ルールのファイル（harikit.rules.json）を読む。形が違えば投げる。 */
+/** 業務ルールのファイル（patchiri.rules.json）を読む。形が違えば投げる。 */
 export function parseRules(name: string, text: string): RulesFile {
   const config = JSON.parse(text) as RulesConfig;
   if (typeof config !== "object" || config === null || typeof config.targets !== "object" || config.targets === null) {

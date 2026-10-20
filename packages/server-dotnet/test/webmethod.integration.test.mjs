@@ -1,18 +1,18 @@
 // .NET 版サーバを ASP.NET（WebMethod）で動かし、実際の SQL Server で通すテスト。
-// クライアントは Node 版のテストと同じ @harikit/core を webmethod スタイルで使う（同じクライアントで両方が動くことの確認）。
-// HARIKIT_TEST_MSSQL があり、ASP.NET を動かせるとき（既定は Mono。IIS などは test/host.mjs）だけ動く。
-//   HARIKIT_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
+// クライアントは Node 版のテストと同じ patchiri-core を webmethod スタイルで使う（同じクライアントで両方が動くことの確認）。
+// PATCHIRI_TEST_MSSQL があり、ASP.NET を動かせるとき（既定は Mono。IIS などは test/host.mjs）だけ動く。
+//   PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sql from "mssql";
-import { buildApplyRequest, HarikitClient, prepare } from "@harikit/core";
+import { buildApplyRequest, PatchiriClient, prepare } from "patchiri-core";
 import { createSite, hostUnavailable, serverFile, startSite, testDatabase } from "./host.mjs";
 
-const env = process.env.HARIKIT_TEST_MSSQL;
-const skip = !env ? "HARIKIT_TEST_MSSQL がないので飛ばす" : hostUnavailable();
+const env = process.env.PATCHIRI_TEST_MSSQL;
+const skip = !env ? "PATCHIRI_TEST_MSSQL がないので飛ばす" : hostUnavailable();
 const conn = env ? JSON.parse(env) : undefined;
 const DB = testDatabase;
 const USER = "CONTOSO\\tester";
@@ -29,8 +29,8 @@ const q = async (text) => (await admin.request().query(text)).recordset;
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
 /** 生の WebMethod 呼び出し（クライアントを通さず、ヘッダや本文を自分で決める）。 */
-async function call(method, req, headers = { "Content-Type": "application/json; charset=utf-8", "X-Harikit": "1" }) {
-  const res = await fetch(`${url}/Harikit.aspx/${method}`, { method: "POST", headers, body: JSON.stringify({ req }) });
+async function call(method, req, headers = { "Content-Type": "application/json; charset=utf-8", "X-Patchiri": "1" }) {
+  const res = await fetch(`${url}/Patchiri.aspx/${method}`, { method: "POST", headers, body: JSON.stringify({ req }) });
   const text = await res.text();
   let body;
   try {
@@ -88,8 +88,8 @@ before(async () => {
     join(root, "Web.config"),
     `<?xml version="1.0"?>
 <configuration>
-  <appSettings><add key="harikit:config" value="~/App_Data/harikit.config.json" /></appSettings>
-  <connectionStrings><add name="Harikit" connectionString="${xml(cs)}" /></connectionStrings>
+  <appSettings><add key="patchiri:config" value="~/App_Data/patchiri.config.json" /></appSettings>
+  <connectionStrings><add name="Patchiri" connectionString="${xml(cs)}" /></connectionStrings>
   <system.web><compilation debug="true" targetFramework="4.5" /></system.web>
   <system.web.extensions><scripting><webServices><jsonSerialization maxJsonLength="${MAX_JSON}" /></webServices></scripting></system.web.extensions>
 </configuration>
@@ -109,7 +109,7 @@ before(async () => {
 `,
   );
   await writeFile(
-    join(root, "App_Data", "harikit.config.json"),
+    join(root, "App_Data", "patchiri.config.json"),
     JSON.stringify({
       targets: {
         item: {
@@ -126,7 +126,7 @@ before(async () => {
 
   site = await startSite(root);
   url = site.url;
-  client = new HarikitClient({ baseUrl: `${url}/Harikit.aspx`, style: "webmethod", headers: { "X-Test-User": USER } });
+  client = new PatchiriClient({ baseUrl: `${url}/Patchiri.aspx`, style: "webmethod", headers: { "X-Test-User": USER } });
 });
 
 after(async () => {
@@ -241,7 +241,7 @@ test("Excel 相当の取込から反映、衝突、戻しまで（監査トリ�
   assert.deepEqual(again, done);
 
   // 反映ログ（JSON Lines）。note は改行ごとログにだけ入り、スクリプトには入らない。
-  const logDir = join(root, "App_Data", "harikit-log");
+  const logDir = join(root, "App_Data", "patchiri-log");
   const file = (await readdir(logDir)).find((f) => f.startsWith("apply-"));
   const entries = (await readFile(join(logDir, file), "utf8")).trim().split("\n").map((l) => JSON.parse(l));
   const mine = entries.filter((e) => e.requestId === req.requestId).map((e) => [e.mode, e.outcome, e.appliedBy, e.note]);
@@ -320,7 +320,7 @@ test("値が変わっていないかは厳密に比べ、キーは照合順序�
   await q(`UPDATE dbo.Item SET Memo = N'ノート ' WHERE Code = 'A001'`);
   await q(res.undoScript);
   assert.equal(await memo(), "ノート ");
-  // harikit で入れた値のままなら戻す。
+  // patchiri で入れた値のままなら戻す。
   await q(`UPDATE dbo.Item SET Memo = N'ノート' WHERE Code = 'A001'`);
   await q(res.undoScript);
   assert.equal(await memo(), "ボールペン");
@@ -339,7 +339,7 @@ test("出力した script は、後から行が変わっていたら何も反映
       ]),
     );
     assert.equal(res.ok, true, JSON.stringify(res));
-    assert.ok(res.script.includes("IF @@ROWCOUNT <> 1 THROW 50001, N'harikit: 行が見つからないか、値が変わっています（Code=O''K）。何も反映していません', 1;"), res.script);
+    assert.ok(res.script.includes("IF @@ROWCOUNT <> 1 THROW 50001, N'patchiri: 行が見つからないか、値が変わっています（Code=O''K）。何も反映していません', 1;"), res.script);
     // check の後に別の人が 2 行目を変えた。流しても 1 行目も含めて何も変わらない（監査トリガーがあっても止まり方は同じ）。
     await q(`UPDATE dbo.Item SET Qty = 1 WHERE Code = 'O''K'`);
     await assert.rejects(q(res.script), (e) => e.number === 50001 && e.message.includes("Code=O'K"));
@@ -526,12 +526,12 @@ test("リクエストの誤りは HTTP 200 の ok:false で返す", { skip }, as
   assert.deepEqual([body.requestId, body.mode], ["abc", "check"]);
 });
 
-test("X-Harikit がなければ 403、WebMethod 以外は 404 / 415", { skip }, async () => {
+test("X-Patchiri がなければ 403、WebMethod 以外は 404 / 415", { skip }, async () => {
   const noHeader = await call("Describe", { v: 1 }, { "Content-Type": "application/json" });
   assert.equal(noHeader.status, 403);
-  const page = await fetch(`${url}/Harikit.aspx`);
+  const page = await fetch(`${url}/Patchiri.aspx`);
   assert.equal(page.status, 404);
-  const form = await fetch(`${url}/Harikit.aspx`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Harikit": "1" }, body: "a=1" });
+  const form = await fetch(`${url}/Patchiri.aspx`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Patchiri": "1" }, body: "a=1" });
   assert.equal(form.status, 415);
 });
 

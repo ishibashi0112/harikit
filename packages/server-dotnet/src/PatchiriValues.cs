@@ -8,9 +8,9 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
-    public static class HarikitValues
+    public static class PatchiriValues
     {
         public static readonly Regex DecimalRe = new Regex(@"\A-?[0-9]+(\.[0-9]+)?\z");
         public static readonly Regex BigintRe = new Regex(@"\A-?[0-9]+\z");
@@ -81,8 +81,8 @@ namespace Harikit.Server
                     }
                 case "integer":
                     {
-                        if (!HarikitJson.IsNumber(v)) return "整数ではありません";
-                        var d = HarikitJson.ToDouble(v);
+                        if (!PatchiriJson.IsNumber(v)) return "整数ではありません";
+                        var d = PatchiriJson.ToDouble(v);
                         if (double.IsNaN(d) || double.IsInfinity(d) || Math.Floor(d) != d) return "整数ではありません";
                         long min, max;
                         switch (BaseDbType(col.DbType))
@@ -119,8 +119,8 @@ namespace Harikit.Server
                     }
                 case "float":
                     {
-                        if (!HarikitJson.IsNumber(v)) return "数値ではありません";
-                        var d = HarikitJson.ToDouble(v);
+                        if (!PatchiriJson.IsNumber(v)) return "数値ではありません";
+                        var d = PatchiriJson.ToDouble(v);
                         return double.IsNaN(d) || double.IsInfinity(d) ? "数値ではありません" : null;
                     }
                 case "boolean":
@@ -253,7 +253,7 @@ namespace Harikit.Server
         /// <summary>比較用に値をそろえる（"120" と "120.00" を同じにする、など）。数値は double にする。</summary>
         public static object Canonical(string type, object v)
         {
-            if (HarikitJson.IsNumber(v)) return HarikitJson.ToDouble(v);
+            if (PatchiriJson.IsNumber(v)) return PatchiriJson.ToDouble(v);
             var s = v as string;
             if (s == null) return v;
             switch (type)
@@ -308,7 +308,7 @@ namespace Harikit.Server
                 key.TryGetValue(c.Name, out v);
                 list.Add(Canonical(c.Type, v));
             }
-            return HarikitJson.Identity(list);
+            return PatchiriJson.Identity(list);
         }
     }
 }

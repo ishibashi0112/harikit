@@ -13,9 +13,9 @@ Imports System.IO
 Imports System.Text
 Imports Microsoft.VisualBasic
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
-    Public NotInheritable Class HarikitFileLog
+    Public NotInheritable Class PatchiriFileLog
 
         Private Shared ReadOnly sync As New Object()
         Private Shared ReadOnly Utf8NoBom As Encoding = New UTF8Encoding(False)
@@ -25,7 +25,7 @@ Namespace Global.Harikit.Server
 
         Public Shared Sub WriteApply(dir As String, entry As Dictionary(Of String, Object))
             Dim appliedAt = If(TryCast(entry("appliedAt"), String), DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
-            Append(dir, "apply-" & appliedAt.Substring(0, 10) & ".jsonl", HarikitJson.Stringify(entry) & vbLf)
+            Append(dir, "apply-" & appliedAt.Substring(0, 10) & ".jsonl", PatchiriJson.Stringify(entry) & vbLf)
         End Sub
 
         Public Shared Sub WriteError(dir As String, e As Exception)

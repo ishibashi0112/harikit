@@ -1,5 +1,5 @@
-// 実際の MySQL / MariaDB で通すテスト。HARIKIT_TEST_MYSQL があるときだけ動く。
-//   HARIKIT_TEST_MYSQL='{"host":"localhost","port":3306,"database":"harikit","user":"root","password":"..."}' npm test
+// 実際の MySQL / MariaDB で通すテスト。PATCHIRI_TEST_MYSQL があるときだけ動く。
+//   PATCHIRI_TEST_MYSQL='{"host":"localhost","port":3306,"database":"patchiri","user":"root","password":"..."}' npm test
 // トリガーを作るので、user は root など権限のあるもの。テスト用のテーブルは database に作り直す。
 
 import { after, before, test } from "node:test";
@@ -8,29 +8,29 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import mysql from "mysql2/promise";
-import { buildApplyRequest, HarikitClient, prepare, type ApplyResponse, type Failure, type Sheet } from "@harikit/core";
+import { buildApplyRequest, PatchiriClient, prepare, type ApplyResponse, type Failure, type Sheet } from "patchiri-core";
 import { startServer, type RunningServer, type ServerConfig } from "../src/index.js";
 
-const env = process.env.HARIKIT_TEST_MYSQL;
-const skip = env ? false : "HARIKIT_TEST_MYSQL がないので飛ばす";
+const env = process.env.PATCHIRI_TEST_MYSQL;
+const skip = env ? false : "PATCHIRI_TEST_MYSQL がないので飛ばす";
 const conn = env ? (JSON.parse(env) as { host: string; port?: number; database: string; user: string; password: string }) : undefined;
 
 let admin: mysql.Connection;
 let server: RunningServer;
-let client: HarikitClient;
+let client: PatchiriClient;
 let mariadb = false;
 
 const q = async (sql: string, params: unknown[] = []) => (await admin.query(sql, params))[0] as Record<string, unknown>[];
 const one = async (sql: string) => (await q(sql))[0]!;
 
-/** 出力した SQL をそのまま流し、最後の SELECT の結果（harikit: …）を返す。 */
+/** 出力した SQL をそのまま流し、最後の SELECT の結果（patchiri: …）を返す。 */
 async function runScript(script: string, sqlMode?: string): Promise<string> {
   const c = await mysql.createConnection({ ...conn!, multipleStatements: true, charset: "utf8mb4" });
   try {
     if (sqlMode !== undefined) await c.query(`SET SESSION sql_mode = '${sqlMode}'`);
     const [results] = await c.query(script);
-    const last = (results as unknown[]).at(-1) as { harikit: string }[];
-    return last[0]!.harikit;
+    const last = (results as unknown[]).at(-1) as { patchiri: string }[];
+    return last[0]!.patchiri;
   } finally {
     await c.end();
   }
@@ -103,10 +103,10 @@ before(async () => {
       legacy: { table: "`legacy`", access: "update", readable: ["cd", "nm", "kana"], updatable: ["nm", "kana"] },
       bin: { table: "bin_item", access: "update", readable: ["code", "name"], updatable: ["name"] },
     },
-    logDir: await mkdtemp(join(tmpdir(), "harikit-log-")),
+    logDir: await mkdtemp(join(tmpdir(), "patchiri-log-")),
   };
   server = await startServer(config, { token: "test", web: false });
-  client = new HarikitClient({ baseUrl: server.url, token: "test" });
+  client = new PatchiriClient({ baseUrl: server.url, token: "test" });
 });
 
 after(async () => {
@@ -199,7 +199,7 @@ test("CHAR のキーと、詰め物の空白", { skip }, async () => {
     { cd: "L1", nm: "new", kana: "ab" },
     { cd: "L22", nm: "new2", kana: "cd" },
   ]);
-  assert.equal(await runScript(done.undoScript), "harikit: 2 / 2 行を戻しました");
+  assert.equal(await runScript(done.undoScript), "patchiri: 2 / 2 行を戻しました");
   assert.deepEqual(await q(`SELECT nm, kana FROM legacy ORDER BY cd`), [{ nm: "old", kana: "ab" }, { nm: "old2", kana: null }]);
 });
 
@@ -243,13 +243,13 @@ test("Excel 相当の取込から反映、衝突、戻しまで", { skip }, asyn
   assert.equal(Number((await one(`SELECT COUNT(*) AS n FROM item_audit`)).n), 4);
   const a = await one(`SELECT price, big, ubig, stamp, released, kind_code, rate, open_at, IF(active = 1, 'on', 'off') AS active, tiny FROM item WHERE code = 'A001'`);
   assert.deepEqual(a, { price: "130.00", big: "9007199254740995", ubig: "18446744073709551614", stamp: "2026-10-18 08:00:00.000", released: "2024-04-02", kind_code: "K2", rate: 0.25, open_at: "13:30:00", active: "off", tiny: -128 });
-  assert.match(done.script, /^-- harikit .* 2行 実行済み\n/);
+  assert.match(done.script, /^-- patchiri .* 2行 実行済み\n/);
   assert.match(done.script, /`stamp` = TIMESTAMP '2026-10-18 08:00:00'/);
   assert.match(done.script, /`released` = DATE '2024-04-02'/);
 
   // 戻しは、後から変わった行には触らず、その行を最後に出す。
   await q(`UPDATE item SET price = 98 WHERE code = 'A002'`);
-  assert.equal(await runScript(done.undoScript), "harikit: 1 / 2 行を戻しました。戻していない行（後から別の更新が入った）: code=A002");
+  assert.equal(await runScript(done.undoScript), "patchiri: 1 / 2 行を戻しました。戻していない行（後から別の更新が入った）: code=A002");
   const rows = await q(`SELECT code, price, big, ubig, kind_code, released, IF(active = 1, 'on', 'off') AS active, tiny FROM item ORDER BY code`);
   assert.deepEqual(rows, [
     { code: "A001", price: "120.00", big: "9007199254740993", ubig: "18446744073709551615", kind_code: "K1", released: "2024-04-01", active: "on", tiny: -5 },
@@ -257,10 +257,10 @@ test("Excel 相当の取込から反映、衝突、戻しまで", { skip }, asyn
   ]);
 
   // 反映の SQL は、1 行でも当たらなければどの行も反映しない（A002 は 98 に変わっている）。
-  assert.equal(await runScript(done.script), "harikit: 行が見つからないか、値が変わっています（code=A002）。何も反映していません");
+  assert.equal(await runScript(done.script), "patchiri: 行が見つからないか、値が変わっています（code=A002）。何も反映していません");
   assert.equal((await one(`SELECT price FROM item WHERE code = 'A001'`)).price, "120.00");
   await q(`UPDATE item SET price = 0.5, released = NULL WHERE code = 'A002'`);
-  assert.equal(await runScript(done.script), "harikit: 2 行を反映しました");
+  assert.equal(await runScript(done.script), "patchiri: 2 行を反映しました");
   assert.equal((await one(`SELECT price FROM item WHERE code = 'A002'`)).price, "99.90");
   await runScript(done.undoScript);
 });
@@ -274,9 +274,9 @@ test("' や \\ を含む値もパラメータで安全に通り、出力した S
   assert.equal((await one(`SELECT name FROM item WHERE code = 'A002'`)).name, name);
   assert.match(res.script, /`name` = _utf8mb4 X'[0-9A-F]+'/);
   for (const mode of ["STRICT_ALL_TABLES", "STRICT_ALL_TABLES,NO_BACKSLASH_ESCAPES"]) {
-    assert.equal(await runScript(res.undoScript, mode), "harikit: 1 / 1 行を戻しました");
+    assert.equal(await runScript(res.undoScript, mode), "patchiri: 1 / 1 行を戻しました");
     assert.equal((await one(`SELECT name FROM item WHERE code = 'A002'`)).name, "ノート");
-    assert.equal(await runScript(res.script, mode), "harikit: 1 行を反映しました");
+    assert.equal(await runScript(res.script, mode), "patchiri: 1 行を反映しました");
     assert.equal((await one(`SELECT name FROM item WHERE code = 'A002'`)).name, name);
   }
   assert.equal(Number((await one(`SELECT COUNT(*) AS n FROM kind`)).n), 2);
@@ -303,7 +303,7 @@ test("値が変わっていないかは厳密に比べる。大文字小文字�
 
   // 反映の後に、大文字小文字だけ違う値へ直された行は、戻し SQL が上書きしない。
   await q(`UPDATE item SET name = 'PENCIL' WHERE code = 'A002'`);
-  assert.equal(await runScript(done.undoScript), "harikit: 0 / 1 行を戻しました。戻していない行（後から別の更新が入った）: code=A002");
+  assert.equal(await runScript(done.undoScript), "patchiri: 0 / 1 行を戻しました。戻していない行（後から別の更新が入った）: code=A002");
   assert.deepEqual(await one(`SELECT memo, name, grade FROM item WHERE code = 'A002'`), { memo: "ペン芯", name: "PENCIL", grade: "C" });
 
   await q(`UPDATE item SET name = 'Pencil' WHERE code = 'A002'`);
@@ -331,7 +331,7 @@ test("FLOAT、ENUM、BIT(1) の列", { skip }, async () => {
   assert.match(done.undoScript, /`ratio` = CAST\(0\.1 AS FLOAT\)/);
   const again = await prepare(client, "item", sheet([["code", "ratio", "status", "active"], ["A001", 0.3, "retired", false]]));
   assert.deepEqual(again.diff!.counts, { change: 0, same: 1, not_found: 0 });
-  assert.equal(await runScript(done.undoScript), "harikit: 1 / 1 行を戻しました");
+  assert.equal(await runScript(done.undoScript), "patchiri: 1 / 1 行を戻しました");
   assert.deepEqual(await one(`SELECT CAST(ratio AS CHAR) AS ratio, status, IF(active = 1, 'on', 'off') AS active FROM item WHERE code = 'A001'`), { ratio: "0.1", status: "active", active: "on" });
   // ラベルにない値は DB が断る（何も変えない）。
   const bad = await prepare(client, "item", sheet([["code", "status"], ["A001", "unknown"]]));
@@ -370,14 +370,14 @@ test("改行や ; だけの行、長い値も、出力した SQL で崩れない
   const d2 = (await client.apply(buildApplyRequest(p2.diff!, { mode: "execute" }))) as ApplyResponse;
   assert.equal(d2.ok, true, JSON.stringify(d2));
 
-  assert.equal(await runScript(d1.undoScript), "harikit: 1 / 1 行を戻しました");
-  assert.equal(await runScript(d2.undoScript), "harikit: 1 / 1 行を戻しました");
+  assert.equal(await runScript(d1.undoScript), "patchiri: 1 / 1 行を戻しました");
+  assert.equal(await runScript(d2.undoScript), "patchiri: 1 / 1 行を戻しました");
   assert.deepEqual(await one(`SELECT nm FROM legacy WHERE cd = 'L1'`), before.L1);
   assert.deepEqual(await one(`SELECT remark FROM item WHERE code = 'A002'`), before.A002);
-  assert.equal(await runScript(d1.script), "harikit: 1 行を反映しました");
-  assert.equal(await runScript(d2.script), "harikit: 1 行を反映しました");
+  assert.equal(await runScript(d1.script), "patchiri: 1 行を反映しました");
+  assert.equal(await runScript(d2.script), "patchiri: 1 行を反映しました");
   assert.deepEqual(await one(`SELECT nm FROM legacy WHERE cd = 'L1'`), { nm });
   assert.deepEqual(await one(`SELECT remark FROM item WHERE code = 'A002'`), { remark });
-  assert.equal(await runScript(d1.undoScript), "harikit: 1 / 1 行を戻しました");
-  assert.equal(await runScript(d2.undoScript), "harikit: 1 / 1 行を戻しました");
+  assert.equal(await runScript(d1.undoScript), "patchiri: 1 / 1 行を戻しました");
+  assert.equal(await runScript(d2.undoScript), "patchiri: 1 / 1 行を戻しました");
 });

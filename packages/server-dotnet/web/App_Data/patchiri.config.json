@@ -1,26 +1,20 @@
 {
-  "listen": { "host": "127.0.0.1", "port": 7357 },
-  "database": {
-    "dialect": "postgresql",
-    "host": "localhost",
-    "database": "harikit",
-    "user": "harikit"
-  },
+  "connectionStringName": "Patchiri",
   "targets": {
     "product": {
-      "table": "M_Product",
+      "table": "dbo.M_Product",
       "access": "update",
       "key": ["ProductCode"],
       "readable": ["ProductCode", "ProductName", "CategoryCode", "UnitPrice", "ReleaseDate", "UpdatedAt"],
       "updatable": ["ProductName", "CategoryCode", "UnitPrice", "ReleaseDate"]
     },
     "category": {
-      "table": "M_Category",
+      "table": "dbo.M_Category",
       "access": "read",
       "key": ["CategoryCode"],
       "readable": ["CategoryCode", "CategoryName"]
     }
   },
   "limits": { "maxFetchKeys": 1000, "maxApplyRows": 5000 },
-  "logDir": "harikit-log"
+  "logDir": "~/App_Data/patchiri-log"
 }

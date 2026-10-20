@@ -1,25 +1,25 @@
 ﻿<%@ Page Language="VB" AutoEventWireup="false" EnableSessionState="False" EnableViewState="False" %>
 <%@ Import Namespace="System.Collections.Generic" %>
 <%@ Import Namespace="System.Web.Services" %>
-<%@ Import Namespace="Harikit.Server" %>
+<%@ Import Namespace="Patchiri.Server" %>
 <script runat="server">
-    ' harikit のサーバ API 3 本（docs/api-spec.md、webmethod スタイル）。
-    ' クライアント設定の例: { baseUrl: "/Admin/Harikit.aspx", style: "webmethod" }
-    ' 認証と権限はこのページに掛ける（web.config の <location path="Admin/Harikit.aspx"> と <authorization> など）。
+    ' patchiri のサーバ API 3 本（docs/api-spec.md、webmethod スタイル）。
+    ' クライアント設定の例: { baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }
+    ' 認証と権限はこのページに掛ける（web.config の <location path="Admin/Patchiri.aspx"> と <authorization> など）。
 
     <WebMethod()>
     Public Shared Function Describe(req As Dictionary(Of String, Object)) As Dictionary(Of String, Object)
-        Return HarikitWebMethods.Call("describe", req)
+        Return PatchiriWebMethods.Call("describe", req)
     End Function
 
     <WebMethod()>
     Public Shared Function Fetch(req As Dictionary(Of String, Object)) As Dictionary(Of String, Object)
-        Return HarikitWebMethods.Call("fetch", req)
+        Return PatchiriWebMethods.Call("fetch", req)
     End Function
 
     <WebMethod()>
     Public Shared Function Apply(req As Dictionary(Of String, Object)) As Dictionary(Of String, Object)
-        Return HarikitWebMethods.Call("apply", req)
+        Return PatchiriWebMethods.Call("apply", req)
     End Function
 
     ' WebMethod 以外の呼び出し（ページそのもの）には何も見せない。

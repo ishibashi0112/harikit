@@ -1,15 +1,15 @@
 // .NET 版サーバの結合テストで、ページを載せる Web のフォルダを作り、ASP.NET で動かす。
 //
-// 動かす場所（HARIKIT_TEST_DOTNET_HOST）:
+// 動かす場所（PATCHIRI_TEST_DOTNET_HOST）:
 //   mono（既定）: Mono の ASP.NET（test/TestHost.cs）。Linux の CI とクラウドのコンテナ向け。mono と mcs が要る。
 //         VB.NET 版（packages/server-vbnet）は .NET SDK も要る（build.sh と mono-path/vbnc が Roslyn の vbc でビルドする）。
 //   iis: Windows の IIS に .NET Framework 4.x のアプリとして載せる。IIS と ASP.NET 4.x を入れ、管理者で動かすこと。
 //        既定の Web サイト（Default Web Site、80 番）の下に、テストごとにアプリとアプリプールを作って消す。
-// 載せ方（HARIKIT_TEST_DOTNET_LAYOUT）:
+// 載せ方（PATCHIRI_TEST_DOTNET_LAYOUT）:
 //   bin（既定）: build.cmd（Windows）か build.sh で作った bin の DLL を置く（Web アプリケーションプロジェクトの形）。
-//   app_code: src のソースを App_Code/Harikit/ に置き、ASP.NET にビルドさせる（Web サイトの形。IIS なら .NET Framework 付属のコンパイラ）。
-// 載せるサーバ（HARIKIT_TEST_DOTNET_PKG）: リポジトリの中のパッケージのフォルダ。既定は packages/server-dotnet。
-//   パッケージには src/（ソース）、web/Harikit.aspx、build.cmd と build.sh（bin/ に DLL を作る）を置く。
+//   app_code: src のソースを App_Code/Patchiri/ に置き、ASP.NET にビルドさせる（Web サイトの形。IIS なら .NET Framework 付属のコンパイラ）。
+// 載せるサーバ（PATCHIRI_TEST_DOTNET_PKG）: リポジトリの中のパッケージのフォルダ。既定は packages/server-dotnet。
+//   パッケージには src/（ソース）、web/Patchiri.aspx、build.cmd と build.sh（bin/ に DLL を作る）を置く。
 //   公開する型が C# 版と同じなら、C# のページ（test/Probe.aspx など）をその DLL の上でも使える。
 //   Ubuntu の Mono には VB のコンパイラ（vbnc）がないので、Mono のホストには mono-path/vbnc（Roslyn の vbc に渡す）を使わせる。
 
@@ -24,11 +24,11 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..", "..", "..");
 
-export const hostKind = process.env.HARIKIT_TEST_DOTNET_HOST || "mono";
-export const layout = process.env.HARIKIT_TEST_DOTNET_LAYOUT || "bin";
-export const serverPkg = resolve(repo, process.env.HARIKIT_TEST_DOTNET_PKG || "packages/server-dotnet");
+export const hostKind = process.env.PATCHIRI_TEST_DOTNET_HOST || "mono";
+export const layout = process.env.PATCHIRI_TEST_DOTNET_LAYOUT || "bin";
+export const serverPkg = resolve(repo, process.env.PATCHIRI_TEST_DOTNET_PKG || "packages/server-dotnet");
 /** パッケージごとに分けたテスト用の DB の名前（C# 版と VB 版を同じ SQL Server で並べて流しても当たらないように）。 */
-export const testDatabase = `HarikitTest_${basename(serverPkg).replace(/[^A-Za-z0-9]/g, "_")}`;
+export const testDatabase = `PatchiriTest_${basename(serverPkg).replace(/[^A-Za-z0-9]/g, "_")}`;
 const csharpPkg = join(here, "..");
 
 const appcmd = join(process.env.windir ?? "C:\\Windows", "System32", "inetsrv", "appcmd.exe");
@@ -46,8 +46,8 @@ const works = (cmd, args) => {
 
 /** テストを飛ばす理由（動かせるなら false）。 */
 export function hostUnavailable() {
-  if (!["mono", "iis"].includes(hostKind)) throw new Error(`HARIKIT_TEST_DOTNET_HOST は mono か iis です（${hostKind}）`);
-  if (!["bin", "app_code"].includes(layout)) throw new Error(`HARIKIT_TEST_DOTNET_LAYOUT は bin か app_code です（${layout}）`);
+  if (!["mono", "iis"].includes(hostKind)) throw new Error(`PATCHIRI_TEST_DOTNET_HOST は mono か iis です（${hostKind}）`);
+  if (!["bin", "app_code"].includes(layout)) throw new Error(`PATCHIRI_TEST_DOTNET_LAYOUT は bin か app_code です（${layout}）`);
   if (hostKind === "mono") return works("mono", ["--version"]) && works("mcs", ["--version"]) ? false : "mono / mcs がないので飛ばす";
   return process.platform === "win32" && existsSync(appcmd) ? false : "IIS（appcmd.exe）がないので飛ばす";
 }
@@ -63,11 +63,11 @@ export async function createSite() {
   let root;
   if (hostKind === "iis") {
     // アプリプールのユーザーが読めるよう、ユーザーのプロファイル（%TEMP%）の外に置く。
-    const base = `${process.env.SystemDrive ?? "C:"}\\harikit-test`;
+    const base = `${process.env.SystemDrive ?? "C:"}\\patchiri-test`;
     await mkdir(base, { recursive: true });
     root = await mkdtemp(join(base, "site-"));
   } else {
-    root = await mkdtemp(join(tmpdir(), "harikit-dotnet-"));
+    root = await mkdtemp(join(tmpdir(), "patchiri-dotnet-"));
   }
   await mkdir(join(root, "bin"));
   await mkdir(join(root, "App_Data"));
@@ -76,19 +76,19 @@ export async function createSite() {
     else execFileSync(join(serverPkg, "build.sh"), { stdio: "inherit" });
     for (const f of await readdir(join(serverPkg, "bin"))) if (f.endsWith(".dll")) await copyFile(join(serverPkg, "bin", f), join(root, "bin", f));
   } else {
-    const dir = join(root, "App_Code", "Harikit");
+    const dir = join(root, "App_Code", "Patchiri");
     await mkdir(dir, { recursive: true });
     for (const f of await readdir(join(serverPkg, "src"))) await copyFile(join(serverPkg, "src", f), join(dir, f));
   }
-  await copyFile(join(serverPkg, "web", "Harikit.aspx"), join(root, "Harikit.aspx"));
+  await copyFile(join(serverPkg, "web", "Patchiri.aspx"), join(root, "Patchiri.aspx"));
   if (hostKind === "mono") {
     // ApplicationHost は bin の中から AspHost を読み込むので、テスト用のホストも bin に置く。
-    execFileSync("mcs", ["-nologo", "-warnaserror", `-out:${join(root, "bin", "Harikit.TestHost.exe")}`, "-r:System.Web.dll", join(here, "TestHost.cs")], { stdio: "inherit" });
+    execFileSync("mcs", ["-nologo", "-warnaserror", `-out:${join(root, "bin", "Patchiri.TestHost.exe")}`, "-r:System.Web.dll", join(here, "TestHost.cs")], { stdio: "inherit" });
   }
   return root;
 }
 
-/** Web のフォルダを ASP.NET で動かす。url はアプリの根（`${url}/Harikit.aspx` がページ）。 */
+/** Web のフォルダを ASP.NET で動かす。url はアプリの根（`${url}/Patchiri.aspx` がページ）。 */
 export async function startSite(root) {
   const site = hostKind === "iis" ? await startIis(root) : await startMono(root);
   try {
@@ -112,7 +112,7 @@ async function startMono(root) {
   const port = await freePort();
   // VB のページと App_Code は、mono-path/vbnc（Roslyn の vbc に渡す）でコンパイルさせる。
   const env = { ...process.env, PATH: `${join(here, "mono-path")}${delimiter}${process.env.PATH ?? ""}` };
-  const host = spawn("mono", [join(root, "bin", "Harikit.TestHost.exe"), root, String(port)], { stdio: ["ignore", "pipe", "inherit"], env });
+  const host = spawn("mono", [join(root, "bin", "Patchiri.TestHost.exe"), root, String(port)], { stdio: ["ignore", "pipe", "inherit"], env });
   await new Promise((resolve, reject) => {
     host.once("exit", (code) => reject(new Error(`テスト用ホストが止まりました（${code}）`)));
     host.stdout.on("data", (d) => String(d).includes("listening") && resolve());
@@ -128,7 +128,7 @@ async function startMono(root) {
 async function startIis(root) {
   const name = basename(root);
   const run = (...args) => execFileSync(appcmd, args, { stdio: ["ignore", "pipe", "pipe"] });
-  // フォルダは残す（App_Data/harikit-log の error-*.log を、落ちたときに CI で見るため）。
+  // フォルダは残す（App_Data/patchiri-log の error-*.log を、落ちたときに CI で見るため）。
   const stop = async () => {
     for (const args of [["delete", "app", `${IIS_SITE}/${name}`], ["delete", "apppool", name]]) {
       try {
@@ -161,9 +161,9 @@ async function waitReady(url) {
   let last = "";
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${url}/Harikit.aspx/Describe`, {
+      const res = await fetch(`${url}/Patchiri.aspx/Describe`, {
         method: "POST",
-        headers: { "Content-Type": "application/json; charset=utf-8", "X-Harikit": "1" },
+        headers: { "Content-Type": "application/json; charset=utf-8", "X-Patchiri": "1" },
         body: JSON.stringify({ req: { v: 1 } }),
       });
       const text = await res.text();
@@ -175,5 +175,5 @@ async function waitReady(url) {
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error(`${url}/Harikit.aspx が応答しません（${hostKind}, ${layout}）\n${last.slice(0, 8000)}`);
+  throw new Error(`${url}/Patchiri.aspx が応答しません（${hostKind}, ${layout}）\n${last.slice(0, 8000)}`);
 }

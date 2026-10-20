@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sameValue, type Row } from "@harikit/core";
+import { sameValue, type Row } from "patchiri-core";
 import { Handlers, createHttpServer, loadWebFiles, type ApplyLogEntry, type Dialect, type ScriptUpdate, type ServerConfig, type TableMeta, type Transaction } from "../src/index.js";
 
 const META: TableMeta = {
@@ -234,14 +234,14 @@ test("apply: 行ごとの誤りはまとめて返し、DB に触らない", asyn
   assert.equal(dialect.updates, 0);
 });
 
-test("HTTP: トークン、X-Harikit、Content-Type を求める", async () => {
+test("HTTP: トークン、X-Patchiri、Content-Type を求める", async () => {
   const { handlers } = setup();
   const server = createHttpServer(handlers, { token: "t0ken" });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const { port } = server.address() as { port: number };
   const post = (path: string, headers: Record<string, string>, body = '{"v":1}') =>
     fetch(`http://127.0.0.1:${port}${path}`, { method: "POST", headers, body });
-  const good = { Authorization: "Bearer t0ken", "X-Harikit": "1", "Content-Type": "application/json" };
+  const good = { Authorization: "Bearer t0ken", "X-Patchiri": "1", "Content-Type": "application/json" };
   try {
     assert.equal((await post("/describe", { ...good, Authorization: "Bearer nope" })).status, 401);
     assert.equal((await post("/describe", { Authorization: "Bearer t0ken", "Content-Type": "application/json" })).status, 403);
@@ -258,9 +258,9 @@ test("HTTP: トークン、X-Harikit、Content-Type を求める", async () => {
 });
 
 test("HTTP: 画面のファイルを GET で配る。API はトークンが要るまま", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "harikit-web-"));
+  const dir = await mkdtemp(join(tmpdir(), "patchiri-web-"));
   await mkdir(join(dir, "assets"));
-  await writeFile(join(dir, "index.html"), "<!doctype html><title>harikit</title>");
+  await writeFile(join(dir, "index.html"), "<!doctype html><title>patchiri</title>");
   await writeFile(join(dir, "main.js"), "console.log(1)");
   await writeFile(join(dir, "assets", "a.css"), "body{}");
   await writeFile(join(dir, "notes.md"), "配らない");
@@ -279,12 +279,12 @@ test("HTTP: 画面のファイルを GET で配る。API はトークンが要�
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type")!, /^text\/html/);
     assert.match(page.headers.get("content-security-policy")!, /connect-src 'self'/);
-    assert.equal(await page.text(), "<!doctype html><title>harikit</title>");
+    assert.equal(await page.text(), "<!doctype html><title>patchiri</title>");
     assert.equal((await fetch(`${base}/assets/a.css`)).headers.get("content-type"), "text/css; charset=utf-8");
     assert.equal((await fetch(`${base}/notes.md`)).status, 404);
     assert.equal((await fetch(`${base}/../package.json`)).status, 404);
     assert.equal((await fetch(`${base}/describe`)).status, 404);
-    assert.equal((await fetch(`${base}/describe`, { method: "POST", headers: { "X-Harikit": "1", "Content-Type": "application/json" }, body: '{"v":1}' })).status, 401);
+    assert.equal((await fetch(`${base}/describe`, { method: "POST", headers: { "X-Patchiri": "1", "Content-Type": "application/json" }, body: '{"v":1}' })).status, 401);
   } finally {
     server.close();
     await rm(dir, { recursive: true, force: true });

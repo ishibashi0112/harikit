@@ -1,12 +1,12 @@
 {
-  "name": "@harikit/cli",
+  "name": "patchiri",
   "version": "0.0.0",
-  "description": "harikit の CLI。Excel を検証して差分を出し、承認後に反映する。",
+  "description": "patchiri の CLI。Excel を検証して差分を出し、承認後に反映する。",
   "license": "MIT",
   "type": "module",
-  "bin": { "harikit": "dist/src/main.js" },
+  "bin": { "patchiri": "dist/src/main.js" },
   "files": ["dist/src"],
   "dependencies": {
-    "@harikit/core": "0.0.0"
+    "patchiri-core": "0.0.0"
   }
 }

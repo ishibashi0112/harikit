@@ -1,7 +1,7 @@
 {
-  "name": "@harikit/web",
+  "name": "patchiri-web",
   "version": "0.0.0",
-  "description": "harikit の画面。spreadsheet-grid に貼り付けて、検証・差分・反映をブラウザで行う。",
+  "description": "patchiri の画面。spreadsheet-grid に貼り付けて、検証・差分・反映をブラウザで行う。",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -17,7 +17,7 @@
     "bundle": "node build.mjs"
   },
   "dependencies": {
-    "@harikit/core": "0.0.0"
+    "patchiri-core": "0.0.0"
   },
   "peerDependencies": {
     "@ishibashi0112/spreadsheet-grid": ">=0.51.0 <1.0.0",

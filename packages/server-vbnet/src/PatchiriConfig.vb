@@ -1,5 +1,5 @@
 ﻿' サーバの設定（許可リスト、上限、ログ）。仕様 2 の許可リストを含む。
-' 形は Node 版の harikit.config.json と同じ（targets と limits はそのまま写せる）。
+' 形は Node 版の patchiri.config.json と同じ（targets と limits はそのまま写せる）。
 ' 接続文字列は設定ファイルに書かず、web.config の connectionStrings を名前で指す。
 
 Option Strict On
@@ -11,7 +11,7 @@ Imports System
 Imports System.Collections.Generic
 Imports System.Text.RegularExpressions
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
     Public NotInheritable Class TargetConfig
         Public Table As String
@@ -23,7 +23,7 @@ Namespace Global.Harikit.Server
         Public Updatable As New List(Of String)()
     End Class
 
-    Public Class HarikitConfigException
+    Public Class PatchiriConfigException
         Inherits Exception
 
         Public Sub New(message As String)
@@ -31,7 +31,7 @@ Namespace Global.Harikit.Server
         End Sub
     End Class
 
-    Public NotInheritable Class HarikitConfig
+    Public NotInheritable Class PatchiriConfig
 
         Private Shared ReadOnly TargetNameRe As New Regex("\A[A-Za-z0-9_-]+\z")
 
@@ -40,21 +40,21 @@ Namespace Global.Harikit.Server
         Public Targets As New Dictionary(Of String, TargetConfig)(StringComparer.Ordinal)
         Public MaxFetchKeys As Integer = 1000
         Public MaxApplyRows As Integer = 5000
-        ''' <summary>web.config の connectionStrings の名前。既定は "Harikit"。</summary>
-        Public ConnectionStringName As String = "Harikit"
-        ''' <summary>反映ログ（JSON Lines）を置くフォルダ。既定は ~/App_Data/harikit-log。</summary>
-        Public LogDir As String = "~/App_Data/harikit-log"
+        ''' <summary>web.config の connectionStrings の名前。既定は "Patchiri"。</summary>
+        Public ConnectionStringName As String = "Patchiri"
+        ''' <summary>反映ログ（JSON Lines）を置くフォルダ。既定は ~/App_Data/patchiri-log。</summary>
+        Public LogDir As String = "~/App_Data/patchiri-log"
         ''' <summary>db_error の message に DB の生のエラー文を出すか。既定は出さない。</summary>
         Public ExposeDbErrors As Boolean
         ''' <summary>反映で行のロックを待つ秒数（仕様 7 の手順 3）。既定は 10 秒。</summary>
         Public LockWaitSeconds As Integer = 10
 
         Private Shared Sub Fail(message As String)
-            Throw New HarikitConfigException(message)
+            Throw New PatchiriConfigException(message)
         End Sub
 
         Private Shared Function Names(x As Object, what As String) As List(Of String)
-            Dim list = HarikitJson.AsArray(x)
+            Dim list = PatchiriJson.AsArray(x)
             If list Is Nothing Then Fail(what & " は列名の配列です")
             Dim result As New List(Of String)()
             For Each item In list
@@ -73,37 +73,37 @@ Namespace Global.Harikit.Server
         End Function
 
         Private Shared Function PositiveInt(x As Object, what As String) As Integer
-            If Not HarikitJson.IsNumber(x) Then Fail(what & " は正の整数です")
-            Dim d = HarikitJson.ToDouble(x)
+            If Not PatchiriJson.IsNumber(x) Then Fail(what & " は正の整数です")
+            Dim d = PatchiriJson.ToDouble(x)
             If d < 1 OrElse d > Integer.MaxValue OrElse Math.Floor(d) <> d Then Fail(what & " は正の整数です")
             Return CInt(d)
         End Function
 
-        ''' <summary>設定の JSON を読み、形を確かめる。おかしければ HarikitConfigException。</summary>
-        Public Shared Function Parse(json As String) As HarikitConfig
+        ''' <summary>設定の JSON を読み、形を確かめる。おかしければ PatchiriConfigException。</summary>
+        Public Shared Function Parse(json As String) As PatchiriConfig
             Dim root As Object
             Try
-                root = HarikitJson.Parse(json)
+                root = PatchiriJson.Parse(json)
             Catch e As Exception
-                Throw New HarikitConfigException("JSON として読めません（" & e.Message & "）")
+                Throw New PatchiriConfigException("JSON として読めません（" & e.Message & "）")
             End Try
-            Dim o = HarikitJson.AsObject(root)
+            Dim o = PatchiriJson.AsObject(root)
             If o Is Nothing Then Fail("JSON のオブジェクトではありません")
-            Dim config As New HarikitConfig()
+            Dim config As New PatchiriConfig()
 
-            Dim targets = HarikitJson.AsObject(HarikitJson.Get(o, "targets"))
+            Dim targets = PatchiriJson.AsObject(PatchiriJson.Get(o, "targets"))
             If targets Is Nothing Then Fail("targets がありません")
             For Each kv In targets
                 Dim name = kv.Key
                 If Not TargetNameRe.IsMatch(name) Then Fail("ターゲット名 " & name & " に使えない文字があります")
-                Dim t = HarikitJson.AsObject(kv.Value)
+                Dim t = PatchiriJson.AsObject(kv.Value)
                 If t Is Nothing Then Fail(name & " がオブジェクトではありません")
                 Dim target As New TargetConfig()
-                target.Table = TryCast(HarikitJson.Get(t, "table"), String)
+                target.Table = TryCast(PatchiriJson.Get(t, "table"), String)
                 If String.IsNullOrEmpty(target.Table) Then Fail(name & ".table がありません")
-                target.Access = TryCast(HarikitJson.Get(t, "access"), String)
+                target.Access = TryCast(PatchiriJson.Get(t, "access"), String)
                 If target.Access <> "update" AndAlso target.Access <> "read" Then Fail(name & ".access は ""update"" か ""read"" です")
-                target.Readable = Names(HarikitJson.Get(t, "readable"), name & ".readable")
+                target.Readable = Names(PatchiriJson.Get(t, "readable"), name & ".readable")
                 If t.ContainsKey("key") Then
                     target.Key = Names(t("key"), name & ".key")
                     If target.Key.Count = 0 Then Fail(name & ".key は列名の配列です")
@@ -123,7 +123,7 @@ Namespace Global.Harikit.Server
                 config.Targets(name) = target
             Next
 
-            Dim limits = HarikitJson.AsObject(HarikitJson.Get(o, "limits"))
+            Dim limits = PatchiriJson.AsObject(PatchiriJson.Get(o, "limits"))
             If limits IsNot Nothing Then
                 If limits.ContainsKey("maxFetchKeys") Then config.MaxFetchKeys = PositiveInt(limits("maxFetchKeys"), "limits.maxFetchKeys")
                 If limits.ContainsKey("maxApplyRows") Then config.MaxApplyRows = PositiveInt(limits("maxApplyRows"), "limits.maxApplyRows")

@@ -8,26 +8,26 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Row = System.Collections.Generic.Dictionary<string, object>;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
     /// <summary>業務上の失敗。HTTP 200 の ok:false で返す（仕様 1.5）。</summary>
-    public class HarikitFailure : Exception
+    public class PatchiriFailure : Exception
     {
         public readonly string Code;
         public Dictionary<string, object> Details;
         public List<object> RowErrors;
         public List<object> Conflicts;
 
-        public HarikitFailure(string code, string message) : base(message)
+        public PatchiriFailure(string code, string message) : base(message)
         {
             Code = code;
         }
     }
 
-    public sealed class HarikitServiceOptions
+    public sealed class PatchiriServiceOptions
     {
-        public HarikitConfig Config;
-        public IHarikitDialect Dialect;
+        public PatchiriConfig Config;
+        public IPatchiriDialect Dialect;
         /// <summary>反映した人。WebForms では HttpContext.Current.User.Identity.Name。</summary>
         public Func<string> WhoAmI;
         /// <summary>反映ログを 1 件書く。</summary>
@@ -42,7 +42,7 @@ namespace Harikit.Server
         public int? MaxResponseLength;
     }
 
-    public sealed class HarikitService
+    public sealed class PatchiriService
     {
         static readonly Regex RequestIdRe = new Regex(@"\A[0-9A-Za-z][0-9A-Za-z-]{7,63}\z");
         /// <summary>二度押し・再送対策に覚えておく execute の結果の数。</summary>
@@ -83,13 +83,13 @@ namespace Harikit.Server
             public Row After;
         }
 
-        readonly HarikitServiceOptions o;
+        readonly PatchiriServiceOptions o;
         readonly object sync = new object();
         readonly Dictionary<string, TableMeta> metaCache = new Dictionary<string, TableMeta>(StringComparer.Ordinal);
         readonly Dictionary<string, Dictionary<string, object>> applied = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
         readonly Queue<string> appliedOrder = new Queue<string>();
 
-        public HarikitService(HarikitServiceOptions options)
+        public PatchiriService(PatchiriServiceOptions options)
         {
             if (options.Config == null || options.Dialect == null) throw new ArgumentException("Config と Dialect は必須です");
             o = options;
@@ -99,15 +99,15 @@ namespace Harikit.Server
         {
             try
             {
-                var b = HarikitJson.AsObject(body);
-                if (b == null) throw new HarikitFailure("bad_request", "リクエストが JSON のオブジェクトではありません");
-                var v = HarikitJson.Get(b, "v");
-                if (!HarikitJson.IsNumber(v) || HarikitJson.ToDouble(v) != 1)
-                    throw new HarikitFailure("version_unsupported", "v=" + Show(v) + " には対応していません（1 だけ）");
+                var b = PatchiriJson.AsObject(body);
+                if (b == null) throw new PatchiriFailure("bad_request", "リクエストが JSON のオブジェクトではありません");
+                var v = PatchiriJson.Get(b, "v");
+                if (!PatchiriJson.IsNumber(v) || PatchiriJson.ToDouble(v) != 1)
+                    throw new PatchiriFailure("version_unsupported", "v=" + Show(v) + " には対応していません（1 だけ）");
                 if (name == "describe") return Describe(b);
                 if (name == "fetch") return Fetch(b);
                 if (name == "apply") return Apply(b);
-                throw new HarikitFailure("bad_request", "API " + name + " はありません");
+                throw new PatchiriFailure("bad_request", "API " + name + " はありません");
             }
             catch (Exception e)
             {
@@ -118,10 +118,10 @@ namespace Harikit.Server
         static string Show(object v)
         {
             if (v == null) return "null";
-            if (v is string) return HarikitJson.Stringify(v);
+            if (v is string) return PatchiriJson.Stringify(v);
             if (v is bool) return (bool)v ? "true" : "false";
-            if (HarikitJson.IsNumber(v)) return HarikitJson.FormatDouble(HarikitJson.ToDouble(v));
-            return HarikitJson.Stringify(v);
+            if (PatchiriJson.IsNumber(v)) return PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v));
+            return PatchiriJson.Stringify(v);
         }
 
         static Dictionary<string, object> Ok()
@@ -132,18 +132,18 @@ namespace Harikit.Server
         Dictionary<string, object> Failure(Exception e, object body)
         {
             var error = new Dictionary<string, object>();
-            var f = e as HarikitFailure;
+            var f = e as PatchiriFailure;
             if (f != null)
             {
                 error["code"] = f.Code;
                 error["message"] = f.Message;
                 if (f.Details != null) error["details"] = f.Details;
             }
-            else if (e is HarikitDbException)
+            else if (e is PatchiriDbException)
             {
                 LogError(e);
                 error["code"] = "db_error";
-                error["message"] = o.Config.ExposeDbErrors ? e.Message : (((HarikitDbException)e).PublicMessage ?? "DB がエラーを返しました（詳細はサーバのログ）");
+                error["message"] = o.Config.ExposeDbErrors ? e.Message : (((PatchiriDbException)e).PublicMessage ?? "DB がエラーを返しました（詳細はサーバのログ）");
             }
             else
             {
@@ -152,10 +152,10 @@ namespace Harikit.Server
                 error["message"] = "サーバでエラーが起きました（詳細はサーバのログ）";
             }
             var res = new Dictionary<string, object> { { "ok", false }, { "v", 1 } };
-            var b = HarikitJson.AsObject(body);
-            var requestId = HarikitJson.Get(b, "requestId") as string;
+            var b = PatchiriJson.AsObject(body);
+            var requestId = PatchiriJson.Get(b, "requestId") as string;
             if (requestId != null) res["requestId"] = requestId;
-            var mode = HarikitJson.Get(b, "mode") as string;
+            var mode = PatchiriJson.Get(b, "mode") as string;
             if (mode == "check" || mode == "execute") res["mode"] = mode;
             res["error"] = error;
             if (f != null && f.RowErrors != null) res["rowErrors"] = f.RowErrors;
@@ -193,7 +193,7 @@ namespace Harikit.Server
             var name = nameObj as string;
             if (name == null || !o.Config.Targets.ContainsKey(name))
             {
-                throw new HarikitFailure("unknown_target", "ターゲット " + (name ?? Show(nameObj)) + " はありません")
+                throw new PatchiriFailure("unknown_target", "ターゲット " + (name ?? Show(nameObj)) + " はありません")
                 {
                     Details = new Dictionary<string, object> { { "target", nameObj } },
                 };
@@ -343,7 +343,7 @@ namespace Harikit.Server
         /// <summary>キーのオブジェクトを確かめ、列名を DB の綴りにそろえる。</summary>
         static KeyResult NormalizeKey(Resolved r, object keyObj)
         {
-            var key = HarikitJson.AsObject(keyObj);
+            var key = PatchiriJson.AsObject(keyObj);
             if (key == null) return new KeyResult { ErrorCode = "key_mismatch", ErrorMessage = "キーがオブジェクトではありません" };
             var output = new Row();
             foreach (var kv in key)
@@ -352,9 +352,9 @@ namespace Harikit.Server
                 if (name == null || output.ContainsKey(name))
                     return new KeyResult { ErrorCode = "key_mismatch", ErrorColumn = kv.Key, ErrorMessage = "キーに列 " + kv.Key + " は使えません" };
                 var col = r.Meta.Column(name);
-                var msg = kv.Value == null ? "キーが null です" : HarikitValues.CheckValue(col, kv.Value, true);
+                var msg = kv.Value == null ? "キーが null です" : PatchiriValues.CheckValue(col, kv.Value, true);
                 if (msg != null) return new KeyResult { ErrorCode = "invalid_value", ErrorColumn = name, ErrorMessage = msg };
-                output[name] = HarikitJson.Normalize(kv.Value);
+                output[name] = PatchiriJson.Normalize(kv.Value);
             }
             if (output.Count != r.Key.Count)
                 return new KeyResult { ErrorCode = "key_mismatch", ErrorMessage = "キーの列は " + string.Join(", ", r.Key) + " です" };
@@ -363,12 +363,12 @@ namespace Harikit.Server
 
         Dictionary<string, object> Fetch(IDictionary<string, object> body)
         {
-            var r = Resolve(HarikitJson.Get(body, "target"));
-            var rawKeys = HarikitJson.AsArray(HarikitJson.Get(body, "keys"));
-            if (rawKeys == null) throw new HarikitFailure("bad_request", "keys がありません");
+            var r = Resolve(PatchiriJson.Get(body, "target"));
+            var rawKeys = PatchiriJson.AsArray(PatchiriJson.Get(body, "keys"));
+            if (rawKeys == null) throw new PatchiriFailure("bad_request", "keys がありません");
             if (rawKeys.Count > o.Config.MaxFetchKeys)
             {
-                throw new HarikitFailure("too_many_rows", "keys は " + o.Config.MaxFetchKeys + " 件までです")
+                throw new PatchiriFailure("too_many_rows", "keys は " + o.Config.MaxFetchKeys + " 件までです")
                 {
                     Details = new Dictionary<string, object> { { "limit", o.Config.MaxFetchKeys } },
                 };
@@ -380,14 +380,14 @@ namespace Harikit.Server
             }
             else
             {
-                var raw = HarikitJson.AsArray(body["columns"]);
-                if (raw == null) throw new HarikitFailure("bad_request", "columns は列名の配列です");
+                var raw = PatchiriJson.AsArray(body["columns"]);
+                if (raw == null) throw new PatchiriFailure("bad_request", "columns は列名の配列です");
                 foreach (var c in raw)
                 {
                     var col = r.Find(c as string);
                     if (col == null)
                     {
-                        throw new HarikitFailure("column_not_allowed", "列 " + (c as string ?? Show(c)) + " は読めません")
+                        throw new PatchiriFailure("column_not_allowed", "列 " + (c as string ?? Show(c)) + " は読めません")
                         {
                             Details = new Dictionary<string, object> { { "column", c } },
                         };
@@ -401,7 +401,7 @@ namespace Harikit.Server
                 var n = NormalizeKey(r, rawKeys[i]);
                 if (n.ErrorCode != null)
                 {
-                    throw new HarikitFailure(n.ErrorCode == "invalid_value" ? "bad_request" : n.ErrorCode, "keys[" + i + "]: " + n.ErrorMessage)
+                    throw new PatchiriFailure(n.ErrorCode == "invalid_value" ? "bad_request" : n.ErrorCode, "keys[" + i + "]: " + n.ErrorMessage)
                     {
                         Details = new Dictionary<string, object> { { "index", i } },
                     };
@@ -429,9 +429,9 @@ namespace Harikit.Server
         {
             if (!o.MaxResponseLength.HasValue) return;
             // WebMethod は {"d": 結果} で返す。
-            var length = HarikitJson.Stringify(new Dictionary<string, object> { { "d", result } }).Length;
+            var length = PatchiriJson.Stringify(new Dictionary<string, object> { { "d", result } }).Length;
             if (length <= o.MaxResponseLength.Value) return;
-            throw new HarikitFailure("too_many_rows", message)
+            throw new PatchiriFailure("too_many_rows", message)
             {
                 Details = new Dictionary<string, object> { { "maxJsonLength", o.MaxResponseLength.Value }, { "length", length } },
             };
@@ -444,15 +444,15 @@ namespace Harikit.Server
 
         Dictionary<string, object> Apply(IDictionary<string, object> body)
         {
-            var requestId = HarikitJson.Get(body, "requestId") as string;
-            if (requestId == null || !RequestIdRe.IsMatch(requestId)) throw new HarikitFailure("bad_request", "requestId がないか、形が違います");
-            var mode = HarikitJson.Get(body, "mode") as string;
-            if (mode != "check" && mode != "execute") throw new HarikitFailure("bad_request", "mode は \"check\" か \"execute\" です");
+            var requestId = PatchiriJson.Get(body, "requestId") as string;
+            if (requestId == null || !RequestIdRe.IsMatch(requestId)) throw new PatchiriFailure("bad_request", "requestId がないか、形が違います");
+            var mode = PatchiriJson.Get(body, "mode") as string;
+            if (mode != "check" && mode != "execute") throw new PatchiriFailure("bad_request", "mode は \"check\" か \"execute\" です");
             string note = null;
             if (body.ContainsKey("note"))
             {
                 note = body["note"] as string;
-                if (note == null) throw new HarikitFailure("bad_request", "note は文字列です");
+                if (note == null) throw new PatchiriFailure("bad_request", "note は文字列です");
             }
             if (mode == "execute")
             {
@@ -462,17 +462,17 @@ namespace Harikit.Server
                     if (applied.TryGetValue(requestId, out done)) return done;
                 }
             }
-            var changes = HarikitJson.AsArray(HarikitJson.Get(body, "changes"));
-            if (changes == null || changes.Count != 1 || HarikitJson.AsObject(changes[0]) == null)
-                throw new HarikitFailure("bad_request", "changes は要素 1 つの配列です（v1 は 1 テーブルだけ）");
-            var change = HarikitJson.AsObject(changes[0]);
-            var r = Resolve(HarikitJson.Get(change, "target"));
-            if (r.Target.Access != "update") throw new HarikitFailure("bad_request", r.Name + " は読むだけのターゲットです");
-            var rawRows = HarikitJson.AsArray(HarikitJson.Get(change, "rows"));
-            if (rawRows == null || rawRows.Count == 0) throw new HarikitFailure("bad_request", "rows がありません");
+            var changes = PatchiriJson.AsArray(PatchiriJson.Get(body, "changes"));
+            if (changes == null || changes.Count != 1 || PatchiriJson.AsObject(changes[0]) == null)
+                throw new PatchiriFailure("bad_request", "changes は要素 1 つの配列です（v1 は 1 テーブルだけ）");
+            var change = PatchiriJson.AsObject(changes[0]);
+            var r = Resolve(PatchiriJson.Get(change, "target"));
+            if (r.Target.Access != "update") throw new PatchiriFailure("bad_request", r.Name + " は読むだけのターゲットです");
+            var rawRows = PatchiriJson.AsArray(PatchiriJson.Get(change, "rows"));
+            if (rawRows == null || rawRows.Count == 0) throw new PatchiriFailure("bad_request", "rows がありません");
             if (rawRows.Count > o.Config.MaxApplyRows)
             {
-                throw new HarikitFailure("too_many_rows", "rows は " + o.Config.MaxApplyRows + " 行までです")
+                throw new PatchiriFailure("too_many_rows", "rows は " + o.Config.MaxApplyRows + " 行までです")
                 {
                     Details = new Dictionary<string, object> { { "limit", o.Config.MaxApplyRows } },
                 };
@@ -493,7 +493,7 @@ namespace Harikit.Server
                     e["message"] = message;
                     rowErrors.Add(e);
                 };
-                var raw = HarikitJson.AsObject(rawRows[index]);
+                var raw = PatchiriJson.AsObject(rawRows[index]);
                 if (raw == null)
                 {
                     rowErr("bad_request", "行がオブジェクトではありません", null);
@@ -504,14 +504,14 @@ namespace Harikit.Server
                     rowErr("bad_request", "op " + (raw["op"] as string ?? Show(raw["op"])) + " には対応していません（update だけ）", null);
                     continue;
                 }
-                var k = NormalizeKey(r, HarikitJson.Get(raw, "key"));
+                var k = NormalizeKey(r, PatchiriJson.Get(raw, "key"));
                 if (k.ErrorCode != null)
                 {
                     rowErr(k.ErrorCode, k.ErrorMessage, k.ErrorColumn);
                     continue;
                 }
-                var rawBefore = HarikitJson.AsObject(HarikitJson.Get(raw, "before"));
-                var rawAfter = HarikitJson.AsObject(HarikitJson.Get(raw, "after"));
+                var rawBefore = PatchiriJson.AsObject(PatchiriJson.Get(raw, "before"));
+                var rawAfter = PatchiriJson.AsObject(PatchiriJson.Get(raw, "after"));
                 if (rawBefore == null || rawAfter == null)
                 {
                     rowErr("bad_request", "before と after がありません", null);
@@ -550,17 +550,17 @@ namespace Harikit.Server
                     }
                     var bv = kv.Value;
                     var av = rawAfter[ac];
-                    var bMsg = HarikitValues.CheckValue(col, bv, true);
-                    var aMsg = HarikitValues.CheckValue(col, av, col.Nullable);
+                    var bMsg = PatchiriValues.CheckValue(col, bv, true);
+                    var aMsg = PatchiriValues.CheckValue(col, av, col.Nullable);
                     if (bMsg != null || aMsg != null)
                     {
                         rowErr("invalid_value", (bMsg != null ? "before: " + bMsg : "after: " + aMsg), col.Name);
                         bad = true;
                         continue;
                     }
-                    bv = HarikitJson.Normalize(bv);
-                    av = HarikitJson.Normalize(av);
-                    if (HarikitValues.SameColumnValue(col, bv, av))
+                    bv = PatchiriJson.Normalize(bv);
+                    av = PatchiriJson.Normalize(av);
+                    if (PatchiriValues.SameColumnValue(col, bv, av))
                     {
                         rowErr("bad_request", "before と after が同じです", col.Name);
                         bad = true;
@@ -570,7 +570,7 @@ namespace Harikit.Server
                     after[col.Name] = av;
                 }
                 if (bad) continue;
-                var id = HarikitValues.KeyIdentity(r.KeyColumns, k.Key);
+                var id = PatchiriValues.KeyIdentity(r.KeyColumns, k.Key);
                 int seen;
                 if (seenKeys.TryGetValue(id, out seen))
                 {
@@ -586,7 +586,7 @@ namespace Harikit.Server
             {
                 var indexes = new HashSet<int>();
                 foreach (Dictionary<string, object> e in rowErrors) indexes.Add((int)e["index"]);
-                throw new HarikitFailure("bad_request", indexes.Count + " 行に誤りがあります") { RowErrors = rowErrors };
+                throw new PatchiriFailure("bad_request", indexes.Count + " 行に誤りがあります") { RowErrors = rowErrors };
             }
 
             var appliedBy = o.WhoAmI != null ? o.WhoAmI() : "";
@@ -638,7 +638,7 @@ namespace Harikit.Server
                             conflicts.Add(new Dictionary<string, object> { { "target", r.Name }, { "index", index }, { "key", row.Key }, { "reason", "not_found" } });
                             continue;
                         }
-                        var dbKey = HarikitValues.KeyIdentity(r.KeyColumns, locked.DbKey);
+                        var dbKey = PatchiriValues.KeyIdentity(r.KeyColumns, locked.DbKey);
                         int other;
                         if (dbKeys.TryGetValue(dbKey, out other))
                         {
@@ -663,7 +663,7 @@ namespace Harikit.Server
                     foreach (var row in rows)
                     {
                         var n = tx.Update(r.Meta, r.Key, row.Key, row.After);
-                        if (n != 1) throw new HarikitDbException("UPDATE の影響行数が " + n + " でした（1 のはず）: " + HarikitJson.Stringify(row.Key));
+                        if (n != 1) throw new PatchiriDbException("UPDATE の影響行数が " + n + " でした（1 のはず）: " + PatchiriJson.Stringify(row.Key));
                         updated += n;
                     }
                     return true;
@@ -679,7 +679,7 @@ namespace Harikit.Server
 
             if (duplicate != null)
             {
-                throw new HarikitFailure("bad_request", "1 行に誤りがあります")
+                throw new PatchiriFailure("bad_request", "1 行に誤りがあります")
                 {
                     RowErrors = new List<object>
                     {
@@ -698,7 +698,7 @@ namespace Harikit.Server
                 var entry = logEntry("conflict");
                 entry["conflicts"] = conflicts;
                 SafeLog(entry);
-                throw new HarikitFailure("conflict", conflicts.Count + " 行が差分を取った後に変わっていたため、何も反映していません") { Conflicts = conflicts };
+                throw new PatchiriFailure("conflict", conflicts.Count + " 行が差分を取った後に変わっていたため、何も反映していません") { Conflicts = conflicts };
             }
 
             targetResult["updated"] = updated;
@@ -721,7 +721,7 @@ namespace Harikit.Server
 
         /// <summary>
         /// 書き込む文字列が列の文字コードで表せるか、バイト数に収まるかを DB で確かめる。
-        /// HarikitValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、最後はここで見る。
+        /// PatchiriValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、最後はここで見る。
         /// </summary>
         List<object> CheckStrings(Resolved r, List<ApplyRow> rows, List<int> rowIndexes)
         {
@@ -777,7 +777,7 @@ namespace Harikit.Server
         void RenderScripts(Resolved r, string requestId, string mode, List<ApplyRow> rows, out string script, out string undoScript)
         {
             var d = o.Dialect;
-            var head = "-- harikit " + requestId + " " + r.Name + " (" + r.Meta.Table + ") " + rows.Count + "行";
+            var head = "-- patchiri " + requestId + " " + r.Name + " (" + r.Meta.Table + ") " + rows.Count + "行";
             var updates = new List<ScriptUpdate>();
             var undoUpdates = new List<ScriptUpdate>();
             foreach (var row in rows)

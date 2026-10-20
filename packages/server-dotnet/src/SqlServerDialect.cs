@@ -10,9 +10,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Row = System.Collections.Generic.Dictionary<string, object>;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
-    public sealed class SqlServerDialect : IHarikitDialect
+    public sealed class SqlServerDialect : IPatchiriDialect
     {
         static readonly Dictionary<string, string> TypeMap = new Dictionary<string, string>
         {
@@ -53,10 +53,10 @@ namespace Harikit.Server
             this.lockWaitSeconds = lockWaitSeconds;
         }
 
-        /// <summary>SqlException を HarikitDbException にする。ロック待ちの時間切れ（1222）には、人向けの固定の文を付ける。</summary>
-        static HarikitDbException DbError(SqlException e)
+        /// <summary>SqlException を PatchiriDbException にする。ロック待ちの時間切れ（1222）には、人向けの固定の文を付ける。</summary>
+        static PatchiriDbException DbError(SqlException e)
         {
-            var error = new HarikitDbException(e.Message, e);
+            var error = new PatchiriDbException(e.Message, e);
             if (e.Number == 1222) error.PublicMessage = LockedMessage;
             return error;
         }
@@ -157,12 +157,12 @@ namespace Harikit.Server
         static object ReadValue(ColumnMeta col, object v)
         {
             if (v == null || v is DBNull) return null;
-            if (col.Type == "datetime" || col.Type == "time") return HarikitValues.CanonicalFraction(Convert.ToString(v, CultureInfo.InvariantCulture));
+            if (col.Type == "datetime" || col.Type == "time") return PatchiriValues.CanonicalFraction(Convert.ToString(v, CultureInfo.InvariantCulture));
             if (v is string || v is bool) return v;
             if (v is byte || v is short || v is int) return Convert.ToInt32(v, CultureInfo.InvariantCulture);
             // real は float のまま double にする（0.1 を 0.1 にすると、送り返された before が DB の値と合わなくなる）。
-            if (v is float) return HarikitJson.JsonNumber((double)(float)v);
-            if (v is double) return HarikitJson.JsonNumber((double)v);
+            if (v is float) return PatchiriJson.JsonNumber((double)(float)v);
+            if (v is double) return PatchiriJson.JsonNumber((double)v);
             return Convert.ToString(v, CultureInfo.InvariantCulture);
         }
 
@@ -188,20 +188,20 @@ namespace Harikit.Server
                     return "@" + name;
                 case "tinyint":
                     p.SqlDbType = SqlDbType.TinyInt;
-                    p.Value = v == null ? (object)DBNull.Value : (byte)HarikitJson.ToDouble(v);
+                    p.Value = v == null ? (object)DBNull.Value : (byte)PatchiriJson.ToDouble(v);
                     return "@" + name;
                 case "smallint":
                     p.SqlDbType = SqlDbType.SmallInt;
-                    p.Value = v == null ? (object)DBNull.Value : (short)HarikitJson.ToDouble(v);
+                    p.Value = v == null ? (object)DBNull.Value : (short)PatchiriJson.ToDouble(v);
                     return "@" + name;
                 case "int":
                     p.SqlDbType = SqlDbType.Int;
-                    p.Value = v == null ? (object)DBNull.Value : (int)HarikitJson.ToDouble(v);
+                    p.Value = v == null ? (object)DBNull.Value : (int)PatchiriJson.ToDouble(v);
                     return "@" + name;
                 case "real":
                 case "float":
                     p.SqlDbType = SqlDbType.Float;
-                    p.Value = v == null ? (object)DBNull.Value : HarikitJson.ToDouble(v);
+                    p.Value = v == null ? (object)DBNull.Value : PatchiriJson.ToDouble(v);
                     return "@" + name;
                 case "bit":
                     p.SqlDbType = SqlDbType.Bit;
@@ -231,7 +231,7 @@ namespace Harikit.Server
                     return (bool)v ? "1" : "0";
                 case "integer":
                 case "float":
-                    return HarikitJson.FormatDouble(HarikitJson.ToDouble(v));
+                    return PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v));
                 case "bigint":
                 case "decimal":
                     {
@@ -323,7 +323,7 @@ namespace Harikit.Server
                     FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id", conn);
                 cmd.Parameters.Add("@name", SqlDbType.NVarChar, 512).Value = qualified;
                 var colRows = Query(cmd);
-                if (colRows.Count == 0) throw new HarikitDbException("テーブル " + table + " が見つかりません");
+                if (colRows.Count == 0) throw new PatchiriDbException("テーブル " + table + " が見つかりません");
                 var meta = new TableMeta { Table = parts[0] + "." + parts[1] };
                 foreach (var r in colRows)
                 {
@@ -458,7 +458,7 @@ namespace Harikit.Server
                     foreach (var r in Query(cmd))
                     {
                         var i = start + Convert.ToInt32(r[0], CultureInfo.InvariantCulture);
-                        if (output[i] != null) throw new HarikitDbException("キー " + HarikitJson.Stringify(keys[i]) + " に当たる行が複数あります（キーが一意ではありません）");
+                        if (output[i] != null) throw new PatchiriDbException("キー " + PatchiriJson.Stringify(keys[i]) + " に当たる行が複数あります（キーが一意ではありません）");
                         var row = new Row();
                         for (var j = 0; j < outCols.Count; j++) row[outCols[j].Name] = ReadValue(outCols[j], r[j + 1]);
                         output[i] = row;
@@ -468,7 +468,7 @@ namespace Harikit.Server
             return output;
         }
 
-        sealed class MsTransaction : IHarikitTransaction
+        sealed class MsTransaction : IPatchiriTransaction
         {
             readonly SqlConnection conn;
             readonly SqlTransaction tx;
@@ -501,10 +501,10 @@ namespace Harikit.Server
                 cmd.CommandText = "SELECT " + string.Join(", ", select) + " FROM " + QuoteTable(meta.Table) + " WITH (UPDLOCK, HOLDLOCK) WHERE " + string.Join(" AND ", where);
                 var rows = Query(cmd);
                 if (rows.Count == 0) return new LockedRow { Found = false };
-                if (rows.Count > 1) throw new HarikitDbException("キー " + HarikitJson.Stringify(key) + " に当たる行が " + rows.Count + " 行あります（キーが一意ではありません）");
+                if (rows.Count > 1) throw new PatchiriDbException("キー " + PatchiriJson.Stringify(key) + " に当たる行が " + rows.Count + " 行あります（キーが一意ではありません）");
                 var row = rows[0];
                 var locked = new LockedRow { Found = true, Current = new Row(), Changed = new List<string>(), DbKey = new Row() };
-                for (var i = 0; i < keyCols.Count; i++) locked.DbKey[keyCols[i].Name] = HarikitValues.Canonical(keyCols[i].Type, ReadValue(keyCols[i], row[i]));
+                for (var i = 0; i < keyCols.Count; i++) locked.DbKey[keyCols[i].Name] = PatchiriValues.Canonical(keyCols[i].Type, ReadValue(keyCols[i], row[i]));
                 for (var i = 0; i < beforeCols.Count; i++)
                 {
                     locked.Current[beforeCols[i].Name] = ReadValue(beforeCols[i], row[keyCols.Count + i]);
@@ -549,7 +549,7 @@ namespace Harikit.Server
             }
         }
 
-        public void RunTransaction(Func<IHarikitTransaction, bool> fn)
+        public void RunTransaction(Func<IPatchiriTransaction, bool> fn)
         {
             using (var conn = Open())
             {
@@ -663,7 +663,7 @@ namespace Harikit.Server
         {
             var lines = new List<string> { head };
             if (kind == "apply") lines.Add("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（エラー 50001）。");
-            else lines.Add("-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。");
+            else lines.Add("-- 今の値が patchiri で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。");
             lines.Add("SET XACT_ABORT ON;");
             lines.Add("BEGIN TRANSACTION;");
             foreach (var u in updates)
@@ -672,7 +672,7 @@ namespace Harikit.Server
                 // 後から人が流したときに、変わっていた行だけ黙って飛ばさない。XACT_ABORT ON なので THROW で全部戻る。
                 // @@ROWCOUNT はトリガーがあっても UPDATE 文そのものの行数。
                 if (kind == "apply")
-                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " + NString("harikit: 行が見つからないか、値が変わっています（" + KeyText(u.Key) + "）。何も反映していません") + ", 1;");
+                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " + NString("patchiri: 行が見つからないか、値が変わっています（" + KeyText(u.Key) + "）。何も反映していません") + ", 1;");
             }
             lines.Add("COMMIT;");
             return string.Join("\n", lines) + "\n";
@@ -694,7 +694,7 @@ namespace Harikit.Server
                 if (v == null) text = "null";
                 else if (v is string) text = (string)v;
                 else if (v is bool) text = (bool)v ? "true" : "false";
-                else if (HarikitJson.IsNumber(v)) text = HarikitJson.FormatDouble(HarikitJson.ToDouble(v));
+                else if (PatchiriJson.IsNumber(v)) text = PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v));
                 else text = Convert.ToString(v, CultureInfo.InvariantCulture);
                 parts.Add(kv.Key + "=" + text);
             }

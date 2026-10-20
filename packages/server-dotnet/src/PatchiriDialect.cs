@@ -1,12 +1,12 @@
-﻿// DB ごとの違いを閉じ込める入口。HarikitService はこの形だけを使う。
+﻿// DB ごとの違いを閉じ込める入口。PatchiriService はこの形だけを使う。
 
 using System;
 using System.Collections.Generic;
 using Row = System.Collections.Generic.Dictionary<string, object>;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
-    /// <summary>DB から読んだ列の定義。updatable は許可リストと合わせて HarikitService が決める。</summary>
+    /// <summary>DB から読んだ列の定義。updatable は許可リストと合わせて PatchiriService が決める。</summary>
     public sealed class ColumnMeta
     {
         public string Name;
@@ -90,7 +90,7 @@ namespace Harikit.Server
         public int Bytes;
     }
 
-    public interface IHarikitTransaction
+    public interface IPatchiriTransaction
     {
         /// <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。</summary>
         LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before);
@@ -99,15 +99,15 @@ namespace Harikit.Server
     }
 
     /// <summary>DB がエラーを返したとき。Message は生のエラー文。</summary>
-    public class HarikitDbException : Exception
+    public class PatchiriDbException : Exception
     {
         /// <summary>
         /// 人が次に何をすればよいか分かるエラー（ロック待ちの時間切れなど）に、DB の生の文の代わりに返す固定の文（仕様 1.5）。
         /// </summary>
         public string PublicMessage;
 
-        public HarikitDbException(string message) : base(message) { }
-        public HarikitDbException(string message, Exception inner) : base(message, inner) { }
+        public PatchiriDbException(string message) : base(message) { }
+        public PatchiriDbException(string message, Exception inner) : base(message, inner) { }
     }
 
     /// <summary>人が読む SQL の UPDATE 1 本分。Key で行を探し（照合順序）、Expect は「この値のときだけ」の条件（厳密に比べる）。</summary>
@@ -118,7 +118,7 @@ namespace Harikit.Server
         public Row Expect;
     }
 
-    public interface IHarikitDialect
+    public interface IPatchiriDialect
     {
         string Name { get; }
         /// <summary>テーブル名をこの DB の正規の形（比較用）にする。</summary>
@@ -127,10 +127,10 @@ namespace Harikit.Server
         /// <summary>keys と同じ順で、見つかった行（キー列と columns）か null を返す。</summary>
         List<Row> FetchRows(TableMeta meta, IList<string> keyColumns, IList<string> columns, IList<Row> keys);
         /// <summary>fn の後、fn が true を返せばコミット、false ならロールバックする。例外でもロールバック。</summary>
-        void RunTransaction(Func<IHarikitTransaction, bool> fn);
+        void RunTransaction(Func<IPatchiriTransaction, bool> fn);
         /// <summary>
         /// 文字列の値（列名と値の組）が列の文字コードで表せるか、何バイトになるかを DB 自身に確かめる。
-        /// HarikitValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、これが最後の確認。
+        /// PatchiriValues の確認（.NET の文字コード）は DB のコードページと完全には一致しないので、これが最後の確認。
         /// 確かめない列（nvarchar など）の値には null を返す。
         /// </summary>
         List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items);

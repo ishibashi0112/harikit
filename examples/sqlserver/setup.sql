@@ -1,7 +1,7 @@
--- harikit の例で使うテーブル。SQL Server 用。
-IF DB_ID(N'HarikitSample') IS NULL CREATE DATABASE HarikitSample;
+-- patchiri の例で使うテーブル。SQL Server 用。
+IF DB_ID(N'PatchiriSample') IS NULL CREATE DATABASE PatchiriSample;
 GO
-USE HarikitSample;
+USE PatchiriSample;
 GO
 DROP TABLE IF EXISTS dbo.M_Product;
 DROP TABLE IF EXISTS dbo.M_Category;

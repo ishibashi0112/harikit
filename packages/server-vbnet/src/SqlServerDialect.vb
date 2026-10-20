@@ -16,10 +16,10 @@ Imports System.Text.RegularExpressions
 Imports Microsoft.VisualBasic
 Imports Row = System.Collections.Generic.Dictionary(Of String, Object)
 
-Namespace Global.Harikit.Server
+Namespace Global.Patchiri.Server
 
     Public NotInheritable Class SqlServerDialect
-        Implements IHarikitDialect
+        Implements IPatchiriDialect
 
         Private Shared ReadOnly TypeMap As New Dictionary(Of String, String) From {
             {"char", "string"}, {"varchar", "string"}, {"nchar", "string"}, {"nvarchar", "string"},
@@ -57,14 +57,14 @@ Namespace Global.Harikit.Server
             Me.lockWaitSeconds = lockWaitSeconds
         End Sub
 
-        ''' <summary>SqlException を HarikitDbException にする。ロック待ちの時間切れ（1222）には、人向けの固定の文を付ける。</summary>
-        Private Shared Function DbError(e As SqlException) As HarikitDbException
-            Dim result As New HarikitDbException(e.Message, e)
+        ''' <summary>SqlException を PatchiriDbException にする。ロック待ちの時間切れ（1222）には、人向けの固定の文を付ける。</summary>
+        Private Shared Function DbError(e As SqlException) As PatchiriDbException
+            Dim result As New PatchiriDbException(e.Message, e)
             If e.Number = 1222 Then result.PublicMessage = LockedMessage
             Return result
         End Function
 
-        Public ReadOnly Property Name As String Implements IHarikitDialect.Name
+        Public ReadOnly Property Name As String Implements IPatchiriDialect.Name
             Get
                 Return "sqlserver"
             End Get
@@ -94,7 +94,7 @@ Namespace Global.Harikit.Server
             Return QuoteName(p(0)) & "." & QuoteName(p(1))
         End Function
 
-        Public Function NormalizeTable(table As String) As String Implements IHarikitDialect.NormalizeTable
+        Public Function NormalizeTable(table As String) As String Implements IPatchiriDialect.NormalizeTable
             Dim p = SplitTableName(table)
             Return (p(0) & "." & p(1)).ToLowerInvariant()
         End Function
@@ -139,12 +139,12 @@ Namespace Global.Harikit.Server
 
         Private Shared Function ReadValue(col As ColumnMeta, v As Object) As Object
             If v Is Nothing OrElse TypeOf v Is DBNull Then Return Nothing
-            If col.Type = "datetime" OrElse col.Type = "time" Then Return HarikitValues.CanonicalFraction(Convert.ToString(v, CultureInfo.InvariantCulture))
+            If col.Type = "datetime" OrElse col.Type = "time" Then Return PatchiriValues.CanonicalFraction(Convert.ToString(v, CultureInfo.InvariantCulture))
             If TypeOf v Is String OrElse TypeOf v Is Boolean Then Return v
             If TypeOf v Is Byte OrElse TypeOf v Is Short OrElse TypeOf v Is Integer Then Return Convert.ToInt32(v, CultureInfo.InvariantCulture)
             ' real は Single のまま Double にする（0.1 を 0.1 にすると、送り返された before が DB の値と合わなくなる）。
-            If TypeOf v Is Single Then Return HarikitJson.JsonNumber(CDbl(DirectCast(v, Single)))
-            If TypeOf v Is Double Then Return HarikitJson.JsonNumber(DirectCast(v, Double))
+            If TypeOf v Is Single Then Return PatchiriJson.JsonNumber(CDbl(DirectCast(v, Single)))
+            If TypeOf v Is Double Then Return PatchiriJson.JsonNumber(DirectCast(v, Double))
             Return Convert.ToString(v, CultureInfo.InvariantCulture)
         End Function
 
@@ -166,19 +166,19 @@ Namespace Global.Harikit.Server
                     Return "@" & paramName
                 Case "tinyint"
                     p.SqlDbType = SqlDbType.TinyInt
-                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CByte(Math.Truncate(HarikitJson.ToDouble(v)))))
+                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CByte(Math.Truncate(PatchiriJson.ToDouble(v)))))
                     Return "@" & paramName
                 Case "smallint"
                     p.SqlDbType = SqlDbType.SmallInt
-                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CShort(Math.Truncate(HarikitJson.ToDouble(v)))))
+                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CShort(Math.Truncate(PatchiriJson.ToDouble(v)))))
                     Return "@" & paramName
                 Case "int"
                     p.SqlDbType = SqlDbType.Int
-                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CInt(Math.Truncate(HarikitJson.ToDouble(v)))))
+                    p.Value = If(v Is Nothing, DBNull.Value, CObj(CInt(Math.Truncate(PatchiriJson.ToDouble(v)))))
                     Return "@" & paramName
                 Case "real", "float"
                     p.SqlDbType = SqlDbType.Float
-                    p.Value = If(v Is Nothing, DBNull.Value, CObj(HarikitJson.ToDouble(v)))
+                    p.Value = If(v Is Nothing, DBNull.Value, CObj(PatchiriJson.ToDouble(v)))
                     Return "@" & paramName
                 Case "bit"
                     p.SqlDbType = SqlDbType.Bit
@@ -203,7 +203,7 @@ Namespace Global.Harikit.Server
                 Case "boolean"
                     Return If(DirectCast(v, Boolean), "1", "0")
                 Case "integer", "float"
-                    Return HarikitJson.FormatDouble(HarikitJson.ToDouble(v))
+                    Return PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v))
                 Case "bigint", "decimal"
                     Dim s = TryCast(v, String)
                     If s Is Nothing OrElse Not NumberLiteralRe.IsMatch(s) Then Throw New InvalidOperationException("数値ではない値: " & Convert.ToString(v))
@@ -265,7 +265,7 @@ Namespace Global.Harikit.Server
             Return rows
         End Function
 
-        Public Function DescribeTable(table As String) As TableMeta Implements IHarikitDialect.DescribeTable
+        Public Function DescribeTable(table As String) As TableMeta Implements IPatchiriDialect.DescribeTable
             Dim parts = SplitTableName(table)
             Dim qualified = QuoteTable(table)
             Using conn = Open()
@@ -276,7 +276,7 @@ Namespace Global.Harikit.Server
                     " FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id", conn)
                 cmd.Parameters.Add("@name", SqlDbType.NVarChar, 512).Value = qualified
                 Dim colRows = Query(cmd)
-                If colRows.Count = 0 Then Throw New HarikitDbException("テーブル " & table & " が見つかりません")
+                If colRows.Count = 0 Then Throw New PatchiriDbException("テーブル " & table & " が見つかりません")
                 Dim meta As New TableMeta With {.Table = parts(0) & "." & parts(1)}
                 For Each r In colRows
                     Dim baseType = Convert.ToString(r(1), CultureInfo.InvariantCulture)
@@ -370,7 +370,7 @@ Namespace Global.Harikit.Server
             End Try
         End Function
 
-        Public Function FetchRows(meta As TableMeta, keyColumns As IList(Of String), columns As IList(Of String), keys As IList(Of Row)) As List(Of Row) Implements IHarikitDialect.FetchRows
+        Public Function FetchRows(meta As TableMeta, keyColumns As IList(Of String), columns As IList(Of String), keys As IList(Of Row)) As List(Of Row) Implements IPatchiriDialect.FetchRows
             Dim keyCols = meta.ColumnsOf(keyColumns)
             Dim outCols = meta.ColumnsOf(columns)
             Dim output As New List(Of Row)()
@@ -406,7 +406,7 @@ Namespace Global.Harikit.Server
                         String.Join(", ", aliases) & ") JOIN " & QuoteTable(meta.Table) & " t ON " & String.Join(" AND ", joins)
                     For Each r In Query(cmd)
                         Dim index = start + Convert.ToInt32(r(0), CultureInfo.InvariantCulture)
-                        If output(index) IsNot Nothing Then Throw New HarikitDbException("キー " & HarikitJson.Stringify(keys(index)) & " に当たる行が複数あります（キーが一意ではありません）")
+                        If output(index) IsNot Nothing Then Throw New PatchiriDbException("キー " & PatchiriJson.Stringify(keys(index)) & " に当たる行が複数あります（キーが一意ではありません）")
                         Dim found As New Row()
                         For j = 0 To outCols.Count - 1
                             found(outCols(j).Name) = ReadValue(outCols(j), r(j + 1))
@@ -419,7 +419,7 @@ Namespace Global.Harikit.Server
         End Function
 
         Private NotInheritable Class MsTransaction
-            Implements IHarikitTransaction
+            Implements IPatchiriTransaction
 
             Private ReadOnly conn As SqlConnection
             Private ReadOnly tx As SqlTransaction
@@ -431,7 +431,7 @@ Namespace Global.Harikit.Server
                 Me.commandTimeout = commandTimeout
             End Sub
 
-            Public Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row) As LockedRow Implements IHarikitTransaction.LockAndCompare
+            Public Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row) As LockedRow Implements IPatchiriTransaction.LockAndCompare
                 Dim keyCols = meta.ColumnsOf(keyColumns)
                 Dim beforeCols = meta.ColumnsOf(before.Keys)
                 Dim cmd As New SqlCommand() With {.Connection = conn, .Transaction = tx, .CommandTimeout = commandTimeout}
@@ -453,11 +453,11 @@ Namespace Global.Harikit.Server
                 cmd.CommandText = "SELECT " & String.Join(", ", selects) & " FROM " & QuoteTable(meta.Table) & " WITH (UPDLOCK, HOLDLOCK) WHERE " & String.Join(" AND ", conds)
                 Dim rows = Query(cmd)
                 If rows.Count = 0 Then Return New LockedRow With {.Found = False}
-                If rows.Count > 1 Then Throw New HarikitDbException("キー " & HarikitJson.Stringify(key) & " に当たる行が " & rows.Count & " 行あります（キーが一意ではありません）")
+                If rows.Count > 1 Then Throw New PatchiriDbException("キー " & PatchiriJson.Stringify(key) & " に当たる行が " & rows.Count & " 行あります（キーが一意ではありません）")
                 Dim values = rows(0)
                 Dim locked As New LockedRow With {.Found = True, .Current = New Row(), .Changed = New List(Of String)(), .DbKey = New Row()}
                 For i = 0 To keyCols.Count - 1
-                    locked.DbKey(keyCols(i).Name) = HarikitValues.Canonical(keyCols(i).Type, ReadValue(keyCols(i), values(i)))
+                    locked.DbKey(keyCols(i).Name) = PatchiriValues.Canonical(keyCols(i).Type, ReadValue(keyCols(i), values(i)))
                 Next
                 For i = 0 To beforeCols.Count - 1
                     locked.Current(beforeCols(i).Name) = ReadValue(beforeCols(i), values(keyCols.Count + i))
@@ -466,7 +466,7 @@ Namespace Global.Harikit.Server
                 Return locked
             End Function
 
-            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row) As Integer Implements IHarikitTransaction.Update
+            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row) As Integer Implements IPatchiriTransaction.Update
                 Dim keyCols = meta.ColumnsOf(keyColumns)
                 Dim setCols = meta.ColumnsOf([set].Keys)
                 Dim cmd As New SqlCommand() With {.Connection = conn, .Transaction = tx, .CommandTimeout = commandTimeout}
@@ -499,7 +499,7 @@ Namespace Global.Harikit.Server
             End Function
         End Class
 
-        Public Sub RunTransaction(fn As Func(Of IHarikitTransaction, Boolean)) Implements IHarikitDialect.RunTransaction
+        Public Sub RunTransaction(fn As Func(Of IPatchiriTransaction, Boolean)) Implements IPatchiriDialect.RunTransaction
             Using conn = Open()
                 Dim tx As SqlTransaction = Nothing
                 Try
@@ -545,7 +545,7 @@ Namespace Global.Harikit.Server
             End Using
         End Sub
 
-        Public Function CheckStrings(meta As TableMeta, items As IList(Of KeyValuePair(Of String, String))) As List(Of StringCheck) Implements IHarikitDialect.CheckStrings
+        Public Function CheckStrings(meta As TableMeta, items As IList(Of KeyValuePair(Of String, String))) As List(Of StringCheck) Implements IPatchiriDialect.CheckStrings
             Dim output As New List(Of StringCheck)()
             Dim byColumn As New Dictionary(Of String, List(Of Integer))()
             For i = 0 To items.Count - 1
@@ -589,12 +589,12 @@ Namespace Global.Harikit.Server
             Return output
         End Function
 
-        Public Function RenderScript(meta As TableMeta, head As String, updates As IList(Of ScriptUpdate), kind As String) As String Implements IHarikitDialect.RenderScript
+        Public Function RenderScript(meta As TableMeta, head As String, updates As IList(Of ScriptUpdate), kind As String) As String Implements IPatchiriDialect.RenderScript
             Dim lines As New List(Of String) From {head}
             If kind = "apply" Then
                 lines.Add("-- 1 つのトランザクションで流す。どれかの行が見つからないか値が変わっていたら、何も反映せずに止まる（エラー 50001）。")
             Else
-                lines.Add("-- 今の値が harikit で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。")
+                lines.Add("-- 今の値が patchiri で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。")
             End If
             lines.Add("SET XACT_ABORT ON;")
             lines.Add("BEGIN TRANSACTION;")
@@ -603,7 +603,7 @@ Namespace Global.Harikit.Server
                 ' 後から人が流したときに、変わっていた行だけ黙って飛ばさない。XACT_ABORT ON なので THROW で全部戻る。
                 ' @@ROWCOUNT はトリガーがあっても UPDATE 文そのものの行数。
                 If kind = "apply" Then
-                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " & NString("harikit: 行が見つからないか、値が変わっています（" & KeyText(u.Key) & "）。何も反映していません") & ", 1;")
+                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " & NString("patchiri: 行が見つからないか、値が変わっています（" & KeyText(u.Key) & "）。何も反映していません") & ", 1;")
                 End If
             Next
             lines.Add("COMMIT;")
@@ -626,8 +626,8 @@ Namespace Global.Harikit.Server
                     text = DirectCast(v, String)
                 ElseIf TypeOf v Is Boolean Then
                     text = If(DirectCast(v, Boolean), "true", "false")
-                ElseIf HarikitJson.IsNumber(v) Then
-                    text = HarikitJson.FormatDouble(HarikitJson.ToDouble(v))
+                ElseIf PatchiriJson.IsNumber(v) Then
+                    text = PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v))
                 Else
                     text = Convert.ToString(v, CultureInfo.InvariantCulture)
                 End If

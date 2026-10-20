@@ -7,9 +7,9 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace Harikit.Server
+namespace Patchiri.Server
 {
-    public static class HarikitFileLog
+    public static class PatchiriFileLog
     {
         static readonly object sync = new object();
         static readonly Encoding Utf8 = new UTF8Encoding(false);
@@ -17,7 +17,7 @@ namespace Harikit.Server
         public static void WriteApply(string dir, Dictionary<string, object> entry)
         {
             var appliedAt = entry["appliedAt"] as string ?? DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            Append(dir, "apply-" + appliedAt.Substring(0, 10) + ".jsonl", HarikitJson.Stringify(entry) + "\n");
+            Append(dir, "apply-" + appliedAt.Substring(0, 10) + ".jsonl", PatchiriJson.Stringify(entry) + "\n");
         }
 
         public static void WriteError(string dir, Exception e)
