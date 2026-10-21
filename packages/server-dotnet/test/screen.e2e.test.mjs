@@ -124,7 +124,9 @@ async function open(user) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  // 読めなかったものは URL 付きで残す。favicon.ico は載せ先のサイトのもの（Edge はサイトの直下に取りに行き、IIS の既定のサイトにはない）。
+  page.on("response", (r) => r.status() >= 400 && !new URL(r.url()).pathname.endsWith("/favicon.ico") && errors.push(`HTTP ${r.status()}: ${r.url()}`));
+  page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && errors.push(m.text()));
   await page.goto(`${url}/${PAGE}`);
   assert.match(page.url(), /Login\.aspx\?ReturnUrl=/, "ログインしていなければ、画面の前に載せ先のログインの画面に回る");
   await page.getByLabel("ユーザー").fill(user);
