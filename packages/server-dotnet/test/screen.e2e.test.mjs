@@ -81,9 +81,10 @@ before(async () => {
 `,
   );
   // 載せ先のログインの画面の代わり。パスワードが pw なら、その名前でログインしたことにする。
+  // 日本語を含むので BOM を付ける（BOM がないと IIS の ASP.NET は OS の既定の文字コードで読み、ラベルが化ける）。
   await writeFile(
     join(root, "Login.aspx"),
-    `<%@ Page Language="C#" %>
+    `\ufeff<%@ Page Language="C#" %>
 <script runat="server">
   protected void Page_Load(object sender, EventArgs e) {
     if (Request.HttpMethod == "POST" && Request.Form["password"] == "pw") FormsAuthentication.RedirectFromLoginPage(Request.Form["user"], false);
