@@ -111,7 +111,7 @@
 - [x] 入力の揺れ（全角半角、空白）を自動で直すか、エラーにするか → 文字列の列は直さず、数・日付の列は Excel の表示の形を読み替えて見せる（2026-10-17、[5 章](#入力の揺れと-excel-の表示の形2026-10-17-決定)）
 - [ ] 承認をツールの中で持つか、外（メールや稟議）に任せるか
 - [x] 最初の UI をどれにするか（Excel 取込か、spreadsheet-grid 貼付か）→ CLI の Excel / CSV 取込から始め、spreadsheet-grid に貼り付ける画面も足した（2026-10-17）
-- [x] 対応 DB の順番（SQL Server と Oracle から、次に PostgreSQL と MySQL）→ PostgreSQL と MySQL / MariaDB を Node 版サーバに足した（2026-10-20）。C# 版と VB.NET 版、SQLite はまだ
+- [x] 対応 DB の順番（SQL Server と Oracle から、次に PostgreSQL と MySQL）→ PostgreSQL と MySQL / MariaDB を Node 版サーバに足した（2026-10-20）。C# 版と VB.NET 版にも Oracle を足した（2026-10-21）。C# 版と VB.NET 版の PostgreSQL と MySQL / MariaDB、SQLite はまだ
 - [ ] ashiato と共通にできる部分（DB アダプタ、Excel 出力）を共有するか
 - [x] API 3 本の詳しい形（JSON の形、エラーの返し方、認証は既存アプリに任せるか）→ [api-spec.md](api-spec.md) の v1 で決め、Node 版・C# 版・VB.NET 版がそれに沿う（2026-10-17）
 
@@ -120,6 +120,6 @@
 1. リポジトリを作る（README、CLAUDE.md、このファイル）
 2. API 3 本の仕様を先に決める（ブラウザ側コアとサーバの境目なので、ここが土台）
 3. SQL Server で「1 テーブル、UPDATE だけ、Excel 取込」の一番細い道を通す
-4. 同じ細い道を広げる: 表への貼り付け画面、C# 版と VB.NET 版のサーバ（WebForms）、Oracle と PostgreSQL と MySQL / MariaDB（Node 版）、ドキュメントとデモのサイト ← 今ここ（2026-10-21）
+4. 同じ細い道を広げる: 表への貼り付け画面、C# 版と VB.NET 版のサーバ（WebForms。載せたページから画面も使える）、Oracle と PostgreSQL と MySQL / MariaDB（Node 版。C# 版と VB.NET 版は Oracle まで）、ドキュメントとデモのサイト ← 今ここ（2026-10-21）
 
-この先の候補: C# 版・VB.NET 版を画面から使う入口（今の画面は Node 版サーバにしかつながらない）、C# 版・VB.NET 版の Oracle、npm への公開、[9 章](#9-まだ決めていないこと)の未決事項。
+この先の候補: npm への公開、[9 章](#9-まだ決めていないこと)の未決事項。

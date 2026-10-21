@@ -1,6 +1,6 @@
 # patchiri サーバ API 仕様（v1 草案）
 
-> 2026-10-17 草案（2026-10-20 に PostgreSQL と MySQL / MariaDB を追記、2026-10-21 に実装とのズレを直した）。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
+> 2026-10-17 草案（2026-10-20 に PostgreSQL と MySQL / MariaDB を追記、2026-10-21 に実装とのズレを直し、C# 版・VB.NET 版の Oracle のメモを足した）。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
 > 範囲は「SQL Server、Oracle、PostgreSQL、MySQL / MariaDB の 1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
 
 ## 1. 全体の約束
@@ -563,11 +563,15 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`（載せ先が匿名を通す設定でログインしていないときは `"(anonymous)"`）。
 - 権限チェックは載せ先の仕組み（`web.config` の `<authorization>`、ロール判定など）に任せる。
 - `maxBytes` と表せない字の確認は `Encoding.GetEncoding(codePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback)` の `GetByteCount` でできる（[文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）。
-- Oracle はこれから。ODP.NET Managed Driver（`Oracle.ManagedDataAccess`、.NET Framework 4.x、Oracle Client 不要）でできる見込み（未確認）。`OracleCommand.BindByName = true`、`NVARCHAR2` は `OracleDbType.NVarchar2`、NUMBER は `OracleDecimal` か文字列で受ける。比べ方、ロック、スクリプトの書き方は Node 版の `oracle.ts` に合わせる。
+- DB は web.config の接続文字列の `providerName` で選ぶ（省くか `System.Data.SqlClient` なら SQL Server、`Oracle.ManagedDataAccess.Client` なら Oracle）。
+- Oracle のドライバは ODP.NET Managed Driver（NuGet の `Oracle.ManagedDataAccess`、Oracle Client 不要）。コンパイル時には参照せず、`DbProviderFactories` か `bin` の DLL から名前で読み込み、ADO.NET の共通の型で使う（SQL Server だけの載せ先に DLL を要らせず、載せ先が入れた版をそのまま使うため）。ODP.NET にしかない `OracleCommand.BindByName = true` と `OracleParameter.OracleDbType`（`NVARCHAR2` / `NCHAR` は `NVarchar2`）だけリフレクションで触る。ODP.NET 23.x と 19.x で確かめる。
+- Oracle の NUMBER は .NET の `decimal`（28 桁）に収まらないことがある（`NUMBER(38)` で `OverflowException`）ので、Node 版と同じく `TO_CHAR` で文字列にして読み、`TO_NUMBER(:p)` で渡す。DATE / TIMESTAMP も Node 版と同じ。`BOOLEAN`（23ai）は `CASE WHEN 列 THEN 1 …` で読み、`TO_BOOLEAN(:p)` に文字列で渡す（19.x の ODP.NET は BOOLEAN を扱えないため）。
+- ODP.NET はセッションの `NLS_NUMERIC_CHARACTERS` と `NLS_SORT` を載せ先の .NET のカルチャから決める（de-DE なら `',.'` と `GERMAN`）。つないだら `NLS_COMP` / `NLS_SORT` を `BINARY`、`NLS_NUMERIC_CHARACTERS` を `'.,'` にし（違うときだけ）、接続をプールに返す前に元の値に戻す（載せ先のアプリと同じプールを使いうるため）。
+- 比べ方、ロック（`FOR UPDATE WAIT n`）、スクリプトの書き方は Node 版の `oracle.ts` と同じ文面。
 
 ### 適合テスト
 - これから。仕様どおりかを確かめるテスト一式（リクエストと期待するレスポンスの JSON の組）をリポジトリに置き、どの版にも同じものを流せるようにする。他の言語で作る人もこれで確かめられる。
-- 今は、C# 版と VB.NET 版が同じテスト（`packages/server-dotnet/test`）を実際の SQL Server で共有し、Node 版は DB ごとのテスト（`packages/server-node/test/*.integration.test.ts`）を持つ。どちらも同じ `patchiri-core` のクライアントで呼ぶ。
+- 今は、C# 版と VB.NET 版が同じテスト（`packages/server-dotnet/test`）を実際の SQL Server と Oracle で共有し、Node 版は DB ごとのテスト（`packages/server-node/test/*.integration.test.ts`）を持つ。どちらも同じ `patchiri-core` のクライアントで呼ぶ。
 
 ## 9. この草案で選んだ既定（変えたければここ）
 
@@ -588,5 +592,5 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - **INSERT / DELETE**: `rows[].op` に `"insert"`（`after` だけ）、`"delete"`（`before` だけ、全列一致で消す）を足す。許可リストに `insertable` / `deletable` を足す。
 - **複数テーブル**: `changes` に複数のターゲットを並べ、まとめて1トランザクションにする。並び順＝実行順（親→子）。
 - **一部だけ反映**: `onConflict: "skipRow"` を足す（既定は今のまま全部止める）。
-- **ほかの DB**: `dialect` を増やす。API の形は変えない（Oracle、PostgreSQL、MySQL / MariaDB はこの形で足した。SQLite はまだ）。C# 版と VB.NET 版はまだ SQL Server だけ。
+- **ほかの DB**: `dialect` を増やす。API の形は変えない（Oracle、PostgreSQL、MySQL / MariaDB はこの形で足した。SQLite はまだ）。C# 版と VB.NET 版は SQL Server と Oracle（PostgreSQL と MySQL / MariaDB はまだ）。
 - **自動で入れる列**: 許可リストに `stamp`（例 `UpdatedAt = 現在時刻`、`UpdatedBy = 実行者`）を足し、サーバが UPDATE に加える。
