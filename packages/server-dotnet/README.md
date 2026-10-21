@@ -2,6 +2,7 @@
 
 サーバ API 3 本（[docs/api-spec.md](../../docs/api-spec.md) の describe / fetch / apply）の C# 参考実装。
 既存の ASP.NET WebForms アプリに、ソースと `.aspx` 1 枚を足して WebMethod として載せる。今は SQL Server だけ。
+そのページをブラウザで開くと画面（[packages/web](../web)）が出るので、載せ先のログインのまま、貼り付けから反映までできる。
 VB.NET のアプリ（Web サイトの `App_Code` など）には、同じものを VB.NET で書いた [packages/server-vbnet](../server-vbnet) を置く。こちらを直したら VB.NET 版も同じように直す（同じテストで両方を通している）。
 
 - .NET Framework 4.5 以上を想定（使っている API は 4.0 からあるものだけ）。CI では Windows の IIS と .NET Framework 4.8 に載せ、実際の SQL Server で通している（下の「テスト」）。
@@ -14,9 +15,13 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
 1. **ソースを置く**
    - Web サイト: `src/*.cs` を `App_Code/Patchiri/` に置く。
    - Web アプリケーションプロジェクト: `src/*.cs` をプロジェクトに足す。DLL にしたければ `build.cmd` で `bin\Patchiri.Server.dll` を作って参照に足す。
-2. **ページを置く**: `web/Patchiri.aspx` をアプリの中に置く（例 `Admin/Patchiri.aspx`）。中身は `[WebMethod]` が 3 つで、`PatchiriWebMethods.Call` を呼ぶだけ。コードビハインドに移してもよい。
-3. **許可リストを置く**: `App_Data/patchiri.config.json`（例 [web/App_Data/patchiri.config.json](web/App_Data/patchiri.config.json)）。形は Node 版の `patchiri.config.json` と同じ（下の「設定」）。
-4. **web.config に足す**
+2. **ページを置く**: `web/Patchiri.aspx` をアプリの中に置く（例 `Admin/Patchiri.aspx`）。名前と置き場所は自由で、`Admin/MasterUpdate.aspx` などにしてよい（ページは自分の URL を見て動く）。中身は `[WebMethod]` が 3 つ（`PatchiriWebMethods.Call` を呼ぶ）と、ブラウザで開いたときに画面を返す `Page_Load`（`PatchiriScreen.Write` を呼ぶ）だけ。コードビハインドに移してもよい。
+3. **画面のファイルを置く**: 画面（patchiri-web の同梱アプリ `dist/app`）の `main.js`、`main.css`、`main.js.LEGAL.txt`（中に入れたライブラリのライセンス）を、ページの隣の `patchiri/` に置く（例 `Admin/patchiri/main.js`）。このリポジトリなら `npm ci && npm run build` で `packages/web/dist/app` にできる。
+   - 置き場所を変えるときは web.config の `appSettings` に `<add key="patchiri:assets" value="~/Scripts/patchiri/" />`（`~/` はアプリの根から、ほかはページのフォルダから）。
+   - 置き忘れると、ページを開いたときに足りないファイルの場所が出る。入れ替えたら、ブラウザは次に開いたときに読み直す（URL にファイルの更新日時を付けている）。
+   - 中身はプログラムだけなので、このフォルダに権限を掛ける必要はない。
+4. **許可リストを置く**: `App_Data/patchiri.config.json`（例 [web/App_Data/patchiri.config.json](web/App_Data/patchiri.config.json)）。形は Node 版の `patchiri.config.json` と同じ（下の「設定」）。
+5. **web.config に足す**
 
 ```xml
 <configuration>
@@ -25,7 +30,7 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
     <add name="Patchiri" connectionString="Server=...;Database=...;Integrated Security=SSPI" />
   </connectionStrings>
 
-  <!-- 認証と権限はこのページに掛ける（patchiri 自体はユーザー管理を持たない）。 -->
+  <!-- 認証と権限はこのページに掛ける（patchiri 自体はユーザー管理を持たない）。画面と API の両方に効く。 -->
   <location path="Admin/Patchiri.aspx">
     <system.web>
       <authorization>
@@ -48,8 +53,10 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
 </configuration>
 ```
 
-5. **呼ぶ**: クライアントの設定は `{ baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }`。CLI なら `--server https://.../Admin/Patchiri.aspx --style webmethod`。
-   - CLI は載せ先のログイン（フォーム認証のクッキー、Windows 認証）を通せないので、今のところ CLI から呼べるのはログインなしで開ける開発環境だけ。ブラウザ側の UI ができれば、同じアプリのログインのまま使える。
+6. **開く**: ブラウザで `https://.../Admin/Patchiri.aspx` を開く。載せ先にログインしていれば、そのまま画面が出る（使い方は [サイトの「画面で使う」](https://patchiri.vercel.app/usage/web/)）。見出しの右に、反映ログに残るログイン名が出る。
+   - Edge か Chrome で開く。Internet Explorer と Edge の IE モードでは動かない（その旨の案内が出る）。載せ先のアプリが IE モードのサイト一覧に入っているときは、このページを外す。
+   - ログインが切れたら（フォーム認証のタイムアウトなど）、画面は貼った表を残したまま「別のタブでログインし直してから、もう一度押してください」と出す。ログインし直せば、元のタブでそのまま続けられる。
+   - ほかのクライアントから呼ぶときの設定は `{ baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }`。CLI なら `--server https://.../Admin/Patchiri.aspx --style webmethod`。ただし CLI は載せ先のログイン（フォーム認証のクッキー、Windows 認証）を通せないので、CLI から呼べるのはログインなしで開ける開発環境だけ。
 
 ## 設定（patchiri.config.json）
 
@@ -89,23 +96,25 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
 - **数値と日付**: カルチャに依らない書き方（`InvariantCulture`）で読み書きする。正規表現は `\d`（全角数字にも当たる）と `$`（末尾の改行の前にも当たる）を使わない。`requestId` に改行が入るとスクリプトのコメントを抜けられるため。
 - **real / float の値**: `JavaScriptSerializer` は指数のない数を decimal で読むが、`Convert.ToDouble(decimal)` は最も近い double にならないことがある（real の 0.11 である 0.10999999940395355 など）。送り返された `before` が DB の値とずれて毎回衝突するので、文字列を通して読む。返すときも、.NET Framework の `"R"` が x64 で読み戻せない形を返すことがあるため、読み戻せることを確かめた decimal にして渡す。
 - **パラメータの長さ**: SqlClient は `Size` より長い値を黙って切る（先頭に 0 が並ぶ長い数の文字列が 0 になる、など）。列や既定の長さより長い値は長いまま渡し、DB に読ませるか弾かせる。
-- **CSRF**: `X-Patchiri: 1` がなければ 403。`application/json` でない呼び出しは WebMethod に届かず、ページが 415 を返す（GET は 404）。
+- **CSRF**: `X-Patchiri: 1` がなければ 403。`application/json` でない呼び出しは WebMethod に届かず、ページが 415 を返す（GET は画面）。
+- **画面のページ**: HTML はサーバで書き（`PatchiriScreen`）、ログイン名などは HTML に入れるときにエスケープする。Content-Security-Policy（スクリプトと通信は同じオリジンだけ）と `X-Frame-Options: SAMEORIGIN` を付ける。載せ先が `globalization` の `responseEncoding` を Shift_JIS などにしていても UTF-8 で返す。
 - **ソースの文字コード**: `.cs` と `.aspx` は BOM 付きの UTF-8 にしてある。BOM がないと ASP.NET が OS の既定の文字コード（日本語の Windows なら Shift_JIS）で読むことがあり、日本語のコメントで壊れうるため。
 
 ## テスト
 
-Linux でも、Mono の ASP.NET で `Patchiri.aspx` を動かして、実際の SQL Server で通せる（`mono-complete` が要る）。
+Linux でも、Mono の ASP.NET で `Patchiri.aspx` を動かして、実際の SQL Server で通せる（`mono-complete` と、画面のテストには Playwright の Chromium が要る）。
 
 ```sh
 PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 ```
 
-- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、値の厳密な比べ方（全角半角・かな・末尾の空白）、止まる `script`、ロック待ちの打ち切り、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 404 / 415、`maxJsonLength` の手前で止めることを足したもの。
+- [test/screen.e2e.test.mjs](test/screen.e2e.test.mjs): 画面を本物のブラウザで通す。載せ先によくある形（フォーム認証、ページは `Admin/MasterUpdate.aspx` に名前を変えて置き、特定のユーザーだけに許す）で、ログイン → 貼り付け → 検証 → DB で確かめる → 反映、反映ログの「誰が」、権限のない人は画面も API も使えないこと、ログインが切れたときの案内と別のタブでログインし直して続けられることを見る。ブラウザは Playwright の Chromium（`npx playwright install chromium`）。入っているブラウザを使うなら `PATCHIRI_TEST_BROWSER_CHANNEL=msedge` など、途中の画面を残すなら `PATCHIRI_TEST_SCREENSHOTS` にフォルダを渡す。
+- [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、値の厳密な比べ方（全角半角・かな・末尾の空白）、止まる `script`、ロック待ちの打ち切り、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 415、ページを開いたときの画面の HTML、`maxJsonLength` の手前で止めることを足したもの。
 - [test/host.mjs](test/host.mjs): ページを載せる Web のフォルダを作り、ASP.NET で動かす。環境変数で選ぶ。
   - `PATCHIRI_TEST_DOTNET_HOST`: `mono`（既定。[test/TestHost.cs](test/TestHost.cs) の小さなホストで動かす。Ubuntu の `xsp4` は今の Mono では起動しないため）か `iis`（Windows の IIS に、テストごとにアプリプールとアプリを作って載せる。管理者で動かす）。
   - `PATCHIRI_TEST_DOTNET_LAYOUT`: `bin`（既定。`build.cmd` か `build.sh` で作った DLL を置く）か `app_code`（`src/*.cs` を `App_Code/Patchiri/` に置き、ASP.NET にビルドさせる）。
   - `PATCHIRI_TEST_DOTNET_PKG`: 載せるパッケージ（既定 `packages/server-dotnet`）。
-- CI では加えて、Windows のランナーに SQL Server Express（今は 2025）と IIS（ASP.NET 4.8）を入れ、IIS に `app_code` と `bin` の両方の形で載せて同じテストを流す（[.github/workflows/ci.yml](../../.github/workflows/ci.yml) の `iis`）。`app_code` の形では、IIS が .NET Framework 付属のコンパイラ（C# 5）でビルドするので、`App_Code` に置いたまま通るかも確かめられる。
+- CI では加えて、Windows のランナーに SQL Server Express（今は 2025）と IIS（ASP.NET 4.8）を入れ、IIS に `app_code` と `bin` の両方の形で載せて同じテストを流す（画面のテストは Windows の Edge で、途中の画面は artifacts の `screens-*` に残す）（[.github/workflows/ci.yml](../../.github/workflows/ci.yml) の `iis`）。`app_code` の形では、IIS が .NET Framework 付属のコンパイラ（C# 5）でビルドするので、`App_Code` に置いたまま通るかも確かめられる。
 
 ## ファイル
 
@@ -117,6 +126,7 @@ PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm ru
 | `src/PatchiriValues.cs` | 値の形の確認と比較（コアの `values.ts` と同じ判定） |
 | `src/PatchiriConfig.cs` | 許可リストと設定の読み込み |
 | `src/PatchiriWebMethods.cs` | WebMethod からの入口（ヘッダの確認、設定の読み込み、ログイン名） |
+| `src/PatchiriScreen.cs` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所） |
 | `src/PatchiriFileLog.cs` | 反映ログとエラーのファイル出力 |
 | `src/PatchiriJson.cs` | `JavaScriptSerializer` の形を扱う小道具 |
-| `web/Patchiri.aspx` | 載せ先に置くページ |
+| `web/Patchiri.aspx` | 載せ先に置くページ（名前は自由） |

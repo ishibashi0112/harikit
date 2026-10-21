@@ -12,6 +12,8 @@ node packages/server-node/dist/src/main.js -c patchiri.config.json
 
 この URL をブラウザで開くと、そのままつながります（トークンはアドレス欄から消え、そのタブのあいだだけ覚えます）。サーバの立て方は [Node 版サーバ](/servers/node/)を見てください。
 
+WebForms のアプリに載せた C# 版・VB.NET 版では、載せたページ（例 `Admin/Patchiri.aspx`）を開くと、同じ画面が載せ先のログインのまま出ます（[WebForms に載せる](/servers/webforms/)）。
+
 ## 使い方
 
 1. **対象を選ぶ**: 見出しの「対象」で、更新するテーブル（許可リストのターゲット）を選びます。右の欄に、キーの列と更新できる列が出ます。
@@ -45,4 +47,4 @@ node packages/server-node/dist/src/main.js -c patchiri.config.json
 
 ## ほかの React アプリに埋め込む
 
-画面は React の部品（`PatchiriApp`）としても使えます。つなぐ先（`PatchiriClient`）を渡せば、WebForms の WebMethod など、Node 版サーバ以外にもつなげます。詳しくは [packages/web の README](https://github.com/ishibashi0112/patchiri/tree/main/packages/web) を見てください。
+画面は React の部品（`PatchiriApp`）としても使えます。つなぐ先（`PatchiriClient`）を渡せば、Node 版サーバ以外にもつなげます。詳しくは [packages/web の README](https://github.com/ishibashi0112/patchiri/tree/main/packages/web) を見てください。

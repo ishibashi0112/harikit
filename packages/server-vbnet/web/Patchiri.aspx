@@ -3,9 +3,9 @@
 <%@ Import Namespace="System.Web.Services" %>
 <%@ Import Namespace="Patchiri.Server" %>
 <script runat="server">
-    ' patchiri のサーバ API 3 本（docs/api-spec.md、webmethod スタイル）。
-    ' クライアント設定の例: { baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }
-    ' 認証と権限はこのページに掛ける（web.config の <location path="Admin/Patchiri.aspx"> と <authorization> など）。
+    ' patchiri のサーバ API 3 本（docs/api-spec.md、webmethod スタイル）と、それを使う画面。
+    ' ブラウザでこのページを開くと画面が出る（画面のファイルは隣の patchiri/ に置く。PatchiriScreen.vb）。ページの名前と置き場所は自由。
+    ' 認証と権限はこのページに掛ける（web.config の <location path="Admin/Patchiri.aspx"> と <authorization> など）。画面と API の両方に効く。
 
     <WebMethod()>
     Public Shared Function Describe(req As Dictionary(Of String, Object)) As Dictionary(Of String, Object)
@@ -22,14 +22,10 @@
         Return PatchiriWebMethods.Call("apply", req)
     End Function
 
-    ' WebMethod 以外の呼び出し（ページそのもの）には何も見せない。
+    ' WebMethod 以外の呼び出し（ページそのもの）: GET は画面、application/json でない POST は 415、ほかは 404。
     ' 載せ先の web.config が autoEventWireup をどちらにしていても動くよう、Page の指定で false にして Handles でつなぐ。
     Private Sub Page_Load(sender As Object, e As EventArgs) Handles Me.Load
-        Dim post = String.Equals(Request.HttpMethod, "POST", StringComparison.Ordinal)
-        Response.Clear()
-        Response.StatusCode = If(post, 415, 404)
-        Response.ContentType = "text/plain"
-        Response.Write(If(post, "application/json required", "not found"))
+        PatchiriScreen.Write(Context)
         Response.End()
     End Sub
 </script>

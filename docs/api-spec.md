@@ -558,7 +558,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - 1つの `.aspx`（例 `Patchiri.aspx`）に `[WebMethod]` を3つ置く: `Describe`、`Fetch`、`Apply`。引数は `Dictionary<string, object> req`、戻り値は `Dictionary<string, object>`（`{"d": ...}` は ASP.NET が付ける）。
 - 例外は WebMethod の中で捕まえて `ok:false` に直す（[1.5](#15-結果とエラーの返し方)）。
 - WebMethod の受け取りと返しの両方に効くのは `web.config` の `system.web.extensions/scripting/webServices/jsonSerialization` の `maxJsonLength`（Mono の既定は 2097152）。超えると HTTP 500（`Maximum length exceeded`）になるので、上げる手順を README に書き、apply と fetch は DB を変える前に結果の長さを見て `too_many_rows`（`details.maxJsonLength`、`details.length`）で止める（[7](#7-apply反映) の手順 1）。
-- `application/json` でない POST は WebMethod に届かずページそのものが動くので、ページ側で 415 を返す（GET は 404）。
+- `application/json` でない POST は WebMethod に届かずページそのものが動くので、ページ側で 415 を返す。GET は画面（patchiri-web の同梱アプリ）を返し、画面は同じページの WebMethod を呼ぶ（載せ先のログインと、ページに掛けた権限がそのまま効く）。ページの名前と置き場所は載せ先が決めてよい。
 - 日付は `DateTime` をそのまま返すと `"\/Date(...)\/"` になるので、必ず [1.3](#13-値の書き方json-と-db-型の対応) の文字列に変換して返す。`decimal` も文字列で返す。
 - 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`（載せ先が匿名を通す設定でログインしていないときは `"(anonymous)"`）。
 - 権限チェックは載せ先の仕組み（`web.config` の `<authorization>`、ロール判定など）に任せる。

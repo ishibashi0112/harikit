@@ -3,9 +3,9 @@
 <%@ Import Namespace="System.Web.Services" %>
 <%@ Import Namespace="Patchiri.Server" %>
 <script runat="server">
-    // patchiri のサーバ API 3 本（docs/api-spec.md、webmethod スタイル）。
-    // クライアント設定の例: { baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }
-    // 認証と権限はこのページに掛ける（web.config の <location path="Admin/Patchiri.aspx"> と <authorization> など）。
+    // patchiri のサーバ API 3 本（docs/api-spec.md、webmethod スタイル）と、それを使う画面。
+    // ブラウザでこのページを開くと画面が出る（画面のファイルは隣の patchiri/ に置く。PatchiriScreen.cs）。
+    // 認証と権限はこのページに掛ける（web.config の <location path="Admin/Patchiri.aspx"> と <authorization> など）。画面と API の両方に効く。
 
     [WebMethod]
     public static Dictionary<string, object> Describe(Dictionary<string, object> req)
@@ -25,13 +25,10 @@
         return PatchiriWebMethods.Call("apply", req);
     }
 
-    // WebMethod 以外の呼び出し（ページそのもの）には何も見せない。
+    // WebMethod 以外の呼び出し（ページそのもの）: GET は画面、application/json でない POST は 415、ほかは 404。
     protected void Page_Load(object sender, EventArgs e)
     {
-        Response.Clear();
-        Response.StatusCode = Request.HttpMethod == "POST" ? 415 : 404;
-        Response.ContentType = "text/plain";
-        Response.Write(Request.HttpMethod == "POST" ? "application/json required" : "not found");
+        PatchiriScreen.Write(Context);
         Response.End();
     }
 </script>

@@ -83,8 +83,8 @@ namespace Patchiri.Server
             }
         }
 
-        /// <summary>反映した人。載せ先の認証（フォーム認証、Windows 認証など）が決めた名前を使う。</summary>
-        static string CurrentUser()
+        /// <summary>反映した人。載せ先の認証（フォーム認証、Windows 認証など）が決めた名前を使う。画面の見出しにも出す。</summary>
+        internal static string CurrentUser()
         {
             var ctx = HttpContext.Current;
             if (ctx != null && ctx.User != null && ctx.User.Identity != null && ctx.User.Identity.IsAuthenticated) return ctx.User.Identity.Name;

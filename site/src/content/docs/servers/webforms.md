@@ -1,9 +1,9 @@
 ---
 title: WebForms に載せる（C#・VB.NET）
-description: 既存の ASP.NET WebForms のアプリに、WebMethod として API 3 本を足す
+description: 既存の ASP.NET WebForms のアプリに、API 3 本と画面を足す
 ---
 
-既存の ASP.NET WebForms のアプリに、ソースと `.aspx` 1 枚を足して、API 3 本を WebMethod として載せます。認証と権限は載せ先のアプリのものをそのまま使うので、patchiri 自体はユーザー管理を持ちません。今は SQL Server だけです。
+既存の ASP.NET WebForms のアプリに、ソースと `.aspx` 1 枚を足して、API 3 本を WebMethod として載せます。そのページをブラウザで開くと画面が出るので、載せ先のアプリにログインしたまま、貼り付けから反映までできます。認証と権限は載せ先のアプリのものをそのまま使うので、patchiri 自体はユーザー管理を持ちません。今は SQL Server だけです。
 
 | | C# 版 | VB.NET 版 |
 | --- | --- | --- |
@@ -13,14 +13,15 @@ description: 既存の ASP.NET WebForms のアプリに、WebMethod として AP
 
 - .NET Framework 4.5 以上。参照するのは `System.Data`、`System.Configuration`、`System.Web`、`System.Web.Extensions`（VB.NET 版は `System.Core` も）だけで、NuGet は要りません。
 - Web サイト（プロジェクトファイルなし）の `App_Code` でも、.NET Framework 付属のコンパイラのまま通ります。
-- CI では Windows の IIS と .NET Framework 4.8 に、`App_Code` と `bin`（DLL）の両方の形で載せ、実際の SQL Server でテストしています。
+- CI では Windows の IIS と .NET Framework 4.8 に、`App_Code` と `bin`（DLL）の両方の形で載せ、実際の SQL Server でテストしています。画面も Edge でログインから反映まで通しています。
 
 ## 載せ方
 
 1. **ソースを置く**: Web サイトなら `App_Code/Patchiri/` に、Web アプリケーションプロジェクトならプロジェクトに足します。DLL にしたければ `build.cmd` で `bin\Patchiri.Server.dll` を作ります。
-2. **ページを置く**: `web/Patchiri.aspx` をアプリの中に置きます（例 `Admin/Patchiri.aspx`）。
-3. **許可リストを置く**: `App_Data/patchiri.config.json`。`targets` と `limits` の形は Node 版と同じです（[許可リストと設定](/usage/config/)）。
-4. **web.config に足す**:
+2. **ページを置く**: `web/Patchiri.aspx` をアプリの中に置きます（例 `Admin/Patchiri.aspx`）。名前と置き場所は自由で、`Admin/MasterUpdate.aspx` などにしてもかまいません。
+3. **画面のファイルを置く**: 画面（`patchiri-web` の `dist/app`）の `main.js`、`main.css`、`main.js.LEGAL.txt` を、ページの隣の `patchiri/` に置きます（例 `Admin/patchiri/main.js`）。置き場所は web.config の `appSettings` の `patchiri:assets`（例 `~/Scripts/patchiri/`）で変えられます。
+4. **許可リストを置く**: `App_Data/patchiri.config.json`。`targets` と `limits` の形は Node 版と同じです（[許可リストと設定](/usage/config/)）。
+5. **web.config に足す**:
 
 ```xml
 <configuration>
@@ -29,7 +30,7 @@ description: 既存の ASP.NET WebForms のアプリに、WebMethod として AP
     <add name="Patchiri" connectionString="Server=...;Database=...;Integrated Security=SSPI" />
   </connectionStrings>
 
-  <!-- 認証と権限はこのページに掛ける。 -->
+  <!-- 認証と権限はこのページに掛ける。画面と API の両方に効く。 -->
   <location path="Admin/Patchiri.aspx">
     <system.web>
       <authorization>
@@ -51,7 +52,7 @@ description: 既存の ASP.NET WebForms のアプリに、WebMethod として AP
 </configuration>
 ```
 
-5. **呼ぶ**: クライアントの設定は `{ baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }` です。
+6. **開く**: ブラウザで `https://…/Admin/Patchiri.aspx` を開きます。載せ先にログインしていれば、そのまま画面が出ます（使い方は [画面で使う](/usage/web/)）。見出しの右には、反映ログに残るログイン名が出ます。
 
 ## 設定（App_Data/patchiri.config.json）
 
@@ -68,6 +69,8 @@ description: 既存の ASP.NET WebForms のアプリに、WebMethod として AP
 
 ## 画面について
 
-今の画面（`patchiri-web`）は React の部品なので、WebForms のページにそのまま置くには、React を束ねたスクリプトを用意する必要があります。WebForms のアプリの中で使える画面の入口は、まだ用意できていません。
+- Edge か Chrome で開いてください。Internet Explorer と Edge の IE モードでは動きません（その旨の案内が出ます）。載せ先のアプリが IE モードのサイト一覧に入っているときは、このページを外してください。
+- ログインが切れたら（フォーム認証のタイムアウトなど）、画面は貼った表を残したまま案内を出します。別のタブでログインし直せば、元のタブでそのまま続けられます。
+- 画面は同じページの WebMethod を呼ぶので、ほかから呼ぶときの設定も同じです（`{ baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }`）。CLI は載せ先のログインを通せないので、業務では画面を使ってください。
 
 詳しくは [C# 版の README](https://github.com/ishibashi0112/patchiri/tree/main/packages/server-dotnet) と [VB.NET 版の README](https://github.com/ishibashi0112/patchiri/tree/main/packages/server-vbnet) を見てください。

@@ -12,6 +12,7 @@
 //   パッケージには src/（ソース）、web/Patchiri.aspx、build.cmd と build.sh（bin/ に DLL を作る）を置く。
 //   公開する型が C# 版と同じなら、C# のページ（test/Probe.aspx など）をその DLL の上でも使える。
 //   Ubuntu の Mono には VB のコンパイラ（vbnc）がないので、Mono のホストには mono-path/vbnc（Roslyn の vbc に渡す）を使わせる。
+// 画面のファイル（patchiri-web の同梱アプリ）は packages/web/dist/app から、ページの隣の patchiri/ に置く（先に npm run build）。
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -30,6 +31,9 @@ export const serverPkg = resolve(repo, process.env.PATCHIRI_TEST_DOTNET_PKG || "
 /** パッケージごとに分けたテスト用の DB の名前（C# 版と VB 版を同じ SQL Server で並べて流しても当たらないように）。 */
 export const testDatabase = `PatchiriTest_${basename(serverPkg).replace(/[^A-Za-z0-9]/g, "_")}`;
 const csharpPkg = join(here, "..");
+const webApp = join(repo, "packages", "web", "dist", "app");
+/** Patchiri.aspx の隣の patchiri/ に置く画面のファイル（README の「載せ方」と同じ）。 */
+export const screenFiles = ["main.js", "main.css", "main.js.LEGAL.txt"];
 
 const appcmd = join(process.env.windir ?? "C:\\Windows", "System32", "inetsrv", "appcmd.exe");
 const IIS_SITE = "Default Web Site";
@@ -58,8 +62,11 @@ export function serverFile(rel) {
   return existsSync(own) ? own : join(csharpPkg, rel);
 }
 
-/** サーバを置いた Web のフォルダを作る（Web.config などはテストが足す）。 */
-export async function createSite() {
+/**
+ * サーバを置いた Web のフォルダを作る（Web.config などはテストが足す）。
+ * page はページを置く場所と名前（載せ先が名前やフォルダを変えても動くかを見るため）。画面のファイルはその隣の patchiri/ に置く。
+ */
+export async function createSite({ page = "Patchiri.aspx" } = {}) {
   let root;
   if (hostKind === "iis") {
     // アプリプールのユーザーが読めるよう、ユーザーのプロファイル（%TEMP%）の外に置く。
@@ -80,7 +87,11 @@ export async function createSite() {
     await mkdir(dir, { recursive: true });
     for (const f of await readdir(join(serverPkg, "src"))) await copyFile(join(serverPkg, "src", f), join(dir, f));
   }
-  await copyFile(join(serverPkg, "web", "Patchiri.aspx"), join(root, "Patchiri.aspx"));
+  const pageFile = join(root, ...page.split("/"));
+  const assets = join(dirname(pageFile), "patchiri");
+  await mkdir(assets, { recursive: true });
+  await copyFile(join(serverPkg, "web", "Patchiri.aspx"), pageFile);
+  for (const f of screenFiles) await copyFile(join(webApp, f), join(assets, f));
   if (hostKind === "mono") {
     // ApplicationHost は bin の中から AspHost を読み込むので、テスト用のホストも bin に置く。
     execFileSync("mcs", ["-nologo", "-warnaserror", `-out:${join(root, "bin", "Patchiri.TestHost.exe")}`, "-r:System.Web.dll", join(here, "TestHost.cs")], { stdio: "inherit" });
@@ -88,11 +99,11 @@ export async function createSite() {
   return root;
 }
 
-/** Web のフォルダを ASP.NET で動かす。url はアプリの根（`${url}/Patchiri.aspx` がページ）。 */
-export async function startSite(root) {
+/** Web のフォルダを ASP.NET で動かす。url はアプリの根（`${url}/Patchiri.aspx` がページ。page は createSite と同じ）。 */
+export async function startSite(root, { page = "Patchiri.aspx" } = {}) {
   const site = hostKind === "iis" ? await startIis(root) : await startMono(root);
   try {
-    await waitReady(site.url);
+    await waitReady(site.url, page);
   } catch (e) {
     await site.stop();
     throw e;
@@ -127,24 +138,29 @@ async function startMono(root) {
 
 async function startIis(root) {
   const name = basename(root);
-  const run = (...args) => execFileSync(appcmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const pipe = { stdio: ["ignore", "pipe", "pipe"] };
+  // applicationHost.config をほかの appcmd や IIS が書いている最中だと 80070020 で失敗するので、少し待ってやり直す。
+  const run = (...args) => retry(() => execFileSync(appcmd, args, pipe), (out) => /80070020/.test(out));
+  // 作ったばかりのアプリプールのアカウント（IIS AppPool\名前）は、すぐには名前で引けないことがある（No mapping between account names…）。
+  // メッセージは OS の言語で変わるので、失敗したら何でも少し待ってやり直す。
+  const icacls = (...args) => retry(() => execFileSync("icacls", args, pipe), () => true);
   // フォルダは残す（App_Data/patchiri-log の error-*.log を、落ちたときに CI で見るため）。
   const stop = async () => {
     for (const args of [["delete", "app", `${IIS_SITE}/${name}`], ["delete", "apppool", name]]) {
       try {
-        run(...args);
+        await run(...args);
       } catch {
         // 消せなくても続ける。
       }
     }
   };
   try {
-    run("add", "apppool", `/name:${name}`, "/managedRuntimeVersion:v4.0", "/managedPipelineMode:Integrated");
+    await run("add", "apppool", `/name:${name}`, "/managedRuntimeVersion:v4.0", "/managedPipelineMode:Integrated");
     // README の「載せ方」どおり、アプリプールのユーザーには読み取りと、App_Data（反映ログ）への書き込みだけを許す。
     // 匿名認証の要求は IUSR でファイルを読むので、IUSR にも読み取りを許す。
-    execFileSync("icacls", [root, "/grant", `IIS AppPool\\${name}:(OI)(CI)RX`, "IUSR:(OI)(CI)RX", "/T", "/Q"], { stdio: "inherit" });
-    execFileSync("icacls", [join(root, "App_Data"), "/grant", `IIS AppPool\\${name}:(OI)(CI)M`, "/T", "/Q"], { stdio: "inherit" });
-    run("add", "app", `/site.name:${IIS_SITE}`, `/path:/${name}`, `/physicalPath:${root}`, `/applicationPool:${name}`);
+    await icacls(root, "/grant", `IIS AppPool\\${name}:(OI)(CI)RX`, "IUSR:(OI)(CI)RX", "/T", "/Q");
+    await icacls(join(root, "App_Data"), "/grant", `IIS AppPool\\${name}:(OI)(CI)M`, "/T", "/Q");
+    await run("add", "app", `/site.name:${IIS_SITE}`, `/path:/${name}`, `/physicalPath:${root}`, `/applicationPool:${name}`);
   } catch (e) {
     await stop();
     throw new Error(`IIS にアプリを作れませんでした: ${e.stderr ?? ""}${e.stdout ?? ""}${e.message}`);
@@ -152,22 +168,36 @@ async function startIis(root) {
   return { url: `${IIS_URL}/${name}`, stop };
 }
 
+/** 失敗したコマンドを、出力（stdout と stderr）が transient に当たる間だけ 1 秒おきにやり直す（30 回まで）。 */
+async function retry(fn, transient) {
+  for (let i = 0; ; i++) {
+    try {
+      return fn();
+    } catch (e) {
+      if (i >= 30 || !transient(`${e.stdout ?? ""}${e.stderr ?? ""}`)) throw e;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
 /**
  * ページが WebMethod に答えるまで待つ。IIS はアプリを作った直後に 404 / 503 を返すことがあり、
  * App_Code の形では最初の呼び出しでビルドが走る。ビルドの誤りなどはその応答（ASP.NET のエラーページ）を出して止める。
+ * ページにログインが要るときは、ログインの画面への転送（302）か 401 が返れば動いている。
  */
-async function waitReady(url) {
+async function waitReady(url, page) {
   const deadline = Date.now() + 120_000;
   let last = "";
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${url}/Patchiri.aspx/Describe`, {
+      const res = await fetch(`${url}/${page}/Describe`, {
         method: "POST",
         headers: { "Content-Type": "application/json; charset=utf-8", "X-Patchiri": "1" },
         body: JSON.stringify({ req: { v: 1 } }),
+        redirect: "manual",
       });
       const text = await res.text();
-      if (res.status === 200) return;
+      if (res.status === 200 || res.status === 302 || res.status === 401) return;
       last = `HTTP ${res.status}\n${text}`;
       if (res.status !== 404 && res.status !== 503) break;
     } catch (e) {
@@ -175,5 +205,5 @@ async function waitReady(url) {
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error(`${url}/Patchiri.aspx が応答しません（${hostKind}, ${layout}）\n${last.slice(0, 8000)}`);
+  throw new Error(`${url}/${page} が応答しません（${hostKind}, ${layout}）\n${last.slice(0, 8000)}`);
 }

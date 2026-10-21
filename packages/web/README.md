@@ -5,6 +5,7 @@ patchiri の画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi
 使い方は 2 つある。
 
 - **同梱アプリ**（`dist/app`）: React も spreadsheet-grid も中に入った静的ファイル。Node 版サーバ（`patchiri-server-node`）が起動時に読んで `/` で配る。サーバだけを入れる人は React などを入れなくてよい。
+  - WebForms に載せた C# 版・VB.NET 版では、`main.js`、`main.css`、`main.js.LEGAL.txt` をページ（`Patchiri.aspx`）の隣の `patchiri/` に置くと、ページを開いたときに画面が出る（[packages/server-dotnet](../server-dotnet) の「載せ方」）。ページは `<div id="root" data-api="/Admin/Patchiri.aspx" data-style="webmethod" data-user="…">` を書き、画面はその WebMethod に同じオリジンでつなぐ（載せ先のログインのまま）。
 - **React の部品**（`PatchiriApp`）: ほかの React アプリに画面を埋め込む。
 
 ## ほかの React アプリに埋め込む
