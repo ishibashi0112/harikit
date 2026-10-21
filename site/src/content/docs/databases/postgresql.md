@@ -3,7 +3,7 @@ title: PostgreSQL
 description: PostgreSQL につなぐときの設定と、patchiri が合わせていること
 ---
 
-今は Node 版サーバだけが対応しています（C# 版と VB.NET 版は SQL Server だけ）。PostgreSQL 14 以降で動きます。
+今は Node 版サーバだけが対応しています（C# 版と VB.NET 版は SQL Server と Oracle）。PostgreSQL 14 以降で動きます。
 
 :::tip[デモも PostgreSQL]
 [デモ](/demo/)は、このページの PostgreSQL の方言を、ブラウザの中で動く PostgreSQL（PGlite）にそのまま載せたものです。出力する SQL の形や、衝突したときの止まり方はデモで確かめられます。

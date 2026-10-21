@@ -20,7 +20,8 @@ Namespace Global.Patchiri.Server
         Public Shared ReadOnly DecimalRe As New Regex("\A-?[0-9]+(\.[0-9]+)?\z")
         Public Shared ReadOnly BigintRe As New Regex("\A-?[0-9]+\z")
         Private Shared ReadOnly DateRe As New Regex("\A([0-9]{4})-([0-9]{2})-([0-9]{2})\z")
-        Private Shared ReadOnly DateTimeRe As New Regex("\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,7})?\z")
+        ' 秒の小数は Oracle の TIMESTAMP(9) まで。桁の上限は列の scale で見る。
+        Private Shared ReadOnly DateTimeRe As New Regex("\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,9})?\z")
         Private Shared ReadOnly TimeRe As New Regex("\A([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,7})?\z")
 
         Private Sub New()
@@ -72,6 +73,7 @@ Namespace Global.Patchiri.Server
                 Case "string"
                     Dim s = TryCast(v, String)
                     If s Is Nothing Then Return "文字列ではありません"
+                    If s.Length = 0 AndAlso col.EmptyIsNull Then Return "この列では空文字は NULL になります（空にするなら null）"
                     If col.MaxLength.HasValue AndAlso col.MaxLength.Value >= 0 Then
                         Dim len = CodePoints(s)
                         If len > col.MaxLength.Value Then Return col.MaxLength.Value & " 文字を超えています（" & len & " 文字）"
@@ -170,6 +172,12 @@ Namespace Global.Patchiri.Server
             End If
             If col.MaxBytes.HasValue AndAlso bytes > col.MaxBytes.Value Then Return col.MaxBytes.Value & " バイトを超えています（" & bytes & " バイト）"
             Return Nothing
+        End Function
+
+        ''' <summary>文字コードで書いて読み戻すと同じになるか（表せない字や、近い字への置き換えがないか）。</summary>
+        Public Shared Function CanEncode(enc As Encoding, s As String) As Boolean
+            Dim bytes As Integer
+            Return RoundTrips(enc, s, bytes)
         End Function
 
         Private Shared Function RoundTrips(enc As Encoding, s As String, ByRef bytes As Integer) As Boolean

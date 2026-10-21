@@ -3,7 +3,7 @@ title: Oracle
 description: Oracle につなぐときの設定と、patchiri が合わせていること
 ---
 
-今は Node 版サーバだけが対応しています（C# 版と VB.NET 版は SQL Server だけ）。Oracle 12c 以降なら Oracle Client（Instant Client）は要りません（node-oracledb の Thin モード）。
+Node 版、C# 版、VB.NET 版のどのサーバでも使えます。どれも Oracle Client（Instant Client）は要りません（Node 版は node-oracledb の Thin モードで Oracle 12c 以降、C# 版と VB.NET 版は ODP.NET Managed Driver）。
 
 ## 試す
 
@@ -29,6 +29,13 @@ PATCHIRI_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c pat
 
 - `connectString` は `ホスト:ポート/サービス名` か、tnsnames.ora の別名（そのときは `configDir` に tnsnames.ora のフォルダ）。
 - Thin モードでつながらない古い DB（11g など）は、Instant Client を入れて `"thick": true`（Windows と macOS は `"thick": { "libDir": "C:\\oracle\\instantclient_19_25" }`）。
+
+C# 版と VB.NET 版は、NuGet の `Oracle.ManagedDataAccess`（ODP.NET Managed Driver）を載せ先に入れ、web.config の接続文字列に `providerName` を書きます（[WebForms に載せる](/servers/webforms/#oracle-につなぐ)）。
+
+```xml
+<add name="Patchiri" providerName="Oracle.ManagedDataAccess.Client"
+     connectionString="User Id=app;Password=...;Data Source=dbhost:1521/ORCLPDB1" />
+```
 
 ## patchiri が合わせていること
 

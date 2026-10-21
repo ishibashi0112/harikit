@@ -1,13 +1,13 @@
 # patchiri サーバ（C# / .NET Framework 版）
 
 サーバ API 3 本（[docs/api-spec.md](../../docs/api-spec.md) の describe / fetch / apply）の C# 参考実装。
-既存の ASP.NET WebForms アプリに、ソースと `.aspx` 1 枚を足して WebMethod として載せる。今は SQL Server だけ。
+既存の ASP.NET WebForms アプリに、ソースと `.aspx` 1 枚を足して WebMethod として載せる。DB は SQL Server と Oracle（[下の「Oracle で使う」](#oracle-で使う)）。
 そのページをブラウザで開くと画面（[packages/web](../web)）が出るので、載せ先のログインのまま、貼り付けから反映までできる。
 VB.NET のアプリ（Web サイトの `App_Code` など）には、同じものを VB.NET で書いた [packages/server-vbnet](../server-vbnet) を置く。こちらを直したら VB.NET 版も同じように直す（同じテストで両方を通している）。
 
-- .NET Framework 4.5 以上を想定（使っている API は 4.0 からあるものだけ）。CI では Windows の IIS と .NET Framework 4.8 に載せ、実際の SQL Server で通している（下の「テスト」）。
+- .NET Framework 4.5 以上を想定（使っている API は 4.0 からあるものだけ）。CI では Windows の IIS と .NET Framework 4.8 に載せ、実際の SQL Server で通している。Oracle は Mono の ASP.NET で、実際の Oracle 23ai と 21c で通している（下の「テスト」）。
 - C# 5 で書いてあるので、Web サイト（プロジェクトファイルなし）の `App_Code` でも、.NET Framework 付属のコンパイラのまま通る。
-- 参照するのは `System.Data`、`System.Configuration`、`System.Web`、`System.Web.Extensions` だけ（WebForms のアプリなら入っている）。NuGet は要らない。
+- 参照するのは `System.Data`、`System.Configuration`、`System.Web`、`System.Web.Extensions` だけ（WebForms のアプリなら入っている）。SQL Server なら NuGet は要らない。Oracle は ODP.NET Managed Driver（NuGet の `Oracle.ManagedDataAccess`）を載せ先に入れる（コンパイル時には参照せず、web.config の `providerName` で名前から読み込む）。
 - 中身の手順は Node 版（[packages/server-node](../server-node)）と同じで、同じクライアント（`patchiri-core`）で両方を通すテストがある。
 
 ## 載せ方
@@ -58,6 +58,30 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
    - ログインが切れたら（フォーム認証のタイムアウトなど）、画面は貼った表を残したまま「別のタブでログインし直してから、もう一度押してください」と出す。ログインし直せば、元のタブでそのまま続けられる。
    - ほかのクライアントから呼ぶときの設定は `{ baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }`。CLI なら `--server https://.../Admin/Patchiri.aspx --style webmethod`。ただし CLI は載せ先のログイン（フォーム認証のクッキー、Windows 認証）を通せないので、CLI から呼べるのはログインなしで開ける開発環境だけ。
 
+## Oracle で使う
+
+ドライバは ODP.NET Managed Driver（`Oracle.ManagedDataAccess.dll`）。無償のライセンス（Oracle Free Distribution, Hosting, and Use Terms and Conditions）で、DLL を `bin` に置くだけで動き、Oracle Client（Instant Client）は要らない。patchiri は ODP.NET を参照せずに名前で読み込むので、載せ先がすでに使っている版をそのまま使う。
+
+1. **ODP.NET を入れる**: Visual Studio の NuGet で `Oracle.ManagedDataAccess` を入れる（Web サイトでも Web アプリケーションプロジェクトでもよい）。`bin` に `Oracle.ManagedDataAccess.dll` と、版によっては依存する DLL（`System.Text.Json.dll`、`System.Memory.dll` など）が入る。依存する DLL には web.config のバインドのリダイレクト（`<runtime>` の `<bindingRedirect>`）が要る（NuGet が足す。足りないと、つなぐときに「ファイルまたはアセンブリ … を読み込めません」となる）。
+   - 版は載せ先の .NET Framework に合わせる（今の 23.x は 4.7.2 以上、19.x と 21.x の今の版は 4.6.2 以上。もっと古い .NET Framework なら、NuGet のページで対応する古い版を選ぶ）。テストは 23.x と 19.x で通している。
+   - 入っていなければ、ページを開いたときに「Oracle につなぐ ODP.NET（Oracle.ManagedDataAccess.dll）が見つかりません」と出る。
+   - Oracle Client を使う ODP.NET（Unmanaged、`Oracle.DataAccess.dll`）には対応しない。
+2. **接続文字列に `providerName` を書く**: `providerName` を省くか `System.Data.SqlClient` なら SQL Server、`Oracle.ManagedDataAccess.Client` なら Oracle につなぐ。
+
+```xml
+<connectionStrings>
+  <!-- patchiri 用のユーザー。readable の列の SELECT と、updatable の列だけの UPDATE を許す（GRANT UPDATE (列, ...) ON 表）。 -->
+  <add name="Patchiri" providerName="Oracle.ManagedDataAccess.Client"
+       connectionString="User Id=patchiri_app;Password=...;Data Source=dbhost:1521/ORCLPDB1" />
+</connectionStrings>
+```
+
+- `Data Source` は `ホスト:ポート/サービス名` か、tnsnames.ora の別名（ODP.NET が tnsnames.ora を探す場所は ODP.NET の設定に従う）。
+- 許可リストの `table` は Node 版と同じ書き方（`"PATCHIRI.M_PRODUCT"`、`"M_PRODUCT"`）。`"` で囲まない名前は大文字として探し、スキーマを省くとつないだユーザーのスキーマで探して、なければシノニムをたどる。
+- `lockWaitSeconds` は `SELECT … FOR UPDATE WAIT n` の秒数になる。
+- 気をつけていることは Node 版と同じ（[サイトの「Oracle」](https://patchiri.vercel.app/databases/oracle/)）。空文字は NULL として扱う（`describe` の列に `emptyIsNull`）。`CHAR` のキーは末尾の空白を詰めずに書いても当たる。値が変わっていないかは 12.2 以降なら `COLLATE BINARY` で比べる。`script` と `undoScript` は SQL*Plus、SQLcl、SQL Developer で流せる PL/SQL のブロック。
+- **セッションの設定**: つないだら `NLS_COMP` と `NLS_SORT` を `BINARY` に、`NLS_NUMERIC_CHARACTERS` を `'.,'` にそろえ（違うときだけ）、接続をプールに返す前に元に戻す。ODP.NET は載せ先のカルチャ（`<globalization culture>` など）からセッションの設定を決めるので（ドイツ語なら小数点が `,`、並べ方が `GERMAN`）、そのままだと数の読み書きとキーの比べ方が載せ先に左右されるため。戻すのは、載せ先のアプリが同じ接続文字列でプールを共有しうるため。
+
 ## 設定（patchiri.config.json）
 
 | 項目 | 意味 | 既定 |
@@ -67,7 +91,7 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
 | `connectionStringName` | web.config の `connectionStrings` の名前。接続文字列はこのファイルに書かない | `Patchiri` |
 | `logDir` | 反映ログのフォルダ。`~/` はアプリの中、相対ならアプリのフォルダから | `~/App_Data/patchiri-log` |
 | `exposeDbErrors` | `db_error` の `message` に DB の生のエラー文を出すか | `false` |
-| `lockWaitSeconds` | 反映で行のロックを待つ秒数（`SET LOCK_TIMEOUT`）。ほかのセッションがロックしたままなら、待つのをやめて何も変えず `db_error`（「対象の行がほかのセッションにロックされています…」）で返す | `10` |
+| `lockWaitSeconds` | 反映で行のロックを待つ秒数（SQL Server は `SET LOCK_TIMEOUT`、Oracle は `FOR UPDATE WAIT`）。ほかのセッションがロックしたままなら、待つのをやめて何も変えず `db_error`（「対象の行がほかのセッションにロックされています…」）で返す | `10` |
 
 - 置き場所を変えるときは web.config の `appSettings` に `<add key="patchiri:config" value="~/App_Data/patchiri.config.json" />`。
 - このファイルを保存し直すと、次の呼び出しで読み直す（覚えていたテーブル定義も捨てる）。テーブルの定義を変えたときも、保存し直すかアプリを再起動する。
@@ -98,6 +122,8 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
 - **パラメータの長さ**: SqlClient は `Size` より長い値を黙って切る（先頭に 0 が並ぶ長い数の文字列が 0 になる、など）。列や既定の長さより長い値は長いまま渡し、DB に読ませるか弾かせる。
 - **CSRF**: `X-Patchiri: 1` がなければ 403。`application/json` でない呼び出しは WebMethod に届かず、ページが 415 を返す（GET は画面）。
 - **画面のページ**: HTML はサーバで書き（`PatchiriScreen`）、ログイン名などは HTML に入れるときにエスケープする。Content-Security-Policy（スクリプトと通信は同じオリジンだけ）と `X-Frame-Options: SAMEORIGIN` を付ける。載せ先が `globalization` の `responseEncoding` を Shift_JIS などにしていても UTF-8 で返す。
+- **Oracle の数**: `NUMBER` は .NET の `decimal`（28 桁）に収まらないことがある（`NUMBER(38)` を読むと `OverflowException`）ので、`TO_CHAR` で文字列にして読み、`TO_NUMBER` で渡す。日時も `TO_CHAR` / `TO_TIMESTAMP` で文字列を通す（秒の小数 9 桁まで）。`BOOLEAN`（23ai）は 19.x の ODP.NET でも扱えるよう、`CASE` と `TO_BOOLEAN` で数と文字列を通す。
+- **Oracle の文字コード**: `VARCHAR2` / `CHAR` の値が DB の文字コードで表せるかとバイト数の最後の確認は、PL/SQL のブロックで DB に `TO_CHAR` させて確かめる（SQL の中だと 4000 バイトで切れるため）。
 - **ソースの文字コード**: `.cs` と `.aspx` は BOM 付きの UTF-8 にしてある。BOM がないと ASP.NET が OS の既定の文字コード（日本語の Windows なら Shift_JIS）で読むことがあり、日本語のコメントで壊れうるため。
 
 ## テスト
@@ -106,15 +132,18 @@ Linux でも、Mono の ASP.NET で `Patchiri.aspx` を動かして、実際の 
 
 ```sh
 PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
+PATCHIRI_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"patchiri","password":"..."}' npm run test:dotnet
 ```
 
 - [test/screen.e2e.test.mjs](test/screen.e2e.test.mjs): 画面を本物のブラウザで通す。載せ先によくある形（フォーム認証、ページは `Admin/MasterUpdate.aspx` に名前を変えて置き、特定のユーザーだけに許す）で、ログイン → 貼り付け → 検証 → DB で確かめる → 反映、反映ログの「誰が」、権限のない人は画面も API も使えないこと、ログインが切れたときの案内と別のタブでログインし直して続けられることを見る。ブラウザは Playwright の Chromium（`npx playwright install chromium`）。入っているブラウザを使うなら `PATCHIRI_TEST_BROWSER_CHANNEL=msedge` など、途中の画面を残すなら `PATCHIRI_TEST_SCREENSHOTS` にフォルダを渡す。
 - [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、値の厳密な比べ方（全角半角・かな・末尾の空白）、止まる `script`、ロック待ちの打ち切り、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 415、ページを開いたときの画面の HTML、`maxJsonLength` の手前で止めることを足したもの。
+- [test/oracle.integration.test.mjs](test/oracle.integration.test.mjs): 実際の Oracle で、Node 版の Oracle のテストと同じ場面（CHAR のキーとシノニム、取込から反映・衝突・戻し、空文字、BYTE / CHAR の長さと DB での最後の確認、厳密な比べ方、`NUMBER(38)`、`BINARY_FLOAT`、ロック待ち、`BOOLEAN`、出力した SQL を大文字小文字を無視するセッションや改行を含む値で流す）を通す。載せ先のカルチャを `de-DE` にして、数の読み書きがカルチャに依らないことと、セッションの設定を戻してから接続をプールに返すこと（[test/OracleSessions.aspx](test/OracleSessions.aspx)）も見る。ODP.NET は .NET SDK（`dotnet`）で NuGet から集めて `bin` に置く（[test/odpnet](test/odpnet)。版は `PATCHIRI_TEST_ODPNET_VERSION`、既定は 23.x）。
 - [test/host.mjs](test/host.mjs): ページを載せる Web のフォルダを作り、ASP.NET で動かす。環境変数で選ぶ。
   - `PATCHIRI_TEST_DOTNET_HOST`: `mono`（既定。[test/TestHost.cs](test/TestHost.cs) の小さなホストで動かす。Ubuntu の `xsp4` は今の Mono では起動しないため）か `iis`（Windows の IIS に、テストごとにアプリプールとアプリを作って載せる。管理者で動かす）。
   - `PATCHIRI_TEST_DOTNET_LAYOUT`: `bin`（既定。`build.cmd` か `build.sh` で作った DLL を置く）か `app_code`（`src/*.cs` を `App_Code/Patchiri/` に置き、ASP.NET にビルドさせる）。
   - `PATCHIRI_TEST_DOTNET_PKG`: 載せるパッケージ（既定 `packages/server-dotnet`）。
 - CI では加えて、Windows のランナーに SQL Server Express（今は 2025）と IIS（ASP.NET 4.8）を入れ、IIS に `app_code` と `bin` の両方の形で載せて同じテストを流す（画面のテストは Windows の Edge で、途中の画面は artifacts の `screens-*` に残す）（[.github/workflows/ci.yml](../../.github/workflows/ci.yml) の `iis`）。`app_code` の形では、IIS が .NET Framework 付属のコンパイラ（C# 5）でビルドするので、`App_Code` に置いたまま通るかも確かめられる。
+- Oracle は Windows のランナーでは動かせない（Linux のコンテナが動かない）ので、Linux の Mono で、Oracle 23ai Free と 21c XE につないで `bin` と `app_code` の両方の形で流す（`dotnet-oracle`。23ai には ODP.NET 23.x、21c には 19.x）。
 
 ## ファイル
 
@@ -122,10 +151,11 @@ PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm ru
 | --- | --- |
 | `src/PatchiriService.cs` | API 3 本の中身（Node 版の `handlers.ts` にあたる） |
 | `src/SqlServerDialect.cs` | SQL Server の SQL（Node 版の `mssql.ts` にあたる） |
-| `src/PatchiriDialect.cs` | DB ごとの違いを閉じ込める入口（Oracle などはここに足す） |
+| `src/OracleDialect.cs` | Oracle の SQL（Node 版の `oracle.ts` にあたる）。ODP.NET を名前で読み込む |
+| `src/PatchiriDialect.cs` | DB ごとの違いを閉じ込める入口（ほかの DB はここに足す） |
 | `src/PatchiriValues.cs` | 値の形の確認と比較（コアの `values.ts` と同じ判定） |
 | `src/PatchiriConfig.cs` | 許可リストと設定の読み込み |
-| `src/PatchiriWebMethods.cs` | WebMethod からの入口（ヘッダの確認、設定の読み込み、ログイン名） |
+| `src/PatchiriWebMethods.cs` | WebMethod からの入口（ヘッダの確認、設定の読み込み、接続文字列の `providerName` で DB を選ぶ、ログイン名） |
 | `src/PatchiriScreen.cs` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所） |
 | `src/PatchiriFileLog.cs` | 反映ログとエラーのファイル出力 |
 | `src/PatchiriJson.cs` | `JavaScriptSerializer` の形を扱う小道具 |

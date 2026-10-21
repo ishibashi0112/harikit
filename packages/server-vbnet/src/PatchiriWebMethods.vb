@@ -64,14 +64,10 @@ Namespace Global.Patchiri.Server
             SyncLock sync
                 If cachedService IsNot Nothing AndAlso String.Equals(configPath, cachedPath, StringComparison.Ordinal) AndAlso stamp = cachedStamp Then Return cachedService
                 Dim config = PatchiriConfig.Parse(File.ReadAllText(configPath, Encoding.UTF8))
-                Dim cs = ConfigurationManager.ConnectionStrings(config.ConnectionStringName)
-                If cs Is Nothing OrElse String.IsNullOrEmpty(cs.ConnectionString) Then
-                    Throw New PatchiriConfigException("web.config の connectionStrings に " & config.ConnectionStringName & " がありません")
-                End If
                 Dim logDir = MapPath(config.LogDir)
                 cachedService = New PatchiriService(New PatchiriServiceOptions With {
                     .Config = config,
-                    .Dialect = New SqlServerDialect(cs.ConnectionString, config.LockWaitSeconds),
+                    .Dialect = CreateDialect(config),
                     .WhoAmI = AddressOf CurrentUser,
                     .Log = Sub(entry) PatchiriFileLog.WriteApply(logDir, entry),
                     .LogError = Sub(e) WriteError(logDir, e),
@@ -81,6 +77,22 @@ Namespace Global.Patchiri.Server
                 cachedStamp = stamp
                 Return cachedService
             End SyncLock
+        End Function
+
+        ''' <summary>
+        ''' 設定の connectionStringName が指す接続文字列の providerName で DB を選ぶ。
+        ''' 省くか System.Data.SqlClient なら SQL Server、Oracle.ManagedDataAccess.Client なら Oracle（ODP.NET Managed Driver）。
+        ''' </summary>
+        Public Shared Function CreateDialect(config As PatchiriConfig) As IPatchiriDialect
+            Dim cs = ConfigurationManager.ConnectionStrings(config.ConnectionStringName)
+            If cs Is Nothing OrElse String.IsNullOrEmpty(cs.ConnectionString) Then
+                Throw New PatchiriConfigException("web.config の connectionStrings に " & config.ConnectionStringName & " がありません")
+            End If
+            Dim provider = cs.ProviderName
+            If String.IsNullOrEmpty(provider) OrElse String.Equals(provider, "System.Data.SqlClient", StringComparison.Ordinal) Then Return New SqlServerDialect(cs.ConnectionString, config.LockWaitSeconds)
+            If String.Equals(provider, OracleDialect.ProviderName, StringComparison.Ordinal) Then Return New OracleDialect(cs.ConnectionString, config.LockWaitSeconds)
+            Throw New PatchiriConfigException("connectionStrings の " & config.ConnectionStringName & " の providerName " & provider &
+                " には対応していません（SQL Server は System.Data.SqlClient、Oracle は " & OracleDialect.ProviderName & "）")
         End Function
 
         ''' <summary>反映した人。載せ先の認証（フォーム認証、Windows 認証など）が決めた名前を使う。画面の見出しにも出す。</summary>
