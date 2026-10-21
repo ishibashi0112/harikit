@@ -138,24 +138,34 @@ async function startMono(root) {
 
 async function startIis(root) {
   const name = basename(root);
-  const run = (...args) => execFileSync(appcmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+  // applicationHost.config をほかの appcmd や IIS が書いている最中だと 80070020 で失敗するので、少し待ってやり直す。
+  const run = async (...args) => {
+    for (let i = 0; ; i++) {
+      try {
+        return execFileSync(appcmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+      } catch (e) {
+        if (i >= 10 || !/80070020/.test(`${e.stdout ?? ""}${e.stderr ?? ""}`)) throw e;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  };
   // フォルダは残す（App_Data/patchiri-log の error-*.log を、落ちたときに CI で見るため）。
   const stop = async () => {
     for (const args of [["delete", "app", `${IIS_SITE}/${name}`], ["delete", "apppool", name]]) {
       try {
-        run(...args);
+        await run(...args);
       } catch {
         // 消せなくても続ける。
       }
     }
   };
   try {
-    run("add", "apppool", `/name:${name}`, "/managedRuntimeVersion:v4.0", "/managedPipelineMode:Integrated");
+    await run("add", "apppool", `/name:${name}`, "/managedRuntimeVersion:v4.0", "/managedPipelineMode:Integrated");
     // README の「載せ方」どおり、アプリプールのユーザーには読み取りと、App_Data（反映ログ）への書き込みだけを許す。
     // 匿名認証の要求は IUSR でファイルを読むので、IUSR にも読み取りを許す。
     execFileSync("icacls", [root, "/grant", `IIS AppPool\\${name}:(OI)(CI)RX`, "IUSR:(OI)(CI)RX", "/T", "/Q"], { stdio: "inherit" });
     execFileSync("icacls", [join(root, "App_Data"), "/grant", `IIS AppPool\\${name}:(OI)(CI)M`, "/T", "/Q"], { stdio: "inherit" });
-    run("add", "app", `/site.name:${IIS_SITE}`, `/path:/${name}`, `/physicalPath:${root}`, `/applicationPool:${name}`);
+    await run("add", "app", `/site.name:${IIS_SITE}`, `/path:/${name}`, `/physicalPath:${root}`, `/applicationPool:${name}`);
   } catch (e) {
     await stop();
     throw new Error(`IIS にアプリを作れませんでした: ${e.stderr ?? ""}${e.stdout ?? ""}${e.message}`);

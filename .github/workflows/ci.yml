@@ -229,7 +229,8 @@ jobs:
           done
           exit 1
       - name: Test on IIS
-        run: node --test "packages/server-dotnet/test/*.test.mjs"
+        # テストのファイルは 1 つずつ流す（同時に appcmd で IIS の設定を書き換えるとぶつかる）。
+        run: node --test --test-concurrency=1 "packages/server-dotnet/test/*.test.mjs"
         env:
           PATCHIRI_TEST_DOTNET_HOST: iis
           PATCHIRI_TEST_DOTNET_LAYOUT: ${{ matrix.layout }}
