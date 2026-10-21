@@ -56,7 +56,7 @@ UPDATE 文は人が書きません。サーバが許可リストと照合して�
 
 ## 今できること
 
-- DB: SQL Server、Oracle、PostgreSQL、MySQL / MariaDB（Node 版サーバ）。C# 版と VB.NET 版は SQL Server だけ。
+- DB: SQL Server、Oracle、PostgreSQL、MySQL / MariaDB（Node 版サーバ）。C# 版と VB.NET 版は SQL Server と Oracle。
 - 1 回に 1 テーブル、UPDATE だけ。INSERT・DELETE と複数テーブルは、仕様に足せる形で残してあります（[構想の 9 章](/reference/concept/#9-まだ決めていないこと)）。
 - 入口は画面（表への貼り付け）と CLI（Excel / CSV 取込）。
 

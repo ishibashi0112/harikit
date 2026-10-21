@@ -3,7 +3,7 @@ title: MySQL / MariaDB
 description: MySQL と MariaDB につなぐときの設定と、patchiri が合わせていること
 ---
 
-今は Node 版サーバだけが対応しています（C# 版と VB.NET 版は SQL Server だけ）。MySQL 8.0 以降と MariaDB 10.11 以降で動きます。MariaDB も方言は `mysql` です。
+今は Node 版サーバだけが対応しています（C# 版と VB.NET 版は SQL Server と Oracle）。MySQL 8.0 以降と MariaDB 10.11 以降で動きます。MariaDB も方言は `mysql` です。
 
 ## 試す
 

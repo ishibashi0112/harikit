@@ -13,10 +13,11 @@
 //   公開する型が C# 版と同じなら、C# のページ（test/Probe.aspx など）をその DLL の上でも使える。
 //   Ubuntu の Mono には VB のコンパイラ（vbnc）がないので、Mono のホストには mono-path/vbnc（Roslyn の vbc に渡す）を使わせる。
 // 画面のファイル（patchiri-web の同梱アプリ）は packages/web/dist/app から、ページの隣の patchiri/ に置く（先に npm run build）。
+// Oracle のテストは、ODP.NET Managed Driver を NuGet から集めて bin に置く（oracleDriver。.NET SDK の dotnet が要る）。
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
@@ -63,10 +64,26 @@ export function serverFile(rel) {
 }
 
 /**
+ * Oracle につなぐ ODP.NET Managed Driver（Oracle.ManagedDataAccess）と、それが使う DLL を NuGet から集める（test/odpnet/OdpNet.csproj）。
+ * 版は PATCHIRI_TEST_ODPNET_VERSION で変えられる（既定は csproj に書いたもの）。
+ * 返すのは bin に置く DLL と、Web.config に足す <runtime>（NuGet で入れたときに足されるアセンブリのバージョンの寄せ先と同じもの）。
+ */
+export async function oracleDriver() {
+  const proj = join(here, "odpnet");
+  const out = join(proj, "bin", "out");
+  const version = process.env.PATCHIRI_TEST_ODPNET_VERSION;
+  execFileSync("dotnet", ["build", proj, "-c", "Release", "-o", out, "-nologo", "-v", "q", ...(version ? [`-p:OdpNetVersion=${version}`] : [])], { stdio: "inherit" });
+  const dlls = (await readdir(out)).filter((f) => f.endsWith(".dll") && f !== "OdpNet.dll").map((f) => join(out, f));
+  const config = await readFile(join(out, "OdpNet.dll.config"), "utf8");
+  return { dlls, runtime: /<runtime>[\s\S]*<\/runtime>/.exec(config)?.[0] ?? "" };
+}
+
+/**
  * サーバを置いた Web のフォルダを作る（Web.config などはテストが足す）。
  * page はページを置く場所と名前（載せ先が名前やフォルダを変えても動くかを見るため）。画面のファイルはその隣の patchiri/ に置く。
+ * bin は bin に足す DLL（ODP.NET など）。
  */
-export async function createSite({ page = "Patchiri.aspx" } = {}) {
+export async function createSite({ page = "Patchiri.aspx", bin = [] } = {}) {
   let root;
   if (hostKind === "iis") {
     // アプリプールのユーザーが読めるよう、ユーザーのプロファイル（%TEMP%）の外に置く。
@@ -87,6 +104,7 @@ export async function createSite({ page = "Patchiri.aspx" } = {}) {
     await mkdir(dir, { recursive: true });
     for (const f of await readdir(join(serverPkg, "src"))) await copyFile(join(serverPkg, "src", f), join(dir, f));
   }
+  for (const f of bin) await copyFile(f, join(root, "bin", basename(f)));
   const pageFile = join(root, ...page.split("/"));
   const assets = join(dirname(pageFile), "patchiri");
   await mkdir(assets, { recursive: true });

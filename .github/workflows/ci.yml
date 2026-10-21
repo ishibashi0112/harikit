@@ -190,6 +190,63 @@ jobs:
           PATCHIRI_TEST_MSSQL: '{"server":"localhost","user":"sa","password":"Patchiri#Ci1"}'
           PATCHIRI_TEST_DOTNET_PKG: packages/${{ matrix.package }}
 
+  # .NET 版（C# と VB.NET）を Mono の ASP.NET で動かし、実際の Oracle で通す（test/oracle.integration.test.mjs）。
+  # ドライバは NuGet の ODP.NET Managed Driver を bin に置く（test/odpnet）。23ai Free には今の 23.x を、
+  # 21c XE には古い載せ先に多い 19.x をつなぐ。載せ方は bin と app_code の両方。
+  # Windows の IIS のジョブには Oracle を入れられない（Linux のコンテナが動かない）ので、Oracle はこのジョブだけで見る。
+  dotnet-oracle:
+    name: dotnet-oracle (${{ matrix.package }}, ${{ matrix.oracle.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [server-dotnet, server-vbnet]
+        oracle:
+          - image: gvenzl/oracle-free:23-slim
+            service: FREEPDB1
+            odpnet: 23.26.400
+          - image: gvenzl/oracle-xe:21-slim
+            service: XEPDB1
+            odpnet: 19.33.0
+    services:
+      oracle:
+        image: ${{ matrix.oracle.image }}
+        env:
+          ORACLE_PASSWORD: Patchiri1
+          APP_USER: patchiri
+          APP_USER_PASSWORD: Patchiri1
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PATCHIRI_TEST_ORACLE: '{"connectString":"localhost:1521/${{ matrix.oracle.service }}","user":"patchiri","password":"Patchiri1"}'
+      PATCHIRI_TEST_DOTNET_PKG: packages/${{ matrix.package }}
+      PATCHIRI_TEST_ODPNET_VERSION: ${{ matrix.oracle.odpnet }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # ODP.NET を NuGet から集めるのと、VB 版のビルド（Roslyn の vbc）に使う。
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: npm ci
+      - name: Install Mono
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mono-complete
+      - run: npm run build
+      - name: Test (bin)
+        run: node --test packages/server-dotnet/test/oracle.integration.test.mjs
+      - name: Test (app_code)
+        run: node --test packages/server-dotnet/test/oracle.integration.test.mjs
+        env:
+          PATCHIRI_TEST_DOTNET_LAYOUT: app_code
+
   # .NET 版（C# と VB.NET）を Windows の IIS（.NET Framework 4.8）に載せ、Windows に入れた SQL Server Express（Microsoft の最新版、今は 2025）で通す（本番に近い形）。
   # 載せ方は 2 つ: app_code はソースを App_Code に置く Web サイトの形（IIS が .NET Framework 付属のコンパイラ（C# 5 / VB 11）でビルドする）、
   # bin は build.cmd（csc / vbc）で作った DLL を置く形。テストは Mono のジョブと同じもの（packages/server-dotnet/test/host.mjs）。

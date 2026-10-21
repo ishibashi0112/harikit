@@ -678,7 +678,7 @@ namespace Patchiri.Server
                 // 後から人が流したときに、変わっていた行だけ黙って飛ばさない。XACT_ABORT ON なので THROW で全部戻る。
                 // @@ROWCOUNT はトリガーがあっても UPDATE 文そのものの行数。
                 if (kind == "apply")
-                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " + NString("patchiri: 行が見つからないか、値が変わっています（" + KeyText(u.Key) + "）。何も反映していません") + ", 1;");
+                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " + NString("patchiri: 行が見つからないか、値が変わっています（" + PatchiriScript.KeyText(u.Key) + "）。何も反映していません") + ", 1;");
             }
             lines.Add("COMMIT;");
             return string.Join("\n", lines) + "\n";
@@ -687,27 +687,6 @@ namespace Patchiri.Server
         static string NString(string s)
         {
             return "N'" + s.Replace("'", "''") + "'";
-        }
-
-        /// <summary>止めたときの文に入れるキーの値（Node 版と同じ「列=値, …」、長ければ 200 文字で切る）。</summary>
-        static string KeyText(Row key)
-        {
-            var parts = new List<string>();
-            foreach (var kv in key)
-            {
-                var v = kv.Value;
-                string text;
-                if (v == null) text = "null";
-                else if (v is string) text = (string)v;
-                else if (v is bool) text = (bool)v ? "true" : "false";
-                else if (PatchiriJson.IsNumber(v)) text = PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v));
-                else text = Convert.ToString(v, CultureInfo.InvariantCulture);
-                parts.Add(kv.Key + "=" + text);
-            }
-            var s = string.Join(", ", parts);
-            if (s.Length <= 200) return s;
-            var cut = char.IsHighSurrogate(s[199]) ? 199 : 200;
-            return s.Substring(0, cut) + "…";
         }
 
         static string RenderUpdate(TableMeta meta, Row set, Row key, Row values)

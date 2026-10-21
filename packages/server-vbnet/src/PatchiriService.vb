@@ -256,6 +256,7 @@ Namespace Global.Patchiri.Server
                 If c.MaxLength.HasValue Then col("maxLength") = c.MaxLength.Value
                 If c.MaxBytes.HasValue Then col("maxBytes") = c.MaxBytes.Value
                 If c.Encoding IsNot Nothing Then col("encoding") = c.Encoding
+                If c.EmptyIsNull Then col("emptyIsNull") = True
                 If c.Precision.HasValue Then col("precision") = c.Precision.Value
                 If c.Scale.HasValue Then col("scale") = c.Scale.Value
                 If c.Identity Then col("identity") = True
@@ -286,7 +287,10 @@ Namespace Global.Patchiri.Server
             Return res
         End Function
 
-        ''' <summary>参照先テーブルを、キーがちょうど参照先の列になっている読めるターゲットから探す。</summary>
+        ''' <summary>
+        ''' 参照先テーブルを、キーがちょうど参照先の列になっている読めるターゲットから探す。
+        ''' テーブルは DB で引いた名前で比べる（Oracle のシノニムや既定のスキーマで書いたターゲットも当たるように）。
+        ''' </summary>
         Private Function FindReferenceTarget(table As String, columns As List(Of String)) As String
             Dim want As String
             Try
@@ -301,8 +305,8 @@ Namespace Global.Patchiri.Server
             Next
             For Each targetName In o.Config.TargetNames
                 Try
-                    If Not String.Equals(o.Dialect.NormalizeTable(o.Config.Targets(targetName).Table), want, StringComparison.Ordinal) Then Continue For
                     Dim r = Resolve(targetName)
+                    If Not String.Equals(o.Dialect.NormalizeTable(r.Meta.Table), want, StringComparison.Ordinal) Then Continue For
                     If r.Key.Count = cols.Count AndAlso r.Key.TrueForAll(Function(k) cols.Contains(k.ToLowerInvariant())) Then Return targetName
                 Catch e As Exception
                     ' 参照先の設定がおかしいときは「確認できない」扱いにする。

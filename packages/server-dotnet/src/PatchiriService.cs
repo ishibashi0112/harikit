@@ -277,6 +277,7 @@ namespace Patchiri.Server
                 if (c.MaxLength.HasValue) col["maxLength"] = c.MaxLength.Value;
                 if (c.MaxBytes.HasValue) col["maxBytes"] = c.MaxBytes.Value;
                 if (c.Encoding != null) col["encoding"] = c.Encoding;
+                if (c.EmptyIsNull) col["emptyIsNull"] = true;
                 if (c.Precision.HasValue) col["precision"] = c.Precision.Value;
                 if (c.Scale.HasValue) col["scale"] = c.Scale.Value;
                 if (c.Identity) col["identity"] = true;
@@ -309,7 +310,10 @@ namespace Patchiri.Server
             return res;
         }
 
-        /// <summary>参照先テーブルを、キーがちょうど参照先の列になっている読めるターゲットから探す。</summary>
+        /// <summary>
+        /// 参照先テーブルを、キーがちょうど参照先の列になっている読めるターゲットから探す。
+        /// テーブルは DB で引いた名前で比べる（Oracle のシノニムや既定のスキーマで書いたターゲットも当たるように）。
+        /// </summary>
         string FindReferenceTarget(string table, List<string> columns)
         {
             string want;
@@ -328,8 +332,8 @@ namespace Patchiri.Server
             {
                 try
                 {
-                    if (o.Dialect.NormalizeTable(o.Config.Targets[name].Table) != want) continue;
                     var r = Resolve(name);
+                    if (o.Dialect.NormalizeTable(r.Meta.Table) != want) continue;
                     if (r.Key.Count == cols.Count && r.Key.TrueForAll(k => cols.Contains(k.ToLowerInvariant()))) return name;
                 }
                 catch (Exception)

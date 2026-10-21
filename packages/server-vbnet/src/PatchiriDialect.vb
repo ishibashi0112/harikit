@@ -7,6 +7,8 @@ Option Compare Binary
 
 Imports System
 Imports System.Collections.Generic
+Imports System.Globalization
+Imports System.Text.RegularExpressions
 Imports Row = System.Collections.Generic.Dictionary(Of String, Object)
 
 Namespace Global.Patchiri.Server
@@ -24,6 +26,8 @@ Namespace Global.Patchiri.Server
         Public MaxBytes As Integer?
         ''' <summary>列の文字コードの WHATWG 名（"shift_jis"、"utf-16le" など）。わからなければ Nothing。</summary>
         Public Encoding As String
+        ''' <summary>空文字 "" を NULL として保存する文字列の列（Oracle の文字列の列は全部）。</summary>
+        Public EmptyIsNull As Boolean
         Public Precision As Integer?
         Public Scale As Integer?
         Public Identity As Boolean
@@ -37,9 +41,9 @@ Namespace Global.Patchiri.Server
         Public ByteEncoding As System.Text.Encoding
         ''' <summary>方言の内部用。char / varchar の列の照合順序（DB で文字コードを確かめるのに使う）。</summary>
         Public Collation As String
-        ''' <summary>方言の内部用。SQL Server なら TYPE_NAME の結果（"varchar" など）。</summary>
+        ''' <summary>方言の内部用。SQL Server なら TYPE_NAME の結果（"varchar" など）、Oracle なら精度を外した DATA_TYPE（"VARCHAR2" など）。</summary>
         Public BaseType As String
-        ''' <summary>方言の内部用。CAST に使う型（"decimal(9,2)" など）。</summary>
+        ''' <summary>方言の内部用。CAST に使う型（SQL Server の "decimal(9,2)" など、Oracle の CHAR / NCHAR の "CHAR(6 BYTE)" など）。</summary>
         Public SqlType As String
     End Class
 
@@ -58,6 +62,8 @@ Namespace Global.Patchiri.Server
         Public Columns As New List(Of ColumnMeta)()
         Public PrimaryKey As New List(Of String)()
         Public ForeignKeys As New List(Of ForeignKeyMeta)()
+        ''' <summary>方言の内部用（Oracle なら OWNER と NAME を分けたもの、DB の版と文字コード）。</summary>
+        Public DialectInfo As Object
 
         Public Function Column(name As String) As ColumnMeta
             For Each c In Columns
@@ -122,6 +128,42 @@ Namespace Global.Patchiri.Server
         Public [Set] As Row
         Public Key As Row
         Public Expect As Row
+    End Class
+
+    ''' <summary>人が読む SQL を作るときの小道具（方言に依らないもの）。</summary>
+    Public NotInheritable Class PatchiriScript
+        Private Shared ReadOnly NewlinesRe As New Regex("[\r\n]+")
+
+        Private Sub New()
+        End Sub
+
+        ''' <summary>
+        ''' 止めたときの文に入れるキーの値（Node 版と同じ「列=値, …」）。改行は空白にし（SQL*Plus は行ごとに読むため）、
+        ''' 長ければ 200 文字で切る。引用はしないので、呼ぶ側で直す。
+        ''' </summary>
+        Public Shared Function KeyText(key As Row) As String
+            Dim parts As New List(Of String)()
+            For Each kv In key
+                Dim v = kv.Value
+                Dim text As String
+                If v Is Nothing Then
+                    text = "null"
+                ElseIf TypeOf v Is String Then
+                    text = DirectCast(v, String)
+                ElseIf TypeOf v Is Boolean Then
+                    text = If(DirectCast(v, Boolean), "true", "false")
+                ElseIf PatchiriJson.IsNumber(v) Then
+                    text = PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v))
+                Else
+                    text = Convert.ToString(v, CultureInfo.InvariantCulture)
+                End If
+                parts.Add(kv.Key & "=" & NewlinesRe.Replace(text, " "))
+            Next
+            Dim s = String.Join(", ", parts)
+            If s.Length <= 200 Then Return s
+            Dim cut = If(Char.IsHighSurrogate(s(199)), 199, 200)
+            Return s.Substring(0, cut) & "…"
+        End Function
     End Class
 
     Public Interface IPatchiriDialect

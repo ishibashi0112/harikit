@@ -607,7 +607,7 @@ Namespace Global.Patchiri.Server
                 ' 後から人が流したときに、変わっていた行だけ黙って飛ばさない。XACT_ABORT ON なので THROW で全部戻る。
                 ' @@ROWCOUNT はトリガーがあっても UPDATE 文そのものの行数。
                 If kind = "apply" Then
-                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " & NString("patchiri: 行が見つからないか、値が変わっています（" & KeyText(u.Key) & "）。何も反映していません") & ", 1;")
+                    lines.Add("IF @@ROWCOUNT <> 1 THROW 50001, " & NString("patchiri: 行が見つからないか、値が変わっています（" & PatchiriScript.KeyText(u.Key) & "）。何も反映していません") & ", 1;")
                 End If
             Next
             lines.Add("COMMIT;")
@@ -616,31 +616,6 @@ Namespace Global.Patchiri.Server
 
         Private Shared Function NString(s As String) As String
             Return "N'" & s.Replace("'", "''") & "'"
-        End Function
-
-        ''' <summary>止めたときの文に入れるキーの値（Node 版と同じ「列=値, …」、長ければ 200 文字で切る）。</summary>
-        Private Shared Function KeyText(key As Row) As String
-            Dim parts As New List(Of String)()
-            For Each kv In key
-                Dim v = kv.Value
-                Dim text As String
-                If v Is Nothing Then
-                    text = "null"
-                ElseIf TypeOf v Is String Then
-                    text = DirectCast(v, String)
-                ElseIf TypeOf v Is Boolean Then
-                    text = If(DirectCast(v, Boolean), "true", "false")
-                ElseIf PatchiriJson.IsNumber(v) Then
-                    text = PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v))
-                Else
-                    text = Convert.ToString(v, CultureInfo.InvariantCulture)
-                End If
-                parts.Add(kv.Key & "=" & text)
-            Next
-            Dim s = String.Join(", ", parts)
-            If s.Length <= 200 Then Return s
-            Dim cut = If(Char.IsHighSurrogate(s(199)), 199, 200)
-            Return s.Substring(0, cut) & "…"
         End Function
 
         Private Shared Function RenderUpdate(meta As TableMeta, setValues As Row, key As Row, expect As Row) As String
