@@ -17,6 +17,8 @@ namespace Patchiri.Server
         static readonly Dictionary<string, string> TypeMap = new Dictionary<string, string>
         {
             { "char", "string" }, { "varchar", "string" }, { "nchar", "string" }, { "nvarchar", "string" },
+            // 古い長い文字列の型。varchar(max) / nvarchar(max) と同じく扱う（DB が = で比べられないので、キーにはできない）。
+            { "text", "string" }, { "ntext", "string" },
             { "tinyint", "integer" }, { "smallint", "integer" }, { "int", "integer" },
             { "bigint", "bigint" },
             { "decimal", "decimal" }, { "numeric", "decimal" }, { "money", "decimal" }, { "smallmoney", "decimal" },
@@ -180,6 +182,8 @@ namespace Patchiri.Server
                 case "varchar":
                 case "nchar":
                 case "nvarchar":
+                case "text":
+                case "ntext":
                     p.SqlDbType = SqlDbType.NVarChar;
                     // SqlClient は Size より長い値を黙って切るので、列より長い値は長いまま渡して DB に弾かせる。
                     p.Size = !col.MaxLength.HasValue || col.MaxLength.Value == -1 ? -1 : Math.Max(col.MaxLength.Value, v is string ? ((string)v).Length : 0);
@@ -313,22 +317,24 @@ namespace Patchiri.Server
 
         public TableMeta DescribeTable(string table)
         {
-            var parts = SplitTableName(table);
             var qualified = QuoteTable(table);
             using (var conn = Open())
             {
                 var cmd = new SqlCommand(@"SELECT c.name, TYPE_NAME(c.system_type_id) AS base_type, c.max_length, c.precision, c.scale,
                     c.is_nullable, c.is_identity, c.is_computed, c.default_object_id,
-                    CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page, c.collation_name
+                    CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page, c.collation_name,
+                    OBJECT_SCHEMA_NAME(c.object_id) AS table_schema, OBJECT_NAME(c.object_id) AS table_name
                     FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id", conn);
                 cmd.Parameters.Add("@name", SqlDbType.NVarChar, 512).Value = qualified;
                 var colRows = Query(cmd);
                 if (colRows.Count == 0) throw new PatchiriDbException("テーブル " + table + " が見つかりません");
-                var meta = new TableMeta { Table = parts[0] + "." + parts[1] };
+                // 名前は DB の綴りで返す（許可リストに "Kind" や "dbo.item" と書いても "dbo.Kind"、"dbo.Item"）。
+                var meta = new TableMeta { Table = colRows[0][11] + "." + colRows[0][12] };
                 foreach (var r in colRows)
                 {
                     var baseType = Convert.ToString(r[1], CultureInfo.InvariantCulture);
-                    var bytes = Convert.ToInt32(r[2], CultureInfo.InvariantCulture);
+                    // text / ntext の max_length は 16（中身を指す場所の大きさ）なので、上限なしとして扱う。
+                    var bytes = baseType == "text" || baseType == "ntext" ? -1 : Convert.ToInt32(r[2], CultureInfo.InvariantCulture);
                     var precision = Convert.ToInt32(r[3], CultureInfo.InvariantCulture);
                     var scale = Convert.ToInt32(r[4], CultureInfo.InvariantCulture);
                     string type;
@@ -345,7 +351,7 @@ namespace Patchiri.Server
                     };
                     if (type == "string")
                     {
-                        var national = baseType == "nchar" || baseType == "nvarchar";
+                        var national = baseType == "nchar" || baseType == "nvarchar" || baseType == "ntext";
                         col.MaxLength = bytes == -1 ? -1 : national ? bytes / 2 : bytes;
                         // 桁はバイトで決まる。nchar / nvarchar は UTF-16、char / varchar は照合順序のコードページ。
                         if (bytes != -1) col.MaxBytes = bytes;

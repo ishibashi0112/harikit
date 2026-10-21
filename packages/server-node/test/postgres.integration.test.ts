@@ -123,6 +123,8 @@ after(async () => {
 test("describe: 型、桁と文字コード、主キー、外部キー、更新できない列", { skip }, async () => {
   const d = await client.describe("item");
   assert.equal(d.dialect, "postgresql");
+  // table は DB で引いた名前（許可リストの "HT.Item" は引用符がないので小文字で探す）。
+  assert.equal(d.table, "ht.item");
   assert.deepEqual(d.key, ["code"]);
   const col = (n: string) => ({ ...d.columns.find((c) => c.name === n)! });
   assert.deepEqual(col("code"), { name: "code", type: "string", dbType: "varchar(10)", nullable: false, updatable: false, maxLength: 10, encoding: "utf-8" });

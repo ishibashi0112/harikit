@@ -1,6 +1,6 @@
 # patchiri サーバ API 仕様（v1 草案）
 
-> 2026-10-17 草案（2026-10-20 に PostgreSQL と MySQL / MariaDB を追記）。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
+> 2026-10-17 草案（2026-10-20 に PostgreSQL と MySQL / MariaDB を追記、2026-10-21 に実装とのズレを直した）。ブラウザ側コア（取込・検証・差分）と、DB に触るサーバの境目を決める。
 > 範囲は「SQL Server、Oracle、PostgreSQL、MySQL / MariaDB の 1テーブル、UPDATE だけ」。INSERT・DELETE・複数テーブルは後から足せる形にしてある（[10. 拡張の余地](#10-拡張の余地)）。
 
 ## 1. 全体の約束
@@ -35,7 +35,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 
 | 正規化した型 `type` | SQL Server の例 | Oracle の例 | PostgreSQL の例 | MySQL / MariaDB の例 | JSON での値 |
 | --- | --- | --- | --- | --- | --- |
-| `string` | char, varchar, nchar, nvarchar, text | VARCHAR2, CHAR, NVARCHAR2, NCHAR | varchar, char, text, enum | char, varchar, tinytext〜longtext, enum | 文字列 |
+| `string` | char, varchar, nchar, nvarchar, text, ntext | VARCHAR2, CHAR, NVARCHAR2, NCHAR | varchar, char, text, enum | char, varchar, tinytext〜longtext, enum | 文字列 |
 | `integer` | tinyint, smallint, int | （使わない。NUMBER(p,0) は JS の数値に収まるとは限らない） | smallint, integer | tinyint, smallint, mediumint, int（unsigned も。tinyint(1) も整数） | 数値 |
 | `bigint` | bigint | （使わない） | bigint | bigint（unsigned も） | **文字列**（`"9007199254740993"`） |
 | `decimal` | decimal, numeric, money | NUMBER, NUMBER(p,s), INTEGER, FLOAT(p) | numeric, numeric(p,s) | decimal(p,s) | **文字列**（`"1234.50"`） |
@@ -44,9 +44,10 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | `date` | date | （使わない。Oracle の DATE は時刻を持つ） | date | date | `"2026-10-17"` |
 | `datetime` | datetime, datetime2, smalldatetime | DATE（`scale: 0`）, TIMESTAMP(n) | timestamp(n)（タイムゾーンなし） | datetime(n) | `"2026-10-17T09:30:00.123"`（タイムゾーンなし。秒の小数は 0〜9 桁で、上限は `scale`） |
 | `time` | time | （使わない） | time(n)（タイムゾーンなし） | time(n) | `"09:30:00"` |
-| `other` | binary, xml, uniqueidentifier など | 負の scale の NUMBER, TIMESTAMP WITH (LOCAL) TIME ZONE, INTERVAL, RAW, CLOB / BLOB, ROWID など | 負の scale の numeric, timestamptz, timetz, interval, money, uuid, json / jsonb, bytea, 配列など | timestamp, year, set, bit(n)（n > 1）, binary / varbinary / blob, json など | v1 では更新対象外（describe には出す） |
+| `other` | binary, image, xml, uniqueidentifier, datetimeoffset など | 負の scale の NUMBER, TIMESTAMP WITH (LOCAL) TIME ZONE, INTERVAL, RAW, CLOB / BLOB, ROWID など | 負の scale の numeric, timestamptz, timetz, interval, money, uuid, json / jsonb, bytea, 配列など | timestamp, year, set, bit(n)（n > 1）, binary / varbinary / blob, json など | v1 では更新対象外（describe には出す） |
 
 - SQL の NULL は JSON の `null`。空文字 `""` とは区別する。ただし Oracle のように空文字を NULL として保存する DB では、describe の `emptyIsNull` で知らせる（[3](#3-describeテーブル定義)）。
+- SQL Server の text / ntext（古い長い文字列の型）は varchar(max) / nvarchar(max) と同じく `string` にする。DB が `=` で比べられず、主キーや一意キーにもできない型なので、キーには使えない。値が変わっていないかは varchar(max) と同じく nvarchar(max) に直して比べる（[1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき)）。
 - NUMBER(5,-2) のような負の scale は入れた値が丸められ、戻し SQL の条件が合わなくなるので `other` にする（PostgreSQL 15 以降の numeric(5,-2) も同じ）。
 - タイムゾーンで値が変わる型（PostgreSQL の timestamptz、MySQL の timestamp）は、`datetime` がタイムゾーンを持たないので `other` にする。読む人のセッションの設定で同じ値が違って見え、戻し SQL の条件も合わなくなるため。
 - PostgreSQL の money は `lc_monetary` で書き方が変わるので `other`。domain は基の型として扱う（domain の CHECK は DB が確かめる）。enum はラベルの文字列で、ラベルにない値は DB がエラーにする（`db_error`）。
@@ -260,7 +261,7 @@ MySQL / MariaDB での書き方:
 ```
 
 - `dialect` は `"sqlserver"`、`"oracle"`、`"postgresql"`、`"mysql"`（MariaDB も `"mysql"`）のどれか。
-- `table` は実際の名前（Oracle なら `OWNER.NAME`。シノニムで書いた場合もたどった先。PostgreSQL は `スキーマ.名前`、MySQL / MariaDB は `データベース.名前`）。
+- `table` は DB で引いた実際の名前で、綴りも DB のもの。許可リストに `Kind` や `dbo.item` と書いても、`dbo.Kind`、`dbo.Item` を返す。SQL Server は `スキーマ.名前`（スキーマを省くと `dbo`）、Oracle は `OWNER.NAME`（シノニムで書いた場合もたどった先）、PostgreSQL は `スキーマ.名前`、MySQL / MariaDB は `データベース.名前`。apply の `script` の先頭のコメントとサーバのログにも同じ名前を書く。
 - `columns` は `readable` に載った列だけ。並びは DB の列順。
 - 列の項目: `name`, `type`（[1.3](#13-値の書き方json-と-db-型の対応)）, `dbType`（表示用の生の型）, `nullable`, `updatable` は必須。`maxLength`（文字数。`max` は `-1`）, `maxBytes`, `encoding`（この2つは [文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）, `emptyIsNull`（下記）, `precision`, `scale`（`decimal` の小数桁に加え、`datetime2(3)`・`time(0)` など日時の秒の小数桁。`datetime` は `3`）, `min` / `max`（下記）, `identity`, `computed`, `hasDefault` は当てはまるときだけ。
 - `emptyIsNull: true` は、空文字 `""` を NULL として保存する文字列の列に付ける（Oracle の文字列の列は全部）。コアは取込でその列の空のセルを `null` にし、`""` を値として渡されたら検証エラーにする（「この列では空文字は NULL になります。空にするなら null」）。サーバはその列に `""` が来たら `invalid_value`。
@@ -280,7 +281,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - `maxLength` は今までどおり文字数の上限（`varchar(n)` でも `n`）。1文字は1バイト以上なので、文字数の上限としては正しい。
 - コアは `encoding` で値をバイト列に直して `maxBytes` と比べ、表せない字があれば検証エラーにする。知らない `encoding` なら確かめず、「確認できない」と警告を出す。ブラウザの `TextEncoder` は UTF-8 しか扱えないので、他の文字コードの変換表はコアが持つ。
 - サーバも apply の値の形の確認（`invalid_value`）で同じことをする。ブラウザは書き換えられるので、ここを省くと「?」への置き換わりを防げない。
-- SQL Server ではコードページを `COLLATIONPROPERTY(collation_name, 'CodePage')` で取り、次のように直す。`nchar` / `nvarchar` は照合順序によらず `utf-16le`。
+- SQL Server ではコードページを `COLLATIONPROPERTY(collation_name, 'CodePage')` で取り、次のように直す。`nchar` / `nvarchar` / `ntext` は照合順序によらず `utf-16le`。
 
 | コードページ | `encoding` |
 | --- | --- |
@@ -308,6 +309,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 | WE8ISO8859P1 | `windows-1252` |
 | WE8ISO8859P15 | `iso-8859-15` |
 
+- SQL Server の `text` / `ntext` は `max` の列と同じく `maxLength: -1` にし、`maxBytes` は付けない。`encoding` は `text` なら照合順序のコードページ、`ntext` なら `utf-16le`。
 - PostgreSQL の `varchar(n)` / `char(n)` の `n` は文字数なので `maxBytes` は付けない（`text` と `varchar` は `maxLength: -1`）。`encoding` は DB の文字コード（`server_encoding`）から次のように直す。列ごとの文字コードは無い。表にない文字コード（`SQL_ASCII`、`MULE_INTERNAL` など）は `encoding` を付けない。
 
 | PostgreSQL の文字コード | `encoding` |
@@ -349,6 +351,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
   ]
 }
 ```
+- 一覧の `table` は許可リストに書いたままの文字列で、DB を引かない（ターゲットが多くても軽く、設定を誤ったターゲットがあっても一覧は返せるように）。DB で引いた名前はターゲットを指した describe で返す。
 
 ## 4. fetch（現在値）
 
@@ -400,7 +403,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 ## 6. 承認との関係
 
 - サーバは承認を管理しない（ツールの外でよい、の前提）。
-- コアは apply の前に、送る内容の要約（行数、列、差分ファイルの指紋）を作れる。将来、承認者のサインや承認番号を `apply` の `note` に載せて記録に残す使い方を想定する。
+- コアは apply の前に、送る内容の要約を作れる（反映計画 `plan.json`: 取込元、行数、送るリクエストそのもの）。差分ファイルの指紋（ハッシュ）はまだ作らない。将来、承認者のサインや承認番号を `apply` の `note` に載せて記録に残す使い方を想定する。
 
 ## 7. apply（反映）
 
@@ -563,7 +566,8 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - Oracle はこれから。ODP.NET Managed Driver（`Oracle.ManagedDataAccess`、.NET Framework 4.x、Oracle Client 不要）でできる見込み（未確認）。`OracleCommand.BindByName = true`、`NVARCHAR2` は `OracleDbType.NVarchar2`、NUMBER は `OracleDecimal` か文字列で受ける。比べ方、ロック、スクリプトの書き方は Node 版の `oracle.ts` に合わせる。
 
 ### 適合テスト
-- 仕様どおりかを確かめるテスト一式（リクエストと期待するレスポンスの JSON の組）をリポジトリに置き、Node 版・C# 版の両方に同じものを流す。他の言語で作る人もこれで確かめられる。
+- これから。仕様どおりかを確かめるテスト一式（リクエストと期待するレスポンスの JSON の組）をリポジトリに置き、どの版にも同じものを流せるようにする。他の言語で作る人もこれで確かめられる。
+- 今は、C# 版と VB.NET 版が同じテスト（`packages/server-dotnet/test`）を実際の SQL Server で共有し、Node 版は DB ごとのテスト（`packages/server-node/test/*.integration.test.ts`）を持つ。どちらも同じ `patchiri-core` のクライアントで呼ぶ。
 
 ## 9. この草案で選んだ既定（変えたければここ）
 

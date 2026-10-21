@@ -21,8 +21,10 @@ Namespace Global.Patchiri.Server
     Public NotInheritable Class SqlServerDialect
         Implements IPatchiriDialect
 
+        ' text / ntext は古い長い文字列の型。varchar(max) / nvarchar(max) と同じく扱う（DB が = で比べられないので、キーにはできない）。
         Private Shared ReadOnly TypeMap As New Dictionary(Of String, String) From {
             {"char", "string"}, {"varchar", "string"}, {"nchar", "string"}, {"nvarchar", "string"},
+            {"text", "string"}, {"ntext", "string"},
             {"tinyint", "integer"}, {"smallint", "integer"}, {"int", "integer"},
             {"bigint", "bigint"},
             {"decimal", "decimal"}, {"numeric", "decimal"}, {"money", "decimal"}, {"smallmoney", "decimal"},
@@ -156,7 +158,7 @@ Namespace Global.Patchiri.Server
         Private Shared Function BindValue(cmd As SqlCommand, paramName As String, col As ColumnMeta, v As Object) As String
             Dim p = cmd.Parameters.Add("@" & paramName, SqlDbType.VarChar)
             Select Case col.BaseType
-                Case "char", "varchar", "nchar", "nvarchar"
+                Case "char", "varchar", "nchar", "nvarchar", "text", "ntext"
                     p.SqlDbType = SqlDbType.NVarChar
                     ' SqlClient は Size より長い値を黙って切るので、列より長い値は長いまま渡して DB に弾かせる。
                     Dim s = TryCast(v, String)
@@ -266,21 +268,23 @@ Namespace Global.Patchiri.Server
         End Function
 
         Public Function DescribeTable(table As String) As TableMeta Implements IPatchiriDialect.DescribeTable
-            Dim parts = SplitTableName(table)
             Dim qualified = QuoteTable(table)
             Using conn = Open()
                 Dim cmd As New SqlCommand(
                     "SELECT c.name, TYPE_NAME(c.system_type_id) AS base_type, c.max_length, c.precision, c.scale," &
                     " c.is_nullable, c.is_identity, c.is_computed, c.default_object_id," &
-                    " CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page, c.collation_name" &
+                    " CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page, c.collation_name," &
+                    " OBJECT_SCHEMA_NAME(c.object_id) AS table_schema, OBJECT_NAME(c.object_id) AS table_name" &
                     " FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id", conn)
                 cmd.Parameters.Add("@name", SqlDbType.NVarChar, 512).Value = qualified
                 Dim colRows = Query(cmd)
                 If colRows.Count = 0 Then Throw New PatchiriDbException("テーブル " & table & " が見つかりません")
-                Dim meta As New TableMeta With {.Table = parts(0) & "." & parts(1)}
+                ' 名前は DB の綴りで返す（許可リストに "Kind" や "dbo.item" と書いても "dbo.Kind"、"dbo.Item"）。
+                Dim meta As New TableMeta With {.Table = Convert.ToString(colRows(0)(11), CultureInfo.InvariantCulture) & "." & Convert.ToString(colRows(0)(12), CultureInfo.InvariantCulture)}
                 For Each r In colRows
                     Dim baseType = Convert.ToString(r(1), CultureInfo.InvariantCulture)
-                    Dim bytes = Convert.ToInt32(r(2), CultureInfo.InvariantCulture)
+                    ' text / ntext の max_length は 16（中身を指す場所の大きさ）なので、上限なしとして扱う。
+                    Dim bytes = If(baseType = "text" OrElse baseType = "ntext", -1, Convert.ToInt32(r(2), CultureInfo.InvariantCulture))
                     Dim precision = Convert.ToInt32(r(3), CultureInfo.InvariantCulture)
                     Dim scale = Convert.ToInt32(r(4), CultureInfo.InvariantCulture)
                     Dim typeName As String = Nothing
@@ -295,7 +299,7 @@ Namespace Global.Patchiri.Server
                         .SqlType = dbTypeName
                     }
                     If typeName = "string" Then
-                        Dim national = baseType = "nchar" OrElse baseType = "nvarchar"
+                        Dim national = baseType = "nchar" OrElse baseType = "nvarchar" OrElse baseType = "ntext"
                         col.MaxLength = If(bytes = -1, -1, If(national, bytes \ 2, bytes))
                         ' 桁はバイトで決まる。nchar / nvarchar は UTF-16、char / varchar は照合順序のコードページ。
                         If bytes <> -1 Then col.MaxBytes = bytes

@@ -45,10 +45,11 @@ C# 版と VB.NET 版は、web.config の接続文字列（既定の名前は `Pa
 - **varchar のバイト数**: varchar の桁は、列の照合順序の文字コード（Shift_JIS など）でバイト数を数えます。その文字コードで表せない字はエラーにします（SQL Server は黙って「?」に置き換えるため）。
 - **日本語**: 文字列は varchar の列でも nvarchar のパラメータで渡し、出力する SQL も `N'…'` で書きます。
 - **char / nchar**: DB が末尾を空白で埋めるので、末尾の空白だけの違いは同じ値とみなします。
+- **text / ntext**: 古い型ですが、varchar(max) / nvarchar(max) と同じ文字列として更新できます（キーには使えません）。
 - **トリガー**: 監査トリガーなどがあるテーブルでも、UPDATE そのものの行数で確かめます。
 - **ロック**: ほかのセッションがロックしている行は `lockWaitSeconds`（既定 10 秒）待ってから、「ほかのセッションにロックされています」と出して止めます。
 - **出力する SQL**: 反映 SQL は UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, …` を続け、1 行でも見つからないか値が変わっていれば全部取り消して止まります。SSMS などで後から流しても同じです。
 
 ## 扱えない型
 
-`text`、`ntext`、`image`、`xml`、`varbinary`、`uniqueidentifier`、`datetimeoffset` などは読めますが、更新できません。
+`image`、`xml`、`varbinary`、`uniqueidentifier`、`datetimeoffset` などは読めますが、更新できません。
