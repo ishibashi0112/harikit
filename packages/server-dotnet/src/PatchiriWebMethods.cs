@@ -64,14 +64,11 @@ namespace Patchiri.Server
             {
                 if (service != null && path == servicePath && stamp == serviceStamp) return service;
                 var config = PatchiriConfig.Parse(File.ReadAllText(path, Encoding.UTF8));
-                var cs = ConfigurationManager.ConnectionStrings[config.ConnectionStringName];
-                if (cs == null || string.IsNullOrEmpty(cs.ConnectionString))
-                    throw new PatchiriConfigException("web.config の connectionStrings に " + config.ConnectionStringName + " がありません");
                 var logDir = MapPath(config.LogDir);
                 service = new PatchiriService(new PatchiriServiceOptions
                 {
                     Config = config,
-                    Dialect = new SqlServerDialect(cs.ConnectionString, config.LockWaitSeconds),
+                    Dialect = CreateDialect(config),
                     WhoAmI = CurrentUser,
                     Log = entry => PatchiriFileLog.WriteApply(logDir, entry),
                     LogError = e => WriteError(logDir, e),
@@ -81,6 +78,22 @@ namespace Patchiri.Server
                 serviceStamp = stamp;
                 return service;
             }
+        }
+
+        /// <summary>
+        /// 設定の connectionStringName が指す接続文字列の providerName で DB を選ぶ。
+        /// 省くか System.Data.SqlClient なら SQL Server、Oracle.ManagedDataAccess.Client なら Oracle（ODP.NET Managed Driver）。
+        /// </summary>
+        public static IPatchiriDialect CreateDialect(PatchiriConfig config)
+        {
+            var cs = ConfigurationManager.ConnectionStrings[config.ConnectionStringName];
+            if (cs == null || string.IsNullOrEmpty(cs.ConnectionString))
+                throw new PatchiriConfigException("web.config の connectionStrings に " + config.ConnectionStringName + " がありません");
+            var provider = cs.ProviderName;
+            if (string.IsNullOrEmpty(provider) || provider == "System.Data.SqlClient") return new SqlServerDialect(cs.ConnectionString, config.LockWaitSeconds);
+            if (provider == OracleDialect.ProviderName) return new OracleDialect(cs.ConnectionString, config.LockWaitSeconds);
+            throw new PatchiriConfigException("connectionStrings の " + config.ConnectionStringName + " の providerName " + provider
+                + " には対応していません（SQL Server は System.Data.SqlClient、Oracle は " + OracleDialect.ProviderName + "）");
         }
 
         /// <summary>反映した人。載せ先の認証（フォーム認証、Windows 認証など）が決めた名前を使う。画面の見出しにも出す。</summary>

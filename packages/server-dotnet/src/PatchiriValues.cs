@@ -15,7 +15,8 @@ namespace Patchiri.Server
         public static readonly Regex DecimalRe = new Regex(@"\A-?[0-9]+(\.[0-9]+)?\z");
         public static readonly Regex BigintRe = new Regex(@"\A-?[0-9]+\z");
         static readonly Regex DateRe = new Regex(@"\A([0-9]{4})-([0-9]{2})-([0-9]{2})\z");
-        static readonly Regex DateTimeRe = new Regex(@"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,7})?\z");
+        // 秒の小数は Oracle の TIMESTAMP(9) まで。桁の上限は列の scale で見る。
+        static readonly Regex DateTimeRe = new Regex(@"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,9})?\z");
         static readonly Regex TimeRe = new Regex(@"\A([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,7})?\z");
 
         /// <summary>dbType の先頭の型名（"decimal(9,2)" → "decimal"）。</summary>
@@ -72,6 +73,7 @@ namespace Patchiri.Server
                     {
                         var s = v as string;
                         if (s == null) return "文字列ではありません";
+                        if (s.Length == 0 && col.EmptyIsNull) return "この列では空文字は NULL になります（空にするなら null）";
                         if (col.MaxLength.HasValue && col.MaxLength.Value >= 0)
                         {
                             var len = CodePoints(s);
@@ -178,6 +180,13 @@ namespace Patchiri.Server
             else return null;
             if (col.MaxBytes.HasValue && bytes > col.MaxBytes.Value) return col.MaxBytes.Value + " バイトを超えています（" + bytes + " バイト）";
             return null;
+        }
+
+        /// <summary>文字コードで書いて読み戻すと同じになるか（表せない字や、近い字への置き換えがないか）。</summary>
+        public static bool CanEncode(Encoding enc, string s)
+        {
+            int bytes;
+            return RoundTrips(enc, s, out bytes);
         }
 
         static bool RoundTrips(Encoding enc, string s, out int bytes)

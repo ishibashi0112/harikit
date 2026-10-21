@@ -1,6 +1,5 @@
 ﻿<%@ Page Language="C#" EnableSessionState="False" %>
 <%@ Import Namespace="System.Collections.Generic" %>
-<%@ Import Namespace="System.Configuration" %>
 <%@ Import Namespace="System.IO" %>
 <%@ Import Namespace="System.Web.Hosting" %>
 <%@ Import Namespace="System.Web.Services" %>
@@ -38,11 +37,10 @@
     public static Dictionary<string, object> Apply(Dictionary<string, object> req)
     {
         var config = PatchiriConfig.Parse(File.ReadAllText(HostingEnvironment.MapPath("~/App_Data/patchiri.config.json")));
-        var cs = ConfigurationManager.ConnectionStrings[config.ConnectionStringName].ConnectionString;
         var service = new PatchiriService(new PatchiriServiceOptions
         {
             Config = config,
-            Dialect = new DbOnlyCheckDialect(new SqlServerDialect(cs)),
+            Dialect = new DbOnlyCheckDialect(PatchiriWebMethods.CreateDialect(config)),
             WhoAmI = () => "probe",
         });
         return service.Handle("apply", req);

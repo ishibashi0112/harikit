@@ -2,6 +2,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Row = System.Collections.Generic.Dictionary<string, object>;
 
 namespace Patchiri.Server
@@ -20,6 +22,8 @@ namespace Patchiri.Server
         public int? MaxBytes;
         /// <summary>列の文字コードの WHATWG 名（"shift_jis"、"utf-16le" など）。わからなければ null。</summary>
         public string Encoding;
+        /// <summary>空文字 "" を NULL として保存する文字列の列（Oracle の文字列の列は全部）。</summary>
+        public bool EmptyIsNull;
         public int? Precision;
         public int? Scale;
         public bool Identity;
@@ -33,9 +37,9 @@ namespace Patchiri.Server
         public System.Text.Encoding ByteEncoding;
         /// <summary>方言の内部用。char / varchar の列の照合順序（DB で文字コードを確かめるのに使う）。</summary>
         public string Collation;
-        /// <summary>方言の内部用。SQL Server なら TYPE_NAME の結果（"varchar" など）。</summary>
+        /// <summary>方言の内部用。SQL Server なら TYPE_NAME の結果（"varchar" など）、Oracle なら精度を外した DATA_TYPE（"VARCHAR2" など）。</summary>
         public string BaseType;
-        /// <summary>方言の内部用。CAST に使う型（"decimal(9,2)" など）。</summary>
+        /// <summary>方言の内部用。CAST に使う型（SQL Server の "decimal(9,2)" など、Oracle の CHAR / NCHAR の "CHAR(6 BYTE)" など）。</summary>
         public string SqlType;
     }
 
@@ -56,6 +60,8 @@ namespace Patchiri.Server
         public List<ColumnMeta> Columns = new List<ColumnMeta>();
         public List<string> PrimaryKey = new List<string>();
         public List<ForeignKeyMeta> ForeignKeys = new List<ForeignKeyMeta>();
+        /// <summary>方言の内部用（Oracle なら OWNER と NAME を分けたもの、DB の版と文字コード）。</summary>
+        public object DialectInfo;
 
         public ColumnMeta Column(string name)
         {
@@ -116,6 +122,36 @@ namespace Patchiri.Server
         public Row Set;
         public Row Key;
         public Row Expect;
+    }
+
+    /// <summary>人が読む SQL を作るときの小道具（方言に依らないもの）。</summary>
+    public static class PatchiriScript
+    {
+        static readonly Regex NewlinesRe = new Regex(@"[\r\n]+");
+
+        /// <summary>
+        /// 止めたときの文に入れるキーの値（Node 版と同じ「列=値, …」）。改行は空白にし（SQL*Plus は行ごとに読むため）、
+        /// 長ければ 200 文字で切る。引用はしないので、呼ぶ側で直す。
+        /// </summary>
+        public static string KeyText(Row key)
+        {
+            var parts = new List<string>();
+            foreach (var kv in key)
+            {
+                var v = kv.Value;
+                string text;
+                if (v == null) text = "null";
+                else if (v is string) text = (string)v;
+                else if (v is bool) text = (bool)v ? "true" : "false";
+                else if (PatchiriJson.IsNumber(v)) text = PatchiriJson.FormatDouble(PatchiriJson.ToDouble(v));
+                else text = Convert.ToString(v, CultureInfo.InvariantCulture);
+                parts.Add(kv.Key + "=" + NewlinesRe.Replace(text, " "));
+            }
+            var s = string.Join(", ", parts);
+            if (s.Length <= 200) return s;
+            var cut = char.IsHighSurrogate(s[199]) ? 199 : 200;
+            return s.Substring(0, cut) + "…";
+        }
     }
 
     public interface IPatchiriDialect

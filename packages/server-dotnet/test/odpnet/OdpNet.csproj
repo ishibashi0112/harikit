@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Oracle のテストで bin に置く ODP.NET Managed Driver（Oracle.ManagedDataAccess）と、それが使う DLL を NuGet から集める（test/host.mjs が dotnet build する）。
+    載せ先が NuGet で入れたときと同じく、web.config に足すアセンブリのバージョンの寄せ先（bin/out/OdpNet.dll.config の runtime）も作る。
+    版は -p:OdpNetVersion=... で変えられる。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OdpNetVersion Condition="'$(OdpNetVersion)' == ''">23.26.400</OdpNetVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Oracle.ManagedDataAccess" Version="$(OdpNetVersion)" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
