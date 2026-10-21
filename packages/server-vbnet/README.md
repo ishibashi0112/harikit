@@ -36,7 +36,7 @@ C# 版から直すとき、または C# 版の変更をこちらに写すとき�
 - **数**: 整数の割り算は `\`（`/` は小数になる）。`CInt` などは切り捨てではなく偶数への丸めなので、整数だと確かめた値にだけ使う。
 - **キーワードと同じ名前**: `Set`、`Get`、`Call`、`Error`、`Select` は `[Set]` のように角かっこで囲むか、別の名前にする（`ScriptUpdate.[Set]`、`PatchiriJson.[Get]`、`PatchiriWebMethods.[Call]`、`IPatchiriTransaction.Update` の引数 `[set]`）。公開メンバーの引数の名前も C# 版と同じにする（C# から名前付き引数で呼べるように）。
 - **VB 11 にない書き方**: 複数行の文字列リテラル、`?.`、`NameOf`、`$"..."`、`TypeOf ... IsNot` は VB 14 から。SQL の文は `&` でつなぐ。暗黙の行継続の行末にコメントは書けない。
-- **VB の関数**: `Left`、`Mid`、`Len`、`Format` などの `Microsoft.VisualBasic` の関数は使わず、.NET の `String` のメソッドを使う（Linux のテストでは VB のランタイムを埋め込んでビルドするので、使うとビルドが止まる）。`vbLf` などの定数はよい。`ControlChars` は埋め込みのランタイムにないので、`Char` の定数は `ChrW(13)` で作る（定数の式なので、ビルドのときに値になる）。
+- **VB の関数**: `Left`、`Mid`、`Len`、`Format` などの `Microsoft.VisualBasic` の関数は使わず、.NET の `String` のメソッドを使う（Linux のテストでは VB のランタイムを埋め込んでビルドするので、使うとビルドが止まる）。`vbLf` などの定数はよい。`ControlChars` は埋め込みのランタイムにないので、`Char` の定数は `ChrW(13)` で作る（定数の式なので、ビルドのときに値になる）。逆に、`As` を書かない `For Each` の変数が VB の関数と同じ名前（`typeName` など）だと、新しい変数にならず関数を指してしまう（.NET Framework の `vbc` では止まるが、ランタイムを埋め込む Linux のビルドでは通ってしまう）。
 
 ## テスト
 

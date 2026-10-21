@@ -143,8 +143,8 @@ Namespace Global.Patchiri.Server
                 longFetchSize = commandType.GetProperty("InitialLONGFetchSize")
                 oracleDbType = Factory.CreateParameter().GetType().GetProperty("OracleDbType")
                 If bindByName Is Nothing OrElse oracleDbType Is Nothing Then Throw New PatchiriConfigException(ProviderName & " が ODP.NET ではありません")
-                For Each typeName In New String() {"Varchar2", "NVarchar2", "BinaryDouble", "Int32"}
-                    dbTypes(typeName) = [Enum].Parse(oracleDbType.PropertyType, typeName)
+                For Each oracleTypeName In New String() {"Varchar2", "NVarchar2", "BinaryDouble", "Int32"}
+                    dbTypes(oracleTypeName) = [Enum].Parse(oracleDbType.PropertyType, oracleTypeName)
                 Next
             End Sub
 
