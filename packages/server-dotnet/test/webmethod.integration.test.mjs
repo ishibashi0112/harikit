@@ -51,7 +51,7 @@ before(async () => {
   await master.request().query(`IF DB_ID('${DB}') IS NULL CREATE DATABASE ${DB} COLLATE SQL_Latin1_General_CP1_CI_AS`);
   await master.close();
   admin = await new sql.ConnectionPool({ ...base, database: DB }).connect();
-  await q(`DROP TABLE IF EXISTS dbo.Item; DROP TABLE IF EXISTS dbo.Kind; DROP TABLE IF EXISTS dbo.ItemAudit;`);
+  await q(`DROP TABLE IF EXISTS dbo.Item; DROP TABLE IF EXISTS dbo.Kind; DROP TABLE IF EXISTS dbo.ItemAudit; DROP TABLE IF EXISTS dbo.Note;`);
   await q(`CREATE TABLE dbo.Kind (KindCode varchar(4) NOT NULL PRIMARY KEY);
     CREATE TABLE dbo.Item (
       Code varchar(10) NOT NULL PRIMARY KEY,
@@ -73,6 +73,8 @@ before(async () => {
       Ratio real NULL
     );
     CREATE TABLE dbo.ItemAudit (Code varchar(10), Note nvarchar(10));
+    CREATE TABLE dbo.Note (Id int NOT NULL PRIMARY KEY, Body text COLLATE Japanese_CI_AS NULL, Wide ntext NULL);
+    INSERT INTO dbo.Note VALUES (1, N'メモ', N'メモ');
     INSERT INTO dbo.Kind VALUES ('K1'), ('K2');
     INSERT INTO dbo.Item (Code, Name, KindCode, Price, Cost, Big, Qty, Released, Stamp, Legacy, OpenAt, Memo, Grade, Ratio) VALUES
       ('A001', N'ペン', 'K1', 120.00, 80.5, 9007199254740993, 5, '2024-04-01', '2026-10-17T09:30:00.123', '2026-10-17T09:30:00', '09:00', N'メモ', 'A', 0.1),
@@ -119,6 +121,7 @@ before(async () => {
           updatable: ["Name", "KindCode", "Price", "Cost", "Big", "Qty", "Active", "Released", "Stamp", "Legacy", "OpenAt", "Guid", "RowId", "Memo", "Grade", "Ratio"],
         },
         kind: { table: "Kind", access: "read", readable: ["KindCode"] },
+        note: { table: "dbo.note", access: "update", readable: ["Id", "Body", "Wide"], updatable: ["Body", "Wide"] },
       },
       lockWaitSeconds: 1,
     }),
@@ -136,10 +139,14 @@ after(async () => {
 
 test("describe: 型、桁、文字コード、主キー、外部キー、更新できない列", { skip }, async () => {
   const list = await client.targets();
+  // 一覧は許可リストに書いたままの名前。ターゲットを指すと DB で引いた名前（スキーマも綴りも DB のもの）。
   assert.deepEqual(list.targets, [
     { target: "item", table: "dbo.Item", access: "update" },
     { target: "kind", table: "Kind", access: "read" },
+    { target: "note", table: "dbo.note", access: "update" },
   ]);
+  assert.equal((await client.describe("kind")).table, "dbo.Kind");
+  assert.equal((await client.describe("note")).table, "dbo.Note");
   const d = await client.describe("item");
   assert.equal(d.dialect, "sqlserver");
   assert.equal(d.table, "dbo.Item");
@@ -355,6 +362,45 @@ test("出力した script は、後から行が変わっていたら何も反映
   } finally {
     await q(`DELETE FROM dbo.Item WHERE Code = 'O''K'; UPDATE dbo.Item SET Qty = 5 WHERE Code = 'A001'`);
   }
+});
+
+test("text / ntext も文字列として読み書きでき、値は厳密に比べる", { skip }, async () => {
+  const d = await client.describe("note");
+  const col = (n) => d.columns.find((c) => c.name === n);
+  assert.deepEqual({ ...col("Body") }, { name: "Body", type: "string", dbType: "text", nullable: true, updatable: true, maxLength: -1, encoding: "shift_jis" });
+  assert.deepEqual({ ...col("Wide") }, { name: "Wide", type: "string", dbType: "ntext", nullable: true, updatable: true, maxLength: -1, encoding: "utf-16le" });
+  const f = await client.fetch({ target: "note", keys: [{ Id: 1 }] });
+  assert.deepEqual(f.rows[0].values, { Id: 1, Body: "メモ", Wide: "メモ" });
+
+  const p = await prepare(client, "note", { name: "s", rows: [["Id", "Body", "Wide"], [1, "ボールペン（黒）", "𠮷野家"]] });
+  assert.ok(p.ok, JSON.stringify(p.issues));
+  const req = buildApplyRequest(p.diff, { mode: "execute" });
+  // 差分を取った後に、照合順序では同じになる値（半角カナ）へ直されたら止まる。
+  await q(`UPDATE dbo.Note SET Body = N'ﾒﾓ' WHERE Id = 1`);
+  const conflict = await client.apply(req);
+  assert.equal(conflict.error.code, "conflict");
+  assert.deepEqual(conflict.conflicts.map((c) => [c.columns, c.current]), [[["Body"], { Body: "ﾒﾓ", Wide: "メモ" }]]);
+  await q(`UPDATE dbo.Note SET Body = N'メモ' WHERE Id = 1`);
+
+  const done = await client.apply({ ...req, requestId: crypto.randomUUID() });
+  assert.equal(done.ok, true, JSON.stringify(done));
+  const now = async () => ({ ...(await q(`SELECT Body, Wide FROM dbo.Note WHERE Id = 1`))[0] });
+  assert.deepEqual(await now(), { Body: "ボールペン（黒）", Wide: "𠮷野家" });
+  // 出力した SQL もそのまま流せる。
+  await q(done.undoScript);
+  assert.deepEqual(await now(), { Body: "メモ", Wide: "メモ" });
+  await q(done.script);
+  assert.deepEqual(await now(), { Body: "ボールペン（黒）", Wide: "𠮷野家" });
+
+  // text の列も、列の文字コードで表せない字はサーバが弾く（DB では黙って「?」になる）。
+  const { body } = await call("Apply", {
+    v: 1,
+    requestId: crypto.randomUUID(),
+    mode: "execute",
+    changes: [{ target: "note", rows: [{ key: { Id: 1 }, before: { Body: "ボールペン（黒）" }, after: { Body: "𠮷野家" } }] }],
+  });
+  assert.deepEqual(body.rowErrors.map((e) => [e.code, e.column, e.message]), [["invalid_value", "Body", "after: 「𠮷」は列の文字コード（shift_jis）で表せません"]]);
+  await q(done.undoScript);
 });
 
 test("ほかのセッションが行をロックしたままなら、lockWaitSeconds で待つのをやめて何も変えない", { skip }, async () => {

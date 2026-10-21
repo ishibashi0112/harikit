@@ -95,7 +95,7 @@ const CONFIG: ServerConfig = {
       readable: ["ProductCode", "ProductName", "CategoryCode", "UnitPrice"],
       updatable: ["ProductName", "CategoryCode", "UnitPrice"],
     },
-    category: { table: "dbo.M_Category", access: "read", readable: ["CategoryCode"] },
+    category: { table: "M_Category", access: "read", readable: ["CategoryCode"] },
   },
   limits: { maxFetchKeys: 3, maxApplyRows: 3 },
 };
@@ -118,17 +118,21 @@ const applyReq = (rows: unknown[], mode = "execute", requestId = ID) => ({ v: 1,
 
 test("describe: 一覧と、readable の列だけの定義", async () => {
   const { handlers } = setup();
+  // 一覧は許可リストに書いたままの名前（DB を引かない）。
   const list = await handlers.handle("describe", { v: 1 });
   assert.deepEqual(list.targets, [
     { target: "product", table: "dbo.M_Product", access: "update" },
-    { target: "category", table: "dbo.M_Category", access: "read" },
+    { target: "category", table: "M_Category", access: "read" },
   ]);
   const d = await handlers.handle("describe", { v: 1, target: "product" });
   assert.equal(d.ok, true);
+  assert.equal(d.table, "dbo.M_Product");
   assert.deepEqual(d.key, ["ProductCode"]);
   const cols = d.columns as { name: string; updatable: boolean }[];
   assert.deepEqual(cols.map((c) => [c.name, c.updatable]), [["ProductCode", false], ["ProductName", true], ["CategoryCode", true], ["UnitPrice", true]]);
   assert.deepEqual((d.foreignKeys as { referencedTarget: string }[])[0]!.referencedTarget, "category");
+  // ターゲットを指すと、DB で引いた名前（スキーマを省いて書いても付く）。
+  assert.equal((await handlers.handle("describe", { v: 1, target: "category" })).table, "dbo.M_Category");
 });
 
 test("共通のエラー: 版、ターゲット", async () => {

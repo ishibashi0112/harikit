@@ -117,6 +117,8 @@ after(async () => {
 test("describe: 型、桁と文字コード、整数の範囲、主キー、外部キー、更新できない列", { skip }, async () => {
   const d = await client.describe("item");
   assert.equal(d.dialect, "mysql");
+  // table は DB で引いた名前（データベースを省くと接続先のもの）。
+  assert.equal(d.table, `${conn!.database}.item`);
   assert.deepEqual(d.key, ["code"]);
   const col = (n: string) => ({ ...d.columns.find((c) => c.name === n)! });
   assert.deepEqual(col("code"), { name: "code", type: "string", dbType: "varchar(10)", nullable: false, updatable: false, maxLength: 10, encoding: "utf-8" });

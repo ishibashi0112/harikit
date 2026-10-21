@@ -22,6 +22,9 @@ const TYPE_MAP: Record<string, ColumnType> = {
   varchar: "string",
   nchar: "string",
   nvarchar: "string",
+  // 古い長い文字列の型。varchar(max) / nvarchar(max) と同じく扱う（DB が = で比べられないので、キーにはできない）。
+  text: "string",
+  ntext: "string",
   tinyint: "integer",
   smallint: "integer",
   int: "integer",
@@ -145,7 +148,9 @@ function bindValue(req: sql.Request, name: string, col: MsColumn, v: Value): str
     case "char":
     case "varchar":
     case "nchar":
-    case "nvarchar": {
+    case "nvarchar":
+    case "text":
+    case "ntext": {
       const len = col.maxLength === undefined || col.maxLength === -1 || col.maxLength > 4000 ? sql.MAX : col.maxLength;
       req.input(name, sql.NVarChar(len), v);
       return `@${name}`;
@@ -328,19 +333,20 @@ export class SqlServerDialect implements Dialect {
 
   async describeTable(table: string): Promise<TableMeta> {
     const pool = await this.pool();
-    const [schema, name] = splitTableName(table);
     const qualified = quoteTable(table);
     const colRes = await run(pool, (req) => {
       req.input("name", sql.NVarChar(512), qualified);
       return `SELECT c.name, TYPE_NAME(c.system_type_id) AS base_type, c.max_length, c.precision, c.scale,
                 c.is_nullable, c.is_identity, c.is_computed, c.default_object_id,
-                c.collation_name, CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page
+                c.collation_name, CONVERT(int, COLLATIONPROPERTY(c.collation_name, 'CodePage')) AS code_page,
+                OBJECT_SCHEMA_NAME(c.object_id) AS table_schema, OBJECT_NAME(c.object_id) AS table_name
                 FROM sys.columns c WHERE c.object_id = OBJECT_ID(@name) ORDER BY c.column_id`;
     });
     if (colRes.recordset.length === 0) throw new DbError(`テーブル ${table} が見つかりません`);
     const columns: MsColumn[] = colRes.recordset.map((r) => {
       const base = String(r.base_type);
-      const bytes = Number(r.max_length);
+      // text / ntext の max_length は 16（中身を指す場所の大きさ）なので、上限なしとして扱う。
+      const bytes = base === "text" || base === "ntext" ? -1 : Number(r.max_length);
       const type = TYPE_MAP[base] ?? "other";
       const maxLength = bytes === -1 ? -1 : base === "nchar" || base === "nvarchar" ? bytes / 2 : bytes;
       const precision = Number(r.precision);
@@ -400,8 +406,10 @@ export class SqlServerDialect implements Dialect {
       fk.columns.push(String(r.col));
       fk.referencedColumns.push(String(r.ref_col));
     }
+    // 名前は DB の綴りで返す（許可リストに "Kind" や "dbo.item" と書いても "dbo.Kind"、"dbo.Item"）。
+    const first = colRes.recordset[0]!;
     return {
-      table: `${schema}.${name}`,
+      table: `${first.table_schema}.${first.table_name}`,
       columns,
       primaryKey: pkRes.recordset.map((r) => String(r.name)),
       foreignKeys: [...fks.values()],

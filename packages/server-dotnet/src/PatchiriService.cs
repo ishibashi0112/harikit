@@ -299,7 +299,7 @@ namespace Patchiri.Server
             }
             var res = Ok();
             res["target"] = r.Name;
-            res["table"] = r.Target.Table;
+            res["table"] = r.Meta.Table;
             res["access"] = r.Target.Access;
             res["dialect"] = o.Dialect.Name;
             res["key"] = new List<string>(r.Key);

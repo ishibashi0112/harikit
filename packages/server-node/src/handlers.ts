@@ -189,7 +189,7 @@ export class Handlers {
       ok: true,
       v: 1,
       target: r.name,
-      table: r.target.table,
+      table: r.meta.table,
       access: r.target.access,
       dialect: this.deps.dialect.name,
       key: r.key,

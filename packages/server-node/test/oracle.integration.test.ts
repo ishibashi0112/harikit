@@ -123,6 +123,8 @@ after(async () => {
 test("describe: 型、桁と文字コード、主キー、外部キー、更新できない列", { skip }, async () => {
   const d = await client.describe("item");
   assert.equal(d.dialect, "oracle");
+  // table は DB で引いた名前（スキーマを省くとつないだユーザーのもの）。
+  assert.equal(d.table, `${conn!.user.toUpperCase()}.ITEM`);
   assert.deepEqual(d.key, ["CODE"]);
   const col = (n: string) => ({ ...d.columns.find((c) => c.name === n)! });
   assert.deepEqual(col("CODE"), { name: "CODE", type: "string", dbType: "VARCHAR2(10 BYTE)", nullable: false, updatable: false, maxLength: 10, maxBytes: 10, encoding: "utf-8", emptyIsNull: true });
@@ -141,8 +143,9 @@ test("describe: 型、桁と文字コード、主キー、外部キー、更新�
   if (hasBoolean) assert.equal(col("FLAG").type, "boolean");
   assert.deepEqual(d.foreignKeys, [{ name: "FK_ITEM_KIND", columns: ["KIND_CODE"], referencedTable: `${conn!.user.toUpperCase()}.KIND`, referencedColumns: ["KIND_CODE"], referencedTarget: "kind" }]);
 
-  // シノニムの先のテーブルも引ける。
+  // シノニムの先のテーブルも引ける。table はたどった先の名前。
   const l = await client.describe("legacy");
+  assert.equal(l.table, `${conn!.user.toUpperCase()}.LEGACY`);
   assert.deepEqual(l.key, ["CD"]);
 });
 
