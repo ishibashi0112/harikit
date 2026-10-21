@@ -21,13 +21,15 @@ export interface ClientOptions {
   fetch?: typeof fetch;
 }
 
-/** サーバが HTTP のエラー（401 など）を返したときに投げる。 */
+/** サーバが HTTP のエラー（401 など）を返したとき、または応答が JSON でなかったときに投げる。 */
 export class PatchiriHttpError extends Error {
   constructor(
     public readonly status: number,
     public readonly url: string,
+    /** HTTP は成功でも、応答が JSON でなかった（載せ先のログインの画面に回されたときなど）。 */
+    public readonly notJson = false,
   ) {
-    super(`サーバに届きませんでした（HTTP ${status}）: ${url}`);
+    super(notJson ? `サーバの応答が JSON ではありません（HTTP ${status}）: ${url}` : `サーバに届きませんでした（HTTP ${status}）: ${url}`);
     this.name = "PatchiriHttpError";
   }
 }
@@ -64,7 +66,12 @@ export class PatchiriClient {
       body: JSON.stringify(this.style === "webmethod" ? { req } : req),
     });
     if (!res.ok) throw new PatchiriHttpError(res.status, url);
-    const body = (await res.json()) as { d?: unknown };
+    let body: { d?: unknown };
+    try {
+      body = JSON.parse(await res.text()) as { d?: unknown };
+    } catch {
+      throw new PatchiriHttpError(res.status, url, true);
+    }
     return (this.style === "webmethod" ? body.d : body) as T | Failure;
   }
 

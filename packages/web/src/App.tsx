@@ -82,8 +82,16 @@ type Applied =
 
 const tokenClient = (token: string | null) => (token ? makeClient(token) : null);
 
+/** ログインが切れたか、権限がないときの応答（載せ先のアプリの 401 / 403、ログインの画面への転送）。 */
+const deniedHttp = (e: unknown): e is PatchiriHttpError => e instanceof PatchiriHttpError && (e.status === 401 || e.status === 403 || e.notJson);
+
 function errorMessage(e: unknown): string {
   if (e instanceof PatchiriApiError) return `${e.failure.error.message}（${e.failure.error.code}）`;
+  if (deniedHttp(e)) {
+    const why = e.notJson ? "ログインの画面などに回されました" : `HTTP ${e.status}`;
+    // 開き直すと貼った表が消えるので、別のタブでログインし直してもらう（クッキーはタブをまたいで効く）。
+    return `ログインが切れたか、このページを使う権限がありません。別のタブでこのページを開いてログインし直してから、もう一度押してください（${why}）`;
+  }
   if (e instanceof TypeError) return "サーバに届きません。patchiri サーバが動いているか確かめてください";
   return e instanceof Error ? e.message : String(e);
 }
@@ -277,6 +285,8 @@ export function PatchiriApp({ client: given, serverLabel, headerExtra, initialRu
       if (result.ok && result.diff) setTab("diff");
     } catch (e) {
       setPrepared(null);
+      // 差分のタブを見ていても、差分は消えるので貼った表に戻す（ログインが切れたときなど）。
+      setTab("input");
       setError(errorMessage(e));
     } finally {
       setPreparing(false);
@@ -296,7 +306,9 @@ export function PatchiriApp({ client: given, serverLabel, headerExtra, initialRu
       const conflicts = res.conflicts;
       if (conflicts?.length) setPrepared((cur) => (cur === p ? { ...p, marks: addConflictMarks(p.marks, p.rows, p.result, conflicts) } : cur));
     } catch (e) {
-      setApplied({ mode, state: "failed", failure: { ok: false, v: 1, error: { code: "network", message: errorMessage(e) } } });
+      // 認証で断られた呼び出しは、サーバの反映の手前で止まっている。
+      const message = deniedHttp(e) ? `${errorMessage(e)}。何も反映していません` : errorMessage(e);
+      setApplied({ mode, state: "failed", failure: { ok: false, v: 1, error: { code: "network", message } } });
     }
   };
 

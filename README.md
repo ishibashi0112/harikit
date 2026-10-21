@@ -73,7 +73,7 @@ PATCHIRI_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c pat
 
 ### 画面で使う
 
-起動時に出る `画面: http://127.0.0.1:7357/#token=…` をブラウザで開く。
+起動時に出る `画面: http://127.0.0.1:7357/#token=…` をブラウザで開く。WebForms に載せた C# 版・VB.NET 版なら、載せたページ（例 `Admin/Patchiri.aspx`）を開くと、載せ先のログインのまま同じ画面が出る（[packages/server-dotnet](packages/server-dotnet)）。
 
 1. 「対象」でテーブルを選ぶ。業務ルール（`patchiri.rules.json`）は「ファイルを選ぶ」で読む（このブラウザが覚えておく）。
 2. Excel で見出しの行ごとコピーし、表の A1 を選んで貼り付ける。1 行目が列名で、キーの列と変える列だけでよい（貼っていない列は変わらない）。右の一覧の「＋見出し」で列名を入れることもできる。
@@ -254,10 +254,10 @@ PATCHIRI_DB_PASSWORD=... node ../../packages/server-node/dist/src/main.js -c pat
 | --- | --- |
 | [packages/core](packages/core) | コア。Excel / CSV の読み込み、DB 定義での検証、差分、API クライアント。依存なしで、ブラウザでも Node でも動く |
 | [packages/server-node](packages/server-node) | サーバ API 3 本の Node 版参考実装（SQL Server は `mssql`、Oracle は `oracledb`、PostgreSQL は `pg`、MySQL / MariaDB は `mysql2` を使う） |
-| [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server） |
+| [packages/server-dotnet](packages/server-dotnet) | サーバ API 3 本の C#（.NET Framework）版参考実装。ASP.NET WebForms のアプリに WebMethod として載せる（SQL Server）。ページを開くと画面が出て、載せ先のログインのまま使える |
 | [packages/server-vbnet](packages/server-vbnet) | C# 版を VB.NET に書き直したもの。VB.NET の WebForms のアプリ（Web サイトの App_Code など）に載せる |
 | [packages/cli](packages/cli) | CLI（`targets`、`diff`、`apply`） |
-| [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配るほか、React の部品（`PatchiriApp`）としてほかのアプリに埋め込める |
+| [packages/web](packages/web) | 画面。[spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) に貼り付けて、検証・差分・反映をする（React）。Node 版サーバが `/` で配るほか、WebForms に載せた C# 版・VB.NET 版のページも配る。React の部品（`PatchiriApp`）としてほかのアプリに埋め込める |
 | [site](site) | ドキュメントとデモのサイト（Astro + Starlight）。デモは、server-node の API の中身（`Handlers`）と PostgreSQL の方言を PGlite と一緒にブラウザに載せ、画面の通信をそこへつないで動かす |
 
 テスト: `npm test`。実際の SQL Server でも通すときは `PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm test`、Oracle は `PATCHIRI_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"patchiri","password":"..."}' npm test`（そのユーザーのスキーマにテスト用のテーブルを作り直す）、PostgreSQL は `PATCHIRI_TEST_POSTGRES='{"host":"localhost","database":"patchiri","user":"patchiri","password":"..."}' npm test`（`ht` スキーマを作り直す）、MySQL / MariaDB は `PATCHIRI_TEST_MYSQL='{"host":"127.0.0.1","database":"patchiri","user":"root","password":"..."}' npm test`（そのデータベースにテスト用のテーブルを作り直す。トリガーを作るので root で）。

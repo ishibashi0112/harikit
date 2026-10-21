@@ -147,6 +147,7 @@ jobs:
           PATCHIRI_TEST_MYSQL: '{"host":"127.0.0.1","port":3306,"database":"patchiri","user":"root","password":"Patchiri1"}'
 
   # .NET 版（C# と VB.NET）を Mono の ASP.NET（WebMethod）で動かし、実際の SQL Server で通す。
+  # 画面（Patchiri.aspx を開いたもの）は Chromium で、フォーム認証でログインして反映まで通す（test/screen.e2e.test.mjs）。
   dotnet:
     name: dotnet (${{ matrix.package }})
     runs-on: ubuntu-latest
@@ -176,6 +177,7 @@ jobs:
       - run: npm ci
       - name: Install Mono
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mono-complete
+      - run: npx playwright install --with-deps chromium
       - name: Wait for SQL Server
         run: |
           for i in $(seq 1 30); do
@@ -192,6 +194,7 @@ jobs:
   # 載せ方は 2 つ: app_code はソースを App_Code に置く Web サイトの形（IIS が .NET Framework 付属のコンパイラ（C# 5 / VB 11）でビルドする）、
   # bin は build.cmd（csc / vbc）で作った DLL を置く形。テストは Mono のジョブと同じもの（packages/server-dotnet/test/host.mjs）。
   # ほかの .NET 版も、matrix に package（packages/ の下のフォルダ）を足せば同じテストで通る。
+  # 画面のテストは Windows に入っている Edge で流し、途中の画面を artifacts（screens-*）に残す。
   iis:
     name: iis (${{ matrix.package }}, ${{ matrix.layout }})
     runs-on: windows-latest
@@ -226,11 +229,19 @@ jobs:
           done
           exit 1
       - name: Test on IIS
-        run: node --test packages/server-dotnet/test/webmethod.integration.test.mjs
+        run: node --test "packages/server-dotnet/test/*.test.mjs"
         env:
           PATCHIRI_TEST_DOTNET_HOST: iis
           PATCHIRI_TEST_DOTNET_LAYOUT: ${{ matrix.layout }}
           PATCHIRI_TEST_DOTNET_PKG: packages/${{ matrix.package }}
+          PATCHIRI_TEST_BROWSER_CHANNEL: msedge
+          PATCHIRI_TEST_SCREENSHOTS: ${{ runner.temp }}/screens
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens-${{ matrix.package }}-${{ matrix.layout }}
+          path: ${{ runner.temp }}/screens
+          if-no-files-found: ignore
       - name: Show server logs
         if: failure()
         run: |

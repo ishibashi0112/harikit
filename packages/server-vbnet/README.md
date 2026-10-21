@@ -2,6 +2,7 @@
 
 サーバ API 3 本（[docs/api-spec.md](../../docs/api-spec.md) の describe / fetch / apply）の VB.NET 参考実装。
 既存の ASP.NET WebForms アプリ（VB.NET）に、ソースと `.aspx` 1 枚を足して WebMethod として載せる。今は SQL Server だけ。
+そのページをブラウザで開くと画面（[packages/web](../web)）が出るので、載せ先のログインのまま、貼り付けから反映までできる。
 
 [C# 版（packages/server-dotnet）](../server-dotnet) をそのまま VB.NET に書き直したもので、手順、SQL、設定ファイル、ログの形、型とメンバーの名前は C# 版と同じ。
 VB.NET の Web サイトの `App_Code` には C# のソースを混ぜられない（`codeSubDirectories` の設定が要る）ので、VB.NET のアプリにはこちらを置く。DLL にして `bin` に置くなら、C# 版と VB.NET 版のどちらでもよい。
@@ -17,13 +18,14 @@ VB.NET の Web サイトの `App_Code` には C# のソースを混ぜられな�
    - Web サイト: `src/*.vb` を `App_Code/Patchiri/` に置く。
    - Web アプリケーションプロジェクト: `src/*.vb` をプロジェクトに足す。名前空間は `Namespace Global.Patchiri.Server` にしてあるので、プロジェクトのルート名前空間に関係なく `Patchiri.Server` になる。DLL にしたければ `build.cmd` で `bin\Patchiri.Server.dll` を作って参照に足す。
    - 各ファイルの先頭で `Option Strict On`、`Option Explicit On`、`Option Infer On`、`Option Compare Binary` を指定してあるので、プロジェクトや web.config の設定（`Option Strict Off`、`Option Compare Text` など）に左右されない。
-2. **ページを置く**: `web/Patchiri.aspx` をアプリの中に置く（例 `Admin/Patchiri.aspx`）。中身は `<WebMethod()>` が 3 つで、`PatchiriWebMethods.Call` を呼ぶだけ。コードビハインドに移してもよい。
-   - WebMethod 以外の呼び出し（ページそのもの）に 404 / 415 を返す `Page_Load` は、`AutoEventWireup="false"` と `Handles Me.Load` でつないである（載せ先の web.config の `autoEventWireup` に左右されないように）。
-3. **許可リストを置く**: `App_Data/patchiri.config.json`（例 [web/App_Data/patchiri.config.json](web/App_Data/patchiri.config.json)）。形は C# 版、Node 版と同じ（[C# 版の「設定」](../server-dotnet/README.md#設定patchiriconfigjson)）。
-4. **web.config に足す**: C# 版と同じ（[C# 版の「載せ方」の 4](../server-dotnet/README.md#載せ方)）。接続文字列 `Patchiri`、ページへの `<authorization>`、`maxRequestLength`、`maxJsonLength`。
-5. **呼ぶ**: クライアントの設定は `{ baseUrl: "/Admin/Patchiri.aspx", style: "webmethod" }`。CLI なら `--server https://.../Admin/Patchiri.aspx --style webmethod`。
+2. **ページを置く**: `web/Patchiri.aspx` をアプリの中に置く（例 `Admin/Patchiri.aspx`）。名前と置き場所は自由で、`Admin/MasterUpdate.aspx` などにしてよい（ページは自分の URL を見て動く）。中身は `<WebMethod()>` が 3 つ（`PatchiriWebMethods.Call` を呼ぶ）と、ブラウザで開いたときに画面を返す `Page_Load`（`PatchiriScreen.Write` を呼ぶ）だけ。コードビハインドに移してもよい。
+   - `Page_Load` は、`AutoEventWireup="false"` と `Handles Me.Load` でつないである（載せ先の web.config の `autoEventWireup` に左右されないように）。
+3. **画面のファイルを置く**: C# 版と同じ（[C# 版の「載せ方」の 3](../server-dotnet/README.md#載せ方)）。`main.js`、`main.css`、`main.js.LEGAL.txt` をページの隣の `patchiri/` に置く。
+4. **許可リストを置く**: `App_Data/patchiri.config.json`（例 [web/App_Data/patchiri.config.json](web/App_Data/patchiri.config.json)）。形は C# 版、Node 版と同じ（[C# 版の「設定」](../server-dotnet/README.md#設定patchiriconfigjson)）。
+5. **web.config に足す**: C# 版と同じ（[C# 版の「載せ方」の 5](../server-dotnet/README.md#載せ方)）。接続文字列 `Patchiri`、ページへの `<authorization>`（画面と API の両方に効く）、`maxRequestLength`、`maxJsonLength`。
+6. **開く**: ブラウザで `https://.../Admin/Patchiri.aspx` を開く。Edge か Chrome で開くことなど、C# 版と同じ（[C# 版の「載せ方」の 6](../server-dotnet/README.md#載せ方)）。
 
-設定の項目（`targets`、`limits`、`connectionStringName`、`logDir`、`exposeDbErrors`、`lockWaitSeconds`）、反映ログとエラーのファイル、気をつけていること（varchar の列への日本語、char の埋め空白、照合順序と厳密な比較、止まる `script`、トリガー、`maxJsonLength`、real の値、パラメータの長さ、CSRF）は C# 版の README のとおり。
+設定の項目（`targets`、`limits`、`connectionStringName`、`logDir`、`exposeDbErrors`、`lockWaitSeconds`）、反映ログとエラーのファイル、気をつけていること（varchar の列への日本語、char の埋め空白、照合順序と厳密な比較、止まる `script`、トリガー、`maxJsonLength`、real の値、パラメータの長さ、CSRF、画面のページ）は C# 版の README のとおり。
 
 ## VB.NET に書き直すときに気をつけたこと
 
@@ -38,15 +40,15 @@ C# 版から直すとき、または C# 版の変更をこちらに写すとき�
 
 ## テスト
 
-C# 版と同じテスト（[../server-dotnet/test/webmethod.integration.test.mjs](../server-dotnet/test/webmethod.integration.test.mjs)）を、載せるパッケージを VB.NET 版に替えて流す。
+C# 版と同じテスト（[../server-dotnet/test/webmethod.integration.test.mjs](../server-dotnet/test/webmethod.integration.test.mjs) と、画面をブラウザで通す [../server-dotnet/test/screen.e2e.test.mjs](../server-dotnet/test/screen.e2e.test.mjs)）を、載せるパッケージを VB.NET 版に替えて流す。
 
 ```sh
 PATCHIRI_TEST_DOTNET_PKG=packages/server-vbnet PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
 ```
 
-- Linux では Mono の ASP.NET で動かす（`mono-complete` と .NET SDK が要る）。DLL は `build.sh` が .NET SDK 付属の Roslyn の `vbc` で VB 11 に限ってビルドする。Mono には `vbnc` も `Microsoft.VisualBasic.dll` もないので、VB のページ（`Patchiri.aspx`）や `App_Code` は [../server-dotnet/test/mono-path/vbnc](../server-dotnet/test/mono-path/vbnc) が Roslyn の `vbc` に（VB 11 に限って）渡し、VB のランタイムは DLL に埋め込む。
+- Linux では Mono の ASP.NET で動かす（`mono-complete` と .NET SDK、画面のテストには Playwright の Chromium が要る）。DLL は `build.sh` が .NET SDK 付属の Roslyn の `vbc` で VB 11 に限ってビルドする。Mono には `vbnc` も `Microsoft.VisualBasic.dll` もないので、VB のページ（`Patchiri.aspx`）や `App_Code` は [../server-dotnet/test/mono-path/vbnc](../server-dotnet/test/mono-path/vbnc) が Roslyn の `vbc` に（VB 11 に限って）渡し、VB のランタイムは DLL に埋め込む。
 - CI では加えて、Windows の IIS（.NET Framework 4.8）に `App_Code` の形（IIS が付属の `vbc` でビルドする）と `bin` の形（`build.cmd`）で載せ、Windows に入れた SQL Server で同じテストを通す。
-- テスト用の `Probe.aspx` と `Global.asax` は C# のまま使う（VB.NET の DLL の型を C# から使えることの確認にもなる）。
+- テスト用の `Probe.aspx`、`Global.asax`、`Login.aspx` は C# のまま使う（VB.NET の DLL の型を C# から使えることの確認にもなる）。
 
 ## ファイル
 
@@ -58,9 +60,10 @@ PATCHIRI_TEST_DOTNET_PKG=packages/server-vbnet PATCHIRI_TEST_MSSQL='{"server":"l
 | `src/PatchiriValues.vb` | 値の形の確認と比較（コアの `values.ts` と同じ判定） |
 | `src/PatchiriConfig.vb` | 許可リストと設定の読み込み |
 | `src/PatchiriWebMethods.vb` | WebMethod からの入口（ヘッダの確認、設定の読み込み、ログイン名） |
+| `src/PatchiriScreen.vb` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所） |
 | `src/PatchiriFileLog.vb` | 反映ログとエラーのファイル出力 |
 | `src/PatchiriJson.vb` | `JavaScriptSerializer` の形を扱う小道具 |
-| `web/Patchiri.aspx` | 載せ先に置くページ（`Language="VB"`） |
+| `web/Patchiri.aspx` | 載せ先に置くページ（`Language="VB"`、名前は自由） |
 | `build.cmd` | Windows で `bin\Patchiri.Server.dll` を作る（.NET Framework 付属の `vbc`） |
 | `build.sh` | Linux で `bin/Patchiri.Server.dll` を作る（.NET SDK の Roslyn の `vbc`、テスト用） |
 

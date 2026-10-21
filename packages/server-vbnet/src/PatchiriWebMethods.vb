@@ -83,8 +83,8 @@ Namespace Global.Patchiri.Server
             End SyncLock
         End Function
 
-        ''' <summary>反映した人。載せ先の認証（フォーム認証、Windows 認証など）が決めた名前を使う。</summary>
-        Private Shared Function CurrentUser() As String
+        ''' <summary>反映した人。載せ先の認証（フォーム認証、Windows 認証など）が決めた名前を使う。画面の見出しにも出す。</summary>
+        Friend Shared Function CurrentUser() As String
             Dim ctx = HttpContext.Current
             If ctx IsNot Nothing AndAlso ctx.User IsNot Nothing AndAlso ctx.User.Identity IsNot Nothing AndAlso ctx.User.Identity.IsAuthenticated Then Return ctx.User.Identity.Name
             Return "(anonymous)"

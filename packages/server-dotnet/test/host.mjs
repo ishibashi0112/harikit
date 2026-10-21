@@ -12,6 +12,7 @@
 //   パッケージには src/（ソース）、web/Patchiri.aspx、build.cmd と build.sh（bin/ に DLL を作る）を置く。
 //   公開する型が C# 版と同じなら、C# のページ（test/Probe.aspx など）をその DLL の上でも使える。
 //   Ubuntu の Mono には VB のコンパイラ（vbnc）がないので、Mono のホストには mono-path/vbnc（Roslyn の vbc に渡す）を使わせる。
+// 画面のファイル（patchiri-web の同梱アプリ）は packages/web/dist/app から、ページの隣の patchiri/ に置く（先に npm run build）。
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -30,6 +31,9 @@ export const serverPkg = resolve(repo, process.env.PATCHIRI_TEST_DOTNET_PKG || "
 /** パッケージごとに分けたテスト用の DB の名前（C# 版と VB 版を同じ SQL Server で並べて流しても当たらないように）。 */
 export const testDatabase = `PatchiriTest_${basename(serverPkg).replace(/[^A-Za-z0-9]/g, "_")}`;
 const csharpPkg = join(here, "..");
+const webApp = join(repo, "packages", "web", "dist", "app");
+/** Patchiri.aspx の隣の patchiri/ に置く画面のファイル（README の「載せ方」と同じ）。 */
+export const screenFiles = ["main.js", "main.css", "main.js.LEGAL.txt"];
 
 const appcmd = join(process.env.windir ?? "C:\\Windows", "System32", "inetsrv", "appcmd.exe");
 const IIS_SITE = "Default Web Site";
@@ -58,8 +62,11 @@ export function serverFile(rel) {
   return existsSync(own) ? own : join(csharpPkg, rel);
 }
 
-/** サーバを置いた Web のフォルダを作る（Web.config などはテストが足す）。 */
-export async function createSite() {
+/**
+ * サーバを置いた Web のフォルダを作る（Web.config などはテストが足す）。
+ * page はページを置く場所と名前（載せ先が名前やフォルダを変えても動くかを見るため）。画面のファイルはその隣の patchiri/ に置く。
+ */
+export async function createSite({ page = "Patchiri.aspx" } = {}) {
   let root;
   if (hostKind === "iis") {
     // アプリプールのユーザーが読めるよう、ユーザーのプロファイル（%TEMP%）の外に置く。
@@ -80,7 +87,11 @@ export async function createSite() {
     await mkdir(dir, { recursive: true });
     for (const f of await readdir(join(serverPkg, "src"))) await copyFile(join(serverPkg, "src", f), join(dir, f));
   }
-  await copyFile(join(serverPkg, "web", "Patchiri.aspx"), join(root, "Patchiri.aspx"));
+  const pageFile = join(root, ...page.split("/"));
+  const assets = join(dirname(pageFile), "patchiri");
+  await mkdir(assets, { recursive: true });
+  await copyFile(join(serverPkg, "web", "Patchiri.aspx"), pageFile);
+  for (const f of screenFiles) await copyFile(join(webApp, f), join(assets, f));
   if (hostKind === "mono") {
     // ApplicationHost は bin の中から AspHost を読み込むので、テスト用のホストも bin に置く。
     execFileSync("mcs", ["-nologo", "-warnaserror", `-out:${join(root, "bin", "Patchiri.TestHost.exe")}`, "-r:System.Web.dll", join(here, "TestHost.cs")], { stdio: "inherit" });
@@ -88,11 +99,11 @@ export async function createSite() {
   return root;
 }
 
-/** Web のフォルダを ASP.NET で動かす。url はアプリの根（`${url}/Patchiri.aspx` がページ）。 */
-export async function startSite(root) {
+/** Web のフォルダを ASP.NET で動かす。url はアプリの根（`${url}/Patchiri.aspx` がページ。page は createSite と同じ）。 */
+export async function startSite(root, { page = "Patchiri.aspx" } = {}) {
   const site = hostKind === "iis" ? await startIis(root) : await startMono(root);
   try {
-    await waitReady(site.url);
+    await waitReady(site.url, page);
   } catch (e) {
     await site.stop();
     throw e;
@@ -155,19 +166,21 @@ async function startIis(root) {
 /**
  * ページが WebMethod に答えるまで待つ。IIS はアプリを作った直後に 404 / 503 を返すことがあり、
  * App_Code の形では最初の呼び出しでビルドが走る。ビルドの誤りなどはその応答（ASP.NET のエラーページ）を出して止める。
+ * ページにログインが要るときは、ログインの画面への転送（302）か 401 が返れば動いている。
  */
-async function waitReady(url) {
+async function waitReady(url, page) {
   const deadline = Date.now() + 120_000;
   let last = "";
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${url}/Patchiri.aspx/Describe`, {
+      const res = await fetch(`${url}/${page}/Describe`, {
         method: "POST",
         headers: { "Content-Type": "application/json; charset=utf-8", "X-Patchiri": "1" },
         body: JSON.stringify({ req: { v: 1 } }),
+        redirect: "manual",
       });
       const text = await res.text();
-      if (res.status === 200) return;
+      if (res.status === 200 || res.status === 302 || res.status === 401) return;
       last = `HTTP ${res.status}\n${text}`;
       if (res.status !== 404 && res.status !== 503) break;
     } catch (e) {
@@ -175,5 +188,5 @@ async function waitReady(url) {
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error(`${url}/Patchiri.aspx が応答しません（${hostKind}, ${layout}）\n${last.slice(0, 8000)}`);
+  throw new Error(`${url}/${page} が応答しません（${hostKind}, ${layout}）\n${last.slice(0, 8000)}`);
 }

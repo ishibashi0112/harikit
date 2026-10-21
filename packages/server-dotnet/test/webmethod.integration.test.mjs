@@ -5,7 +5,7 @@
 
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sql from "mssql";
 import { buildApplyRequest, PatchiriClient, prepare } from "patchiri-core";
@@ -85,6 +85,9 @@ before(async () => {
 
   root = await createSite();
   await copyFile(serverFile("test/Probe.aspx"), join(root, "Probe.aspx"));
+  // 画面のファイルを置き忘れたページ。
+  await mkdir(join(root, "NoScreen"));
+  await copyFile(serverFile("web/Patchiri.aspx"), join(root, "NoScreen", "Patchiri.aspx"));
   const cs = `Server=${conn.server},${conn.port ?? 1433};Database=${DB};User Id=${conn.user};Password=${conn.password};Encrypt=false`;
   await writeFile(
     join(root, "Web.config"),
@@ -572,13 +575,34 @@ test("リクエストの誤りは HTTP 200 の ok:false で返す", { skip }, as
   assert.deepEqual([body.requestId, body.mode], ["abc", "check"]);
 });
 
-test("X-Patchiri がなければ 403、WebMethod 以外は 404 / 415", { skip }, async () => {
+test("X-Patchiri がなければ 403、WebMethod 以外の POST は 415", { skip }, async () => {
   const noHeader = await call("Describe", { v: 1 }, { "Content-Type": "application/json" });
   assert.equal(noHeader.status, 403);
-  const page = await fetch(`${url}/Patchiri.aspx`);
-  assert.equal(page.status, 404);
   const form = await fetch(`${url}/Patchiri.aspx`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Patchiri": "1" }, body: "a=1" });
   assert.equal(form.status, 415);
+});
+
+test("ページを開くと画面を返す。つなぐ先は自分の URL、ログイン名は HTML に埋めても崩れない", { skip }, async () => {
+  const app = new URL(url).pathname.replace(/\/$/, "");
+  // < は ASP.NET の要求の検証がヘッダでも断るので、" と & で確かめる。
+  const res = await fetch(`${url}/Patchiri.aspx`, { headers: { "X-Test-User": `CONTOSO\\a"b&c` } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^text\/html; charset=utf-8/i);
+  assert.match(res.headers.get("content-security-policy"), /script-src 'self'/);
+  assert.equal(res.headers.get("x-frame-options"), "SAMEORIGIN");
+  const html = await res.text();
+  assert.ok(html.includes(`<div id="root" data-api="${app}/Patchiri.aspx" data-style="webmethod" data-user="CONTOSO\\a&quot;b&amp;c"></div>`), html);
+  // 画面のファイルは隣の patchiri/ から。置き直したら読み直されるよう、更新日時が付く。
+  const src = /<script type="module" src="([^"]+)"/.exec(html)[1];
+  assert.match(src, new RegExp(`^${app}/patchiri/main\\.js\\?v=[0-9a-f]+$`));
+  const js = await fetch(new URL(src, url));
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get("content-type"), /javascript/);
+  const css = /<link rel="stylesheet" href="([^"]+)"/.exec(html)[1];
+  assert.equal((await fetch(new URL(css, url))).status, 200);
+  // 置き忘れたら、真っ白にせずに置き場所を言う。
+  const missing = await (await fetch(`${url}/NoScreen/Patchiri.aspx`)).text();
+  assert.ok(missing.includes(`画面のファイルがありません: ${app}/NoScreen/patchiri/main.css`), missing);
 });
 
 test("返せないほど大きい結果になる apply は、DB を変える前に止める", { skip }, async () => {

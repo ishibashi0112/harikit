@@ -41,6 +41,8 @@ class Worker : SimpleWorkerRequest
 {
     readonly string verb;
     readonly string path;
+    readonly string filePath;
+    readonly string pathInfo;
     readonly string query;
     readonly string[] names;
     readonly string[] values;
@@ -54,6 +56,11 @@ class Worker : SimpleWorkerRequest
     {
         this.verb = verb;
         this.path = path;
+        // SimpleWorkerRequest は最初の / でページと PathInfo に分けるので、フォルダの中のファイル（patchiri/main.js）を指せない。
+        // .aspx の後ろ（WebMethod の名前）だけを PathInfo にする。
+        var i = path.IndexOf(".aspx/", StringComparison.OrdinalIgnoreCase);
+        filePath = i < 0 ? path : path.Substring(0, i + 5);
+        pathInfo = i < 0 ? "" : path.Substring(i + 5);
         this.query = query;
         this.names = names;
         this.values = values;
@@ -68,6 +75,9 @@ class Worker : SimpleWorkerRequest
 
     public override string GetHttpVerbName() { return verb; }
     public override string GetUriPath() { return path; }
+    public override string GetFilePath() { return filePath; }
+    public override string GetPathInfo() { return pathInfo; }
+    public override string GetFilePathTranslated() { return Path.Combine(HttpRuntime.AppDomainAppPath, filePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)); }
     public override string GetRawUrl() { return string.IsNullOrEmpty(query) ? path : path + "?" + query; }
     public override string GetKnownRequestHeader(int index) { return Header(GetKnownRequestHeaderName(index)); }
     public override string GetUnknownRequestHeader(string name) { return Header(name); }
@@ -98,6 +108,16 @@ class Worker : SimpleWorkerRequest
     }
 
     public override void SendResponseFromMemory(byte[] data, int length) { output.Write(data, 0, length); }
+
+    // 静的なファイル（画面の main.js など）は StaticFileHandler がファイルのまま渡してくる。
+    public override void SendResponseFromFile(string filename, long offset, long length)
+    {
+        var bytes = File.ReadAllBytes(filename);
+        var n = length < 0 ? bytes.Length - offset : length;
+        output.Write(bytes, (int)offset, (int)n);
+    }
+
+    public override void SendResponseFromFile(IntPtr handle, long offset, long length) { throw new NotSupportedException(); }
     public override void FlushResponse(bool finalFlush) { }
 
     public override void EndOfRequest()

@@ -51,4 +51,4 @@ patchiri apply <plan.json> [--execute] [--note <メモ>]
 | `--token <トークン>` | `PATCHIRI_TOKEN` |
 | `--style rest\|webmethod` | `rest`。WebForms に載せたサーバは `webmethod`（例 `--server https://…/Admin/Patchiri.aspx --style webmethod`） |
 
-WebForms に載せたサーバは、載せ先のログイン（フォーム認証のクッキー、Windows 認証）を CLI から通せないので、CLI から呼べるのはログインなしで開ける開発環境だけです。
+WebForms に載せたサーバは、載せ先のログイン（フォーム認証のクッキー、Windows 認証）を CLI から通せないので、CLI から呼べるのはログインなしで開ける開発環境だけです。業務では、載せたページを開いて出る画面を使ってください（[WebForms に載せる](/servers/webforms/)）。
