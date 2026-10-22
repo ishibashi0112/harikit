@@ -229,6 +229,15 @@ function cols(meta: TableMeta, names: string[]): MsColumn[] {
   });
 }
 
+/** 列に DB の今の時刻を入れる式（stamp の "now"）。date の列には日付だけが入る。 */
+function nowExpression(col: { type: string }): string | null {
+  return col.type === "date" || col.type === "datetime" ? "SYSDATETIME()" : null;
+}
+
+function nowAssigns(meta: TableMeta, now: string[]): string[] {
+  return cols(meta, now).map((c) => `${quoteName(c.name)} = ${nowExpression(c)!}`);
+}
+
 function toDbError(e: unknown): DbError {
   const message = e instanceof Error ? e.message : String(e);
   // 1222: ロック待ちが LOCK_TIMEOUT を超えた。
@@ -260,9 +269,10 @@ class MsTransaction implements Transaction {
     this.lockTimeout = `SET LOCK_TIMEOUT ${lockWaitMs}; `;
   }
 
-  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row): Promise<LockedRow> {
+  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row, read: string[] = []): Promise<LockedRow> {
     const keyCols = cols(meta, keyColumns);
     const beforeCols = cols(meta, Object.keys(before));
+    const readCols = cols(meta, read);
     const res = await run(this.tx, (req) => {
       const where = keyCols.map((c, i) => condition(c, bindValue(req, `k${i}`, c, key[c.name]!)));
       const checks = beforeCols.map((c, i) => {
@@ -270,7 +280,7 @@ class MsTransaction implements Transaction {
         const cond = sameCondition(c, v === null ? null : bindValue(req, `b${i}`, c, v));
         return `CASE WHEN ${cond} THEN 1 ELSE 0 END AS ${quoteName(`__m${i}`)}`;
       });
-      const select = [...keyCols, ...beforeCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
+      const select = [...keyCols, ...beforeCols, ...readCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
       return `${this.lockTimeout}SELECT ${[...select, ...checks].join(", ")} FROM ${quoteTable(meta.table)} WITH (UPDLOCK, HOLDLOCK) WHERE ${where.join(" AND ")}`;
     });
     const rows = res.recordset;
@@ -285,14 +295,16 @@ class MsTransaction implements Transaction {
       current[c.name] = readValue(c, row[`__v${keyCols.length + i}`]);
       if (row[`__m${i}`] !== 1) changed.push(c.name);
     });
-    return { found: true, current, changed, dbKey };
+    const values: Row = {};
+    readCols.forEach((c, i) => (values[c.name] = readValue(c, row[`__v${keyCols.length + beforeCols.length + i}`])));
+    return { found: true, current, changed, dbKey, read: values };
   }
 
-  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row): Promise<number> {
+  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row, now: string[] = []): Promise<number> {
     const keyCols = cols(meta, keyColumns);
     const setCols = cols(meta, Object.keys(set));
     const res = await run(this.tx, (req) => {
-      const assigns = setCols.map((c, i) => `${quoteName(c.name)} = ${bindValue(req, `p${i}`, c, set[c.name]!)}`);
+      const assigns = [...setCols.map((c, i) => `${quoteName(c.name)} = ${bindValue(req, `p${i}`, c, set[c.name]!)}`), ...nowAssigns(meta, now)];
       const where = keyCols.map((c, i) => condition(c, bindValue(req, `k${i}`, c, key[c.name]!)));
       // rowsAffected にはトリガーの文の行数も入るので、UPDATE 本体の行数は @@ROWCOUNT で読む。
       return `${this.lockTimeout}UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${where.join(" AND ")}; SELECT @@ROWCOUNT AS [n];`;
@@ -496,8 +508,12 @@ export class SqlServerDialect implements Dialect {
     return out;
   }
 
-  renderUpdate(meta: TableMeta, set: Row, key: Row, expect: Row): string {
-    const assigns = cols(meta, Object.keys(set)).map((c) => `${quoteName(c.name)} = ${literal(c, set[c.name]!)}`);
+  nowExpression(col: ColumnMeta): string | null {
+    return nowExpression(col);
+  }
+
+  renderUpdate(meta: TableMeta, set: Row, key: Row, expect: Row, now: string[] = []): string {
+    const assigns = [...cols(meta, Object.keys(set)).map((c) => `${quoteName(c.name)} = ${literal(c, set[c.name]!)}`), ...nowAssigns(meta, now)];
     const keyConds = cols(meta, Object.keys(key)).map((c) => condition(c, key[c.name] === null ? null : literal(c, key[c.name]!)));
     const valueConds = cols(meta, Object.keys(expect)).map((c) => sameCondition(c, expect[c.name] === null ? null : literal(c, expect[c.name]!)));
     return `UPDATE ${quoteTable(meta.table)} SET ${assigns.join(", ")} WHERE ${[...keyConds, ...valueConds].join(" AND ")}`;
@@ -509,7 +525,7 @@ export class SqlServerDialect implements Dialect {
     else lines.push("-- 今の値が patchiri で入れた値のままの行だけ戻す。0 行の UPDATE は、その後に別の更新が入った行。");
     lines.push("SET XACT_ABORT ON;", "BEGIN TRANSACTION;");
     for (const u of updates) {
-      lines.push(this.renderUpdate(meta, u.set, u.key, u.expect) + ";");
+      lines.push(this.renderUpdate(meta, u.set, u.key, u.expect, u.now) + ";");
       if (kind === "apply") {
         // トリガーがあっても @@ROWCOUNT は UPDATE 文そのものの行数。XACT_ABORT ON なので THROW で全部戻る。
         const msg = `patchiri: 行が見つからないか、値が変わっています（${scriptKeyText(u.key)}）。何も反映していません`;

@@ -304,6 +304,16 @@ function toDbError(e: unknown): DbError {
   return new DbError(message, { cause: e, ...(publicMessage && { publicMessage }) });
 }
 
+/** 列に DB の今の時刻を入れる式（stamp の "now"）。PostgreSQL ではトランザクションを始めた時刻で、全部の行が同じ値になる。 */
+function nowExpression(col: { type: string }): string | null {
+  if (col.type === "date") return "CURRENT_DATE";
+  return col.type === "datetime" ? "LOCALTIMESTAMP" : null;
+}
+
+function nowAssigns(meta: TableMeta, now: string[]): string[] {
+  return cols(meta, now).map((c) => `${quoteName(c.name)} = ${nowExpression(c)!}`);
+}
+
 async function run(s: PgSession, text: string, params: (string | null)[] = []): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }> {
   try {
     return await s.query(text, params);
@@ -315,10 +325,11 @@ async function run(s: PgSession, text: string, params: (string | null)[] = []): 
 class PgTransaction implements Transaction {
   constructor(private readonly s: PgSession) {}
 
-  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row): Promise<LockedRow> {
+  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row, read: string[] = []): Promise<LockedRow> {
     const m = meta as PgMeta;
     const keyCols = cols(m, keyColumns);
     const beforeCols = cols(m, Object.keys(before));
+    const readCols = cols(m, read);
     const params: (string | null)[] = [];
     const where = keyCols.map((c) => keyCondition(c, bindValue(params, c, key[c.name]!)));
     const checks = beforeCols.map((c, i) => {
@@ -326,7 +337,7 @@ class PgTransaction implements Transaction {
       const cond = sameCondition(c, v === null ? null : bindValue(params, c, v));
       return `CASE WHEN ${cond} THEN '1' ELSE '0' END AS ${quoteName(`__m${i}`)}`;
     });
-    const select = [...keyCols, ...beforeCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
+    const select = [...keyCols, ...beforeCols, ...readCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
     const { rows } = await run(this.s, `SELECT ${[...select, ...checks].join(", ")} FROM ${quoteTable(m)} WHERE ${where.join(" AND ")} FOR UPDATE`, params);
     if (rows.length === 0) return { found: false };
     if (rows.length > 1) throw new DbError(`キー ${JSON.stringify(key)} に当たる行が ${rows.length} 行あります（キーが一意ではありません）`);
@@ -339,13 +350,15 @@ class PgTransaction implements Transaction {
       current[c.name] = readValue(c, row[`__v${keyCols.length + i}`]);
       if (String(row[`__m${i}`]) !== "1") changed.push(c.name);
     });
-    return { found: true, current, changed, dbKey };
+    const values: Row = {};
+    readCols.forEach((c, i) => (values[c.name] = readValue(c, row[`__v${keyCols.length + beforeCols.length + i}`])));
+    return { found: true, current, changed, dbKey, read: values };
   }
 
-  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row): Promise<number> {
+  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row, now: string[] = []): Promise<number> {
     const m = meta as PgMeta;
     const params: (string | null)[] = [];
-    const assigns = cols(m, Object.keys(set)).map((c) => `${quoteName(c.name)} = ${bindValue(params, c, set[c.name]!)}`);
+    const assigns = [...cols(m, Object.keys(set)).map((c) => `${quoteName(c.name)} = ${bindValue(params, c, set[c.name]!)}`), ...nowAssigns(m, now)];
     const where = cols(m, keyColumns).map((c) => keyCondition(c, bindValue(params, c, key[c.name]!)));
     // rowCount は UPDATE 文そのものの行数で、トリガーの中の行数は入らない。
     const res = await run(this.s, `UPDATE ${quoteTable(m)} SET ${assigns.join(", ")} WHERE ${where.join(" AND ")}`, params);
@@ -531,8 +544,12 @@ export class PostgresDialect implements Dialect {
     });
   }
 
+  nowExpression(col: ColumnMeta): string | null {
+    return nowExpression(col);
+  }
+
   private renderUpdate(m: PgMeta, u: ScriptUpdate): string {
-    const assigns = cols(m, Object.keys(u.set)).map((c) => `${quoteName(c.name)} = ${literal(c, u.set[c.name]!)}`);
+    const assigns = [...cols(m, Object.keys(u.set)).map((c) => `${quoteName(c.name)} = ${literal(c, u.set[c.name]!)}`), ...nowAssigns(m, u.now ?? [])];
     const keyConds = cols(m, Object.keys(u.key)).map((c) => keyCondition(c, literal(c, u.key[c.name]!)));
     const valueConds = cols(m, Object.keys(u.expect)).map((c) => sameCondition(c, u.expect[c.name] === null ? null : literal(c, u.expect[c.name]!)));
     return `UPDATE ${quoteTable(m)} SET ${assigns.join(", ")} WHERE ${[...keyConds, ...valueConds].join(" AND ")}`;

@@ -34,7 +34,16 @@ namespace Patchiri.Server
             res.AppendHeader("X-Content-Type-Options", "nosniff");
             if (method == "GET" || method == "HEAD")
             {
-                WritePage(ctx);
+                var user = PatchiriWebMethods.CurrentUser();
+                if (user == null)
+                {
+                    // 差し替えた WhoAmI が名前を返さない（未ログイン）。フォーム認証ならログイン画面に回る。
+                    res.StatusCode = 401;
+                    res.ContentType = "text/plain";
+                    res.Write("login required");
+                    return;
+                }
+                WritePage(ctx, user);
                 return;
             }
             res.StatusCode = method == "POST" ? 415 : 404;
@@ -42,7 +51,7 @@ namespace Patchiri.Server
             res.Write(method == "POST" ? "application/json required" : "not found");
         }
 
-        static void WritePage(HttpContext ctx)
+        static void WritePage(HttpContext ctx, string user)
         {
             var res = ctx.Response;
             var page = ctx.Request.FilePath;
@@ -73,7 +82,7 @@ namespace Patchiri.Server
             html.Append("<script type=\"module\" src=\"").Append(Encode(js)).Append("\"></script>\n</head>\n<body>\n");
             // つなぐ先は同じページの WebMethod。ログイン名は見出しに出す（反映ログに残る名前）。
             html.Append("<div id=\"root\" data-api=\"").Append(Encode(res.ApplyAppPathModifier(page))).Append("\" data-style=\"webmethod\" data-user=\"");
-            html.Append(Encode(PatchiriWebMethods.CurrentUser())).Append("\"></div>\n");
+            html.Append(Encode(user)).Append("\"></div>\n");
             // Internet Explorer（Edge の IE モードも）はモジュールの script を読まないので、画面の代わりに案内を出す。
             html.Append("<p id=\"patchiri-legacy\" hidden style=\"font-family: sans-serif; margin: 2em\">このブラウザでは patchiri の画面を開けません。");
             html.Append("Microsoft Edge か Google Chrome で開いてください（Internet Explorer と、Edge の IE モードでは動きません）。</p>\n");

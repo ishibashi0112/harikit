@@ -30,6 +30,8 @@ export interface LockedRow {
   changed?: string[];
   /** DB にあるキーの値（照合順序で同じ行を指す 2 行を見分けるため）。 */
   dbKey?: Row;
+  /** read に書いた列の今の値。 */
+  read?: Row;
 }
 
 export interface Transaction {
@@ -37,9 +39,9 @@ export interface Transaction {
    * 更新ロックを掛けて 1 行読み、before と比べる。行はキーで DB の比較規則（照合順序）で探し、
    * 値は厳密に比べる（仕様 1.6。大文字小文字、かな、全角半角、末尾の空白を区別する。char / nchar の末尾の空白だけは見ない）。
    */
-  lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row): Promise<LockedRow>;
-  /** パラメータ付き UPDATE を 1 行流し、影響行数を返す。 */
-  update(meta: TableMeta, keyColumns: string[], key: Row, set: Row): Promise<number>;
+  lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row, read?: string[]): Promise<LockedRow>;
+  /** パラメータ付き UPDATE を 1 行流し、影響行数を返す。now の列は DB の今の時刻（nowExpression）にする。 */
+  update(meta: TableMeta, keyColumns: string[], key: Row, set: Row, now?: string[]): Promise<number>;
 }
 
 /** DB がエラーを返したとき。message は生のエラー文。 */
@@ -61,6 +63,8 @@ export interface ScriptUpdate {
   set: Row;
   key: Row;
   expect: Row;
+  /** DB の今の時刻（nowExpression）にする列。 */
+  now?: string[];
 }
 
 /**
@@ -86,6 +90,8 @@ export interface Dialect {
    * 確かめない列（nvarchar など）の値には null を返す。
    */
   checkStrings?(meta: TableMeta, items: { column: string; value: string }[]): Promise<({ encodable: boolean; bytes: number } | null)[]>;
+  /** 列に DB の今の時刻を入れる SQL の式（許可リストの stamp の "now"）。日付・時刻の列でなければ null。 */
+  nowExpression?(col: ColumnMeta): string | null;
   /**
    * 人が流せる SQL（値を埋め込んだもの）を作る。head は先頭のコメント行。人が流しても 1 トランザクションになる形に包む。
    * apply は反映する SQL、undo は戻し SQL（今の値が expect のままの行だけ戻す）。

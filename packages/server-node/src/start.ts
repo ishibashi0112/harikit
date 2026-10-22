@@ -6,9 +6,9 @@ import { createRequire } from "node:module";
 import { userInfo } from "node:os";
 import { dirname, extname, join, sep } from "node:path";
 import type { AddressInfo } from "node:net";
-import type { ServerConfig } from "./config.js";
+import { lockWaitSeconds, type ServerConfig } from "./config.js";
 import type { Dialect } from "./dialect.js";
-import { Handlers } from "./handlers.js";
+import { Handlers, type ApplyLogEntry, type RequestContext } from "./handlers.js";
 import { createHttpServer, type StaticFile } from "./http.js";
 import { fileLogger } from "./log.js";
 import { SqlServerDialect } from "./mssql.js";
@@ -24,6 +24,15 @@ export interface StartOptions {
   dialect?: Dialect;
   /** 配る画面のフォルダ。省くとビルドした patchiri-web、false で配らない。 */
   web?: string | false;
+  /**
+   * 反映した人の判定。省くと OS のユーザー名。名前を返さなければ（null や ""）、未ログインとして HTTP 401 にする。
+   * 前に置いた認証の仕組み（リバースプロキシが足すヘッダなど）から読むときに使う。
+   */
+  whoAmI?: (ctx: RequestContext) => string | null | undefined | Promise<string | null | undefined>;
+  /** ロールの判定（許可リストの roles）。省くと、roles を書いたターゲットは誰も使えない。 */
+  isInRole?: (role: string, ctx: RequestContext) => boolean | Promise<boolean>;
+  /** 反映ログの書き先。省くと logDir のフォルダに JSON Lines。 */
+  log?: (entry: ApplyLogEntry) => Promise<void>;
 }
 
 export interface RunningServer {
@@ -89,13 +98,15 @@ export function createDialect(database: ServerConfig["database"]): Dialect {
 }
 
 export async function startServer(config: ServerConfig, options: StartOptions = {}): Promise<RunningServer> {
-  const dialect = options.dialect ?? createDialect(config.database);
+  const wait = lockWaitSeconds(config);
+  const dialect = options.dialect ?? createDialect({ ...config.database, ...(wait !== undefined && { lockWaitSeconds: wait }) });
   const token = options.token ?? randomBytes(24).toString("base64url");
   const handlers = new Handlers({
     config,
     dialect,
-    whoAmI: () => userInfo().username,
-    log: fileLogger(config.logDir ?? "patchiri-log"),
+    whoAmI: options.whoAmI ?? (() => userInfo().username),
+    ...(options.isInRole && { isInRole: options.isInRole }),
+    log: options.log ?? fileLogger(config.logDir ?? "patchiri-log"),
     logError: (e) => console.error(e),
   });
   const webDir = options.web === undefined ? defaultWebDir() : options.web;

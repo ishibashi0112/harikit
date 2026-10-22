@@ -31,6 +31,7 @@
         public void RunTransaction(Func<IPatchiriTransaction, bool> fn) { inner.RunTransaction(fn); }
         public List<StringCheck> CheckStrings(TableMeta meta, IList<KeyValuePair<string, string>> items) { return inner.CheckStrings(meta, items); }
         public string RenderScript(TableMeta meta, string head, IList<ScriptUpdate> updates, string kind) { return inner.RenderScript(meta, head, updates, kind); }
+        public string NowExpression(ColumnMeta col) { return inner.NowExpression(col); }
     }
 
     [WebMethod]

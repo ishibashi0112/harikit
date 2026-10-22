@@ -383,6 +383,16 @@ function quoteTable(m: OraMeta): string {
   return `${quoteName(m.owner)}.${quoteName(m.name)}`;
 }
 
+/** 列に DB の今の時刻を入れる式（stamp の "now"）。DATE は SYSDATE、TIMESTAMP は DB のサーバの時刻（SYSTIMESTAMP）からタイムゾーンを外したもの。 */
+function nowExpression(col: { type: string; dbType: string }): string | null {
+  if (col.type !== "date" && col.type !== "datetime") return null;
+  return col.dbType === "DATE" ? "SYSDATE" : "CAST(SYSTIMESTAMP AS TIMESTAMP)";
+}
+
+function nowAssigns(meta: TableMeta, now: string[]): string[] {
+  return cols(meta, now).map((c) => `${quoteName(c.name)} = ${nowExpression(c)!}`);
+}
+
 function cols(meta: TableMeta, names: string[]): OraColumn[] {
   return names.map((n) => {
     const c = (meta.columns as OraColumn[]).find((x) => x.name === n);
@@ -440,10 +450,11 @@ class OraTransaction implements Transaction {
     private readonly lockWait: number,
   ) {}
 
-  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row): Promise<LockedRow> {
+  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row, read: string[] = []): Promise<LockedRow> {
     const m = meta as OraMeta;
     const keyCols = cols(m, keyColumns);
     const beforeCols = cols(m, Object.keys(before));
+    const readCols = cols(m, read);
     const binds: Binds = {};
     const where = keyCols.map((c, i) => keyCondition(c, bindValue(binds, `k${i}`, c, key[c.name]!)));
     const checks = beforeCols.map((c, i) => {
@@ -451,7 +462,7 @@ class OraTransaction implements Transaction {
       const cond = sameCondition(c, v === null ? null : bindValue(binds, `b${i}`, c, v), m.collate);
       return `CASE WHEN ${cond} THEN 1 ELSE 0 END AS ${quoteName(`__m${i}`)}`;
     });
-    const select = [...keyCols, ...beforeCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
+    const select = [...keyCols, ...beforeCols, ...readCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
     const rows = await query(this.c, `SELECT ${[...select, ...checks].join(", ")} FROM ${quoteTable(m)} WHERE ${where.join(" AND ")} FOR UPDATE WAIT ${this.lockWait}`, binds);
     if (rows.length === 0) return { found: false };
     if (rows.length > 1) throw new DbError(`キー ${JSON.stringify(key)} に当たる行が ${rows.length} 行あります（キーが一意ではありません）`);
@@ -464,13 +475,15 @@ class OraTransaction implements Transaction {
       current[c.name] = readValue(c, row[`__v${keyCols.length + i}`]);
       if (Number(row[`__m${i}`]) !== 1) changed.push(c.name);
     });
-    return { found: true, current, changed, dbKey };
+    const values: Row = {};
+    readCols.forEach((c, i) => (values[c.name] = readValue(c, row[`__v${keyCols.length + beforeCols.length + i}`])));
+    return { found: true, current, changed, dbKey, read: values };
   }
 
-  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row): Promise<number> {
+  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row, now: string[] = []): Promise<number> {
     const m = meta as OraMeta;
     const binds: Binds = {};
-    const assigns = cols(m, Object.keys(set)).map((c, i) => `${quoteName(c.name)} = ${bindValue(binds, `p${i}`, c, set[c.name]!)}`);
+    const assigns = [...cols(m, Object.keys(set)).map((c, i) => `${quoteName(c.name)} = ${bindValue(binds, `p${i}`, c, set[c.name]!)}`), ...nowAssigns(m, now)];
     const where = cols(m, keyColumns).map((c, i) => keyCondition(c, bindValue(binds, `k${i}`, c, key[c.name]!)));
     try {
       // rowsAffected は UPDATE 文そのものの行数で、トリガーの中の行数は入らない。
@@ -726,9 +739,13 @@ export class OracleDialect implements Dialect {
     return out;
   }
 
+  nowExpression(col: ColumnMeta): string | null {
+    return nowExpression(col);
+  }
+
   private renderUpdate(m: OraMeta, u: ScriptUpdate): string {
     const lit = (c: OraColumn, v: Value) => literal(c, v, m.dbEncoding);
-    const assigns = cols(m, Object.keys(u.set)).map((c) => `${quoteName(c.name)} = ${lit(c, u.set[c.name]!)}`);
+    const assigns = [...cols(m, Object.keys(u.set)).map((c) => `${quoteName(c.name)} = ${lit(c, u.set[c.name]!)}`), ...nowAssigns(m, u.now ?? [])];
     const keyConds = cols(m, Object.keys(u.key)).map((c) => keyCondition(c, lit(c, u.key[c.name]!)));
     const valueConds = cols(m, Object.keys(u.expect)).map((c) => sameCondition(c, u.expect[c.name] === null ? null : lit(c, u.expect[c.name]!), m.collate));
     const conds = [...keyConds, ...valueConds];

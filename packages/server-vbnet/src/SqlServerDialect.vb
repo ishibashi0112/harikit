@@ -435,9 +435,10 @@ Namespace Global.Patchiri.Server
                 Me.commandTimeout = commandTimeout
             End Sub
 
-            Public Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row) As LockedRow Implements IPatchiriTransaction.LockAndCompare
+            Public Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row, read As IList(Of String)) As LockedRow Implements IPatchiriTransaction.LockAndCompare
                 Dim keyCols = meta.ColumnsOf(keyColumns)
                 Dim beforeCols = meta.ColumnsOf(before.Keys)
+                Dim readCols = meta.ColumnsOf(If(read, New String() {}))
                 Dim cmd As New SqlCommand() With {.Connection = conn, .Transaction = tx, .CommandTimeout = commandTimeout}
                 Dim conds As New List(Of String)()
                 For i = 0 To keyCols.Count - 1
@@ -446,6 +447,7 @@ Namespace Global.Patchiri.Server
                 Dim selects As New List(Of String)()
                 Dim all As New List(Of ColumnMeta)(keyCols)
                 all.AddRange(beforeCols)
+                all.AddRange(readCols)
                 For i = 0 To all.Count - 1
                     selects.Add(SelectExpr(all(i), "") & " AS " & QuoteName("__v" & i))
                 Next
@@ -467,10 +469,14 @@ Namespace Global.Patchiri.Server
                     locked.Current(beforeCols(i).Name) = ReadValue(beforeCols(i), values(keyCols.Count + i))
                     If Convert.ToInt32(values(all.Count + i), CultureInfo.InvariantCulture) <> 1 Then locked.Changed.Add(beforeCols(i).Name)
                 Next
+                locked.Read = New Row()
+                For i = 0 To readCols.Count - 1
+                    locked.Read(readCols(i).Name) = ReadValue(readCols(i), values(keyCols.Count + beforeCols.Count + i))
+                Next
                 Return locked
             End Function
 
-            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row) As Integer Implements IPatchiriTransaction.Update
+            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row, now As IList(Of String)) As Integer Implements IPatchiriTransaction.Update
                 Dim keyCols = meta.ColumnsOf(keyColumns)
                 Dim setCols = meta.ColumnsOf([set].Keys)
                 Dim cmd As New SqlCommand() With {.Connection = conn, .Transaction = tx, .CommandTimeout = commandTimeout}
@@ -478,6 +484,7 @@ Namespace Global.Patchiri.Server
                 For i = 0 To setCols.Count - 1
                     assigns.Add(QuoteName(setCols(i).Name) & " = " & BindValue(cmd, "p" & i, setCols(i), [set](setCols(i).Name)))
                 Next
+                assigns.AddRange(NowAssigns(meta, now))
                 Dim conds As New List(Of String)()
                 For i = 0 To keyCols.Count - 1
                     conds.Add(Condition(keyCols(i), BindValue(cmd, "k" & i, keyCols(i), key(keyCols(i).Name))))
@@ -603,7 +610,7 @@ Namespace Global.Patchiri.Server
             lines.Add("SET XACT_ABORT ON;")
             lines.Add("BEGIN TRANSACTION;")
             For Each u In updates
-                lines.Add(RenderUpdate(meta, u.Set, u.Key, u.Expect) & ";")
+                lines.Add(RenderUpdate(meta, u.Set, u.Key, u.Expect, u.Now) & ";")
                 ' 後から人が流したときに、変わっていた行だけ黙って飛ばさない。XACT_ABORT ON なので THROW で全部戻る。
                 ' @@ROWCOUNT はトリガーがあっても UPDATE 文そのものの行数。
                 If kind = "apply" Then
@@ -618,11 +625,27 @@ Namespace Global.Patchiri.Server
             Return "N'" & s.Replace("'", "''") & "'"
         End Function
 
-        Private Shared Function RenderUpdate(meta As TableMeta, setValues As Row, key As Row, expect As Row) As String
+        ''' <summary>列に DB の今の時刻を入れる式（stamp の "now"）。date の列には日付だけが入る。</summary>
+        Public Function NowExpression(col As ColumnMeta) As String Implements IPatchiriDialect.NowExpression
+            Return If(col.Type = "date" OrElse col.Type = "datetime", "SYSDATETIME()", Nothing)
+        End Function
+
+        Private Shared Function NowAssigns(meta As TableMeta, now As IList(Of String)) As List(Of String)
+            Dim assigns As New List(Of String)()
+            If now Is Nothing Then Return assigns
+            For Each c In meta.ColumnsOf(now)
+                If c.Type <> "date" AndAlso c.Type <> "datetime" Then Throw New InvalidOperationException("列 " & c.Name & " は日付・時刻の列ではありません")
+                assigns.Add(QuoteName(c.Name) & " = SYSDATETIME()")
+            Next
+            Return assigns
+        End Function
+
+        Private Shared Function RenderUpdate(meta As TableMeta, setValues As Row, key As Row, expect As Row, now As IList(Of String)) As String
             Dim assigns As New List(Of String)()
             For Each c In meta.ColumnsOf(setValues.Keys)
                 assigns.Add(QuoteName(c.Name) & " = " & Literal(c, setValues(c.Name)))
             Next
+            assigns.AddRange(NowAssigns(meta, now))
             Dim conds As New List(Of String)()
             For Each c In meta.ColumnsOf(key.Keys)
                 conds.Add(Condition(c, If(key(c.Name) Is Nothing, Nothing, Literal(c, key(c.Name)))))

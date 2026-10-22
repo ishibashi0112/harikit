@@ -86,6 +86,8 @@ namespace Patchiri.Server
         public List<string> Changed;
         /// <summary>DB にあるキーの値（照合順序で同じ行を指す 2 行を見分けるため）。</summary>
         public Row DbKey;
+        /// <summary>read に書いた列の今の値。</summary>
+        public Row Read;
     }
 
     /// <summary>文字列を列の文字コードで書いた結果（DB 自身に確かめたもの）。</summary>
@@ -98,10 +100,13 @@ namespace Patchiri.Server
 
     public interface IPatchiriTransaction
     {
-        /// <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。</summary>
-        LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before);
-        /// <summary>パラメータ付き UPDATE を 1 行流し、UPDATE そのものの影響行数を返す（トリガーの行数は含めない）。</summary>
-        int Update(TableMeta meta, IList<string> keyColumns, Row key, Row set);
+        /// <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。read の列は今の値を読むだけ（LockedRow.Read）。</summary>
+        LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before, IList<string> read);
+        /// <summary>
+        /// パラメータ付き UPDATE を 1 行流し、UPDATE そのものの影響行数を返す（トリガーの行数は含めない）。
+        /// now の列は DB の今の時刻（NowExpression）にする。
+        /// </summary>
+        int Update(TableMeta meta, IList<string> keyColumns, Row key, Row set, IList<string> now);
     }
 
     /// <summary>DB がエラーを返したとき。Message は生のエラー文。</summary>
@@ -122,6 +127,8 @@ namespace Patchiri.Server
         public Row Set;
         public Row Key;
         public Row Expect;
+        /// <summary>DB の今の時刻（NowExpression）にする列。null なら無し。</summary>
+        public List<string> Now;
     }
 
     /// <summary>人が読む SQL を作るときの小道具（方言に依らないもの）。</summary>
@@ -176,5 +183,7 @@ namespace Patchiri.Server
         /// "undo" なら戻し SQL（今の値が Expect のままの行だけ戻し、ほかは飛ばして続ける）。
         /// </summary>
         string RenderScript(TableMeta meta, string head, IList<ScriptUpdate> updates, string kind);
+        /// <summary>列に DB の今の時刻を入れる SQL の式（許可リストの stamp の "now"）。日付・時刻の列でなければ null。</summary>
+        string NowExpression(ColumnMeta col);
     }
 }

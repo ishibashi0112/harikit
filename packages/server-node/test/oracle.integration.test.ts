@@ -10,6 +10,7 @@ import { join } from "node:path";
 import oracledb from "oracledb";
 import { buildApplyRequest, PatchiriClient, prepare, type ApplyResponse, type Failure, type Sheet } from "patchiri-core";
 import { startServer, type RunningServer, type ServerConfig } from "../src/index.js";
+import { stampScenario } from "./stamp-scenario.js";
 
 const env = process.env.PATCHIRI_TEST_ORACLE;
 const skip = env ? false : "PATCHIRI_TEST_ORACLE がないので飛ばす";
@@ -418,3 +419,26 @@ test("改行や、/ や . だけの行、# で始まる行を含む値、長い�
   assert.deepEqual(await runScript(d2.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
 });
 
+test("stamp（DB の時刻と反映した人）、scope、表示名、サーバの業務ルール", { skip }, async () => {
+  await stampScenario({
+    database: { dialect: "oracle", connectString: conn!.connectString, user: conn!.user, password: conn!.password },
+    table: "term",
+    reset: async () => {
+      await q(`BEGIN EXECUTE IMMEDIATE 'DROP TABLE TERM PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;`);
+      await q(`CREATE TABLE TERM (COMPANY VARCHAR2(3) NOT NULL, CODE VARCHAR2(4) NOT NULL, KIND VARCHAR2(1) NOT NULL, STARTDATE DATE NOT NULL, ENDDATE DATE,
+        PRICE NUMBER(9,2), UPDATEDAT TIMESTAMP(3), UPDATEDON DATE, UPDATEDBY VARCHAR2(10), PRIMARY KEY (COMPANY, CODE))`);
+      await q(`INSERT INTO TERM VALUES ('001', 'T1', '1', DATE '2026-04-01', DATE '2026-09-30', 100, TIMESTAMP '2026-01-05 10:00:00', DATE '2026-01-05', 'old')`);
+      await q(`INSERT INTO TERM VALUES ('002', 'T1', '1', DATE '2026-04-01', NULL, 500, NULL, NULL, NULL)`);
+    },
+    row: async (company) => {
+      const r = await one(`SELECT TO_CHAR(PRICE, 'FM9999990.00') AS P, TO_CHAR(STARTDATE, 'YYYY-MM-DD') AS S, TO_CHAR(UPDATEDAT, 'YYYY-MM-DD HH24:MI:SS') AS A,
+        TO_CHAR(UPDATEDON, 'YYYY-MM-DD') AS O, UPDATEDBY AS B FROM TERM WHERE COMPANY = '${company}'`);
+      return { price: r.P as string, startDate: r.S as string, updatedAt: r.A as string | null, updatedOn: r.O as string | null, updatedBy: r.B as string | null };
+    },
+    today: async () => String((await one(`SELECT TO_CHAR(SYSDATE, 'YYYY-MM-DD') AS D FROM DUAL`)).D),
+    runScript: async (script) => {
+      await runScript(script);
+      await admin.commit();
+    },
+  });
+});

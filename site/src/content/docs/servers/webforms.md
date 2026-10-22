@@ -74,14 +74,56 @@ patchiri は、つないだセッションの `NLS_COMP`・`NLS_SORT`（`BINARY`
 
 | 項目 | 意味 | 既定 |
 | --- | --- | --- |
-| `targets` | 許可リスト。Node 版とそのまま写せる | （必須） |
+| `targets` | 許可リスト。Node 版とそのまま写せる（`labels`、`stamp`、`scope`、`roles` も） | （必須） |
+| `rules` | サーバに置く業務ルール。中身か、このファイルのフォルダからのパス（[サーバに置く業務ルール](/usage/config/#サーバに置く業務ルール)） | なし |
 | `limits` | `maxFetchKeys`、`maxApplyRows` | 1000、5000 |
 | `connectionStringName` | web.config の `connectionStrings` の名前 | `Patchiri` |
 | `logDir` | 反映ログのフォルダ | `~/App_Data/patchiri-log` |
 | `exposeDbErrors` | エラーの文に DB の生のエラー文を出すか | `false` |
-| `lockWaitSeconds` | 反映で行のロックを待つ秒数（SQL Server は `SET LOCK_TIMEOUT`、Oracle は `FOR UPDATE WAIT`） | `10` |
+| `lockWaitSeconds` | 反映で行のロックを待つ秒数（SQL Server は `SET LOCK_TIMEOUT`、Oracle は `FOR UPDATE WAIT`）。`database` の中にも書ける | `10` |
 
-反映した人（`appliedBy`）は、載せ先の認証が決めた名前（`HttpContext.Current.User.Identity.Name`）になります。
+許可リストか `rules` のファイルを保存し直すと、次の呼び出しから読み直します。
+
+## 誰が反映したかとロール
+
+反映した人（`appliedBy`、反映ログと `stamp` の `"user"` に入る名前）は、既定では載せ先の認証が決めた名前（`HttpContext.Current.User.Identity.Name`）です。許可リストの `roles` は、既定では `User.IsInRole` で判定します（Windows 認証のグループ、ロール マネージャーなど）。
+
+自前のログイン画面で Session に社員番号や権限を置いているアプリは、`Global.asax` の `Application_Start` で判定を差し替えます。
+
+```csharp
+// C#
+void Application_Start(object sender, EventArgs e)
+{
+    PatchiriWebMethods.WhoAmI = ctx => ctx.Session == null ? null : ctx.Session["EmployeeCode"] as string;
+    PatchiriWebMethods.IsInRole = (ctx, role) => ctx.Session != null && role.Equals(ctx.Session["Role"] as string);
+}
+```
+
+```vb
+' VB.NET
+Sub Application_Start(sender As Object, e As EventArgs)
+    PatchiriWebMethods.WhoAmI = Function(ctx) If(ctx.Session Is Nothing, Nothing, TryCast(ctx.Session("EmployeeCode"), String))
+    PatchiriWebMethods.IsInRole = Function(ctx, role) ctx.Session IsNot Nothing AndAlso role = TryCast(ctx.Session("Role"), String)
+End Sub
+```
+
+- `WhoAmI` が名前を返さない（`null` か `""`）ときは、未ログインとして API も画面も HTTP 401 にします（フォーム認証を使っていれば、画面はログインの画面に回ります）。
+- Session を読むなら、`Patchiri.aspx` の 3 つの WebMethod を `[WebMethod(EnableSession = true)]`（VB.NET は `<WebMethod(EnableSession:=True)>`）に、ページの `EnableSessionState` を `"ReadOnly"` にしてください。既定のページは Session を使いません。
+
+## ページごとに許可リストを分ける
+
+部署ごとに触れる行（`scope`）やテーブルを分けたいときは、ページを分け、それぞれのページで許可リストのファイルを指します。`Patchiri.aspx` を写して、WebMethod の `Call` に 3 つ目の引数を足します。
+
+```csharp
+[WebMethod]
+public static Dictionary<string, object> Describe(Dictionary<string, object> req)
+{
+    return PatchiriWebMethods.Call("describe", req, "~/App_Data/sales.config.json");
+}
+// Fetch と Apply も同じ。
+```
+
+ページごとに web.config の `<location>` で権限を掛ければ、「営業部のページは営業部の人だけ、営業部の行だけ」にできます。
 
 ## 画面について
 

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import mysql from "mysql2/promise";
 import { buildApplyRequest, PatchiriClient, prepare, type ApplyResponse, type Failure, type Sheet } from "patchiri-core";
 import { startServer, type RunningServer, type ServerConfig } from "../src/index.js";
+import { stampScenario } from "./stamp-scenario.js";
 
 const env = process.env.PATCHIRI_TEST_MYSQL;
 const skip = env ? false : "PATCHIRI_TEST_MYSQL がないので飛ばす";
@@ -382,4 +383,25 @@ test("改行や ; だけの行、長い値も、出力した SQL で崩れない
   assert.deepEqual(await one(`SELECT remark FROM item WHERE code = 'A002'`), { remark });
   assert.equal(await runScript(d1.undoScript), "patchiri: 1 / 1 行を戻しました");
   assert.equal(await runScript(d2.undoScript), "patchiri: 1 / 1 行を戻しました");
+});
+
+test("stamp（DB の時刻と反映した人）、scope、表示名、サーバの業務ルール", { skip }, async () => {
+  await stampScenario({
+    database: { dialect: "mysql", host: conn!.host, port: conn!.port ?? 3306, database: conn!.database, user: conn!.user, password: conn!.password },
+    table: "term",
+    reset: async () => {
+      await q(`DROP TABLE IF EXISTS term`);
+      await q(`CREATE TABLE term (company varchar(3) NOT NULL, code varchar(4) NOT NULL, kind varchar(1) NOT NULL, startdate date NOT NULL, enddate date,
+        price decimal(9,2), updatedat datetime(3), updatedon date, updatedby varchar(10), PRIMARY KEY (company, code)) DEFAULT CHARSET utf8mb4`);
+      await q(`INSERT INTO term VALUES ('001', 'T1', '1', '2026-04-01', '2026-09-30', 100, '2026-01-05 10:00:00', '2026-01-05', 'old'),
+        ('002', 'T1', '1', '2026-04-01', NULL, 500, NULL, NULL, NULL)`);
+    },
+    row: async (company) => {
+      const r = await one(`SELECT CAST(price AS char) AS price, DATE_FORMAT(startdate, '%Y-%m-%d') AS startDate, DATE_FORMAT(updatedat, '%Y-%m-%d %H:%i:%s') AS updatedAt,
+        DATE_FORMAT(updatedon, '%Y-%m-%d') AS updatedOn, updatedby AS updatedBy FROM term WHERE company = '${company}'`);
+      return r as never;
+    },
+    today: async () => String((await one(`SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS d`)).d),
+    runScript: (script) => runScript(script),
+  });
 });

@@ -817,9 +817,10 @@ Namespace Global.Patchiri.Server
                 Me.tx = tx
             End Sub
 
-            Public Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row) As LockedRow Implements IPatchiriTransaction.LockAndCompare
+            Public Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row, read As IList(Of String)) As LockedRow Implements IPatchiriTransaction.LockAndCompare
                 Dim keyCols = meta.ColumnsOf(keyColumns)
                 Dim beforeCols = meta.ColumnsOf(before.Keys)
+                Dim readCols = meta.ColumnsOf(If(read, New String() {}))
                 Dim cmd = d.driver.Command(conn, tx, "")
                 Dim conds As New List(Of String)()
                 For i = 0 To keyCols.Count - 1
@@ -828,6 +829,7 @@ Namespace Global.Patchiri.Server
                 Dim selects As New List(Of String)()
                 Dim all As New List(Of ColumnMeta)(keyCols)
                 all.AddRange(beforeCols)
+                all.AddRange(readCols)
                 For i = 0 To all.Count - 1
                     selects.Add(SelectExpr(all(i), "") & " AS " & QuoteName("__v" & i))
                 Next
@@ -850,10 +852,14 @@ Namespace Global.Patchiri.Server
                     locked.Current(beforeCols(i).Name) = ReadValue(beforeCols(i), values(keyCols.Count + i))
                     If Convert.ToInt32(values(all.Count + i), CultureInfo.InvariantCulture) <> 1 Then locked.Changed.Add(beforeCols(i).Name)
                 Next
+                locked.Read = New Row()
+                For i = 0 To readCols.Count - 1
+                    locked.Read(readCols(i).Name) = ReadValue(readCols(i), values(keyCols.Count + beforeCols.Count + i))
+                Next
                 Return locked
             End Function
 
-            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row) As Integer Implements IPatchiriTransaction.Update
+            Public Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row, now As IList(Of String)) As Integer Implements IPatchiriTransaction.Update
                 Dim keyCols = meta.ColumnsOf(keyColumns)
                 Dim setCols = meta.ColumnsOf([set].Keys)
                 Dim cmd = d.driver.Command(conn, tx, "")
@@ -861,6 +867,7 @@ Namespace Global.Patchiri.Server
                 For i = 0 To setCols.Count - 1
                     assigns.Add(QuoteName(setCols(i).Name) & " = " & d.BindValue(cmd, "p" & i, setCols(i), [set](setCols(i).Name)))
                 Next
+                assigns.AddRange(NowAssigns(meta, now))
                 Dim conds As New List(Of String)()
                 For i = 0 To keyCols.Count - 1
                     conds.Add(KeyCondition(keyCols(i), d.BindValue(cmd, "k" & i, keyCols(i), key(keyCols(i).Name))))
@@ -943,12 +950,29 @@ Namespace Global.Patchiri.Server
             Return Integer.Parse(Convert.ToString(p.Value, CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)
         End Function
 
+        ''' <summary>列に DB の今の時刻を入れる式（stamp の "now"）。DATE は SYSDATE、TIMESTAMP は DB のサーバの時刻（SYSTIMESTAMP）からタイムゾーンを外したもの。</summary>
+        Public Function NowExpression(col As ColumnMeta) As String Implements IPatchiriDialect.NowExpression
+            If col.Type <> "date" AndAlso col.Type <> "datetime" Then Return Nothing
+            Return If(col.DbType = "DATE", "SYSDATE", "CAST(SYSTIMESTAMP AS TIMESTAMP)")
+        End Function
+
+        Private Shared Function NowAssigns(meta As TableMeta, now As IList(Of String)) As List(Of String)
+            Dim assigns As New List(Of String)()
+            If now Is Nothing Then Return assigns
+            For Each c In meta.ColumnsOf(now)
+                If c.Type <> "date" AndAlso c.Type <> "datetime" Then Throw New InvalidOperationException("列 " & c.Name & " は日付・時刻の列ではありません")
+                assigns.Add(QuoteName(c.Name) & " = " & If(c.DbType = "DATE", "SYSDATE", "CAST(SYSTIMESTAMP AS TIMESTAMP)"))
+            Next
+            Return assigns
+        End Function
+
         Private Shared Function RenderUpdate(meta As TableMeta, u As ScriptUpdate) As String
             Dim t = Table(meta)
             Dim assigns As New List(Of String)()
             For Each c In meta.ColumnsOf(u.Set.Keys)
                 assigns.Add(QuoteName(c.Name) & " = " & Literal(c, u.Set(c.Name), t))
             Next
+            assigns.AddRange(NowAssigns(meta, u.Now))
             Dim conds As New List(Of String)()
             For Each c In meta.ColumnsOf(u.Key.Keys)
                 conds.Add(KeyCondition(c, Literal(c, u.Key(c.Name), t)))

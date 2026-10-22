@@ -279,6 +279,17 @@ export function checkRule(rule: CompiledRule, v: Value, row?: Row): string | nul
   return null;
 }
 
+/**
+ * ルールの列とは別の列のセルに付ける文（行のルールで、ルールの列が取込に無いか、その行で変えていないとき）。
+ * ルールの文はルールの列についてのものなので、頭にその列と今の値を付ける。message を書いたルールはそのまま。
+ */
+export function ruleMessageAt(rule: CompiledRule, message: string, column: string, row: Row): string {
+  if (column === rule.column || rule.message !== undefined) return message;
+  const v = row[rule.column];
+  const head = isEmpty(v) ? `${rule.column} は` : `${rule.column}（${show(v!)}）は`;
+  return /^[\x21-\x7e]/.test(message) ? `${head} ${message}` : `${head}${message}`;
+}
+
 /** 行の値（列名 → 値）でルールを見る。ルールの列が行に無ければ見ない。 */
 export function checkRuleRow(rule: CompiledRule, row: Row): string | null {
   if (!(rule.column in row)) return null;

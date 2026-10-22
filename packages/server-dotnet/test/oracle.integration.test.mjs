@@ -82,7 +82,7 @@ before(async () => {
   if (skip) return;
   admin = await oracledb.getConnection(conn);
   hasBoolean = admin.oracleServerVersion >= 2300000000;
-  for (const t of ["ITEM_AUDIT", "ITEM", "KIND", "LEGACY"]) {
+  for (const t of ["ITEM_AUDIT", "ITEM", "KIND", "LEGACY", "TERM"]) {
     await q(`BEGIN EXECUTE IMMEDIATE 'DROP TABLE ${t} CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;`);
   }
   await q(`BEGIN EXECUTE IMMEDIATE 'DROP SYNONYM LEGACY_SYN'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1434 THEN RAISE; END IF; END;`);
@@ -124,6 +124,11 @@ before(async () => {
   await q(`INSERT INTO ITEM (CODE, NAME, KIND_CODE, PRICE, BIG, QTY, RATE, RATIO, RELEASED, STAMP, MEMO, GRADE, RAW_ID) VALUES
       ('A001', N'ペン', 'K1', 120, 12345678901234567890123456789012345678, 5, 0.1, 0.1, DATE '2024-04-01', TIMESTAMP '2026-10-17 09:30:00.123', 'メモ', 'A', HEXTORAW('0A0B'))`);
   await q(`INSERT INTO ITEM (CODE, NAME, KIND_CODE, PRICE) VALUES ('A002', N'ノート', 'K1', 0.5)`);
+  // stamp と scope を書くターゲット（会社と期間の表）。
+  await q(`CREATE TABLE TERM (COMPANY VARCHAR2(3) NOT NULL, CODE VARCHAR2(4) NOT NULL, KIND VARCHAR2(1) NOT NULL, STARTDATE DATE NOT NULL, ENDDATE DATE,
+    PRICE NUMBER(9,2), UPDATEDAT TIMESTAMP(3), UPDATEDON DATE, UPDATEDBY VARCHAR2(20), PRIMARY KEY (COMPANY, CODE))`);
+  await q(`INSERT INTO TERM VALUES ('001', 'T1', '1', DATE '2026-04-01', DATE '2026-09-30', 100, TIMESTAMP '2026-01-05 10:00:00', DATE '2026-01-05', 'old')`);
+  await q(`INSERT INTO TERM VALUES ('002', 'T1', '1', DATE '2026-04-01', NULL, 500, NULL, NULL, NULL)`);
   await q(`INSERT INTO LEGACY VALUES ('L1', 'old', N'ab')`);
   await q(`INSERT INTO LEGACY VALUES ('L22', 'old2', NULL)`);
 
@@ -168,7 +173,18 @@ before(async () => {
         item: { table: "item", access: "update", readable: all, updatable: all.slice(1) },
         kind: { table: `${conn.user}.kind`, access: "read", readable: ["kind_code"] },
         legacy: { table: "legacy_syn", access: "update", readable: ["cd", "nm", "kana"], updatable: ["nm", "kana"] },
+        term: {
+          table: "term",
+          access: "update",
+          key: ["code"],
+          readable: ["code", "kind", "startdate", "enddate", "price"],
+          updatable: ["startdate", "enddate", "price"],
+          labels: { price: "単価" },
+          stamp: { updatedat: "now", updatedon: "now", updatedby: "user" },
+          scope: { company: "001" },
+        },
       },
+      rules: { targets: { term: [{ column: "enddate", min: { column: "startdate" } }] } },
       lockWaitSeconds: 1,
     }),
   );
@@ -564,4 +580,31 @@ test("そろえたセッションの設定（NLS_COMP など）は、接続を�
   assert.equal(sessions.length, 4, JSON.stringify(sessions));
   assert.equal(new Set(sessions).size, 1, JSON.stringify(sessions));
   assert.match(sessions[0], /NLS_NUMERIC_CHARACTERS=,\./);
+});
+
+test("stamp（DB の時刻と反映した人）、scope、表示名、サーバの業務ルール", { skip }, async () => {
+  const term = async (company) => ({
+    ...(await one(`SELECT TO_CHAR(PRICE, 'FM9999990.00') AS P, TO_CHAR(UPDATEDAT, 'YYYY-MM-DD HH24:MI:SS') AS A, TO_CHAR(UPDATEDON, 'YYYY-MM-DD') AS O,
+      UPDATEDBY AS B FROM TERM WHERE COMPANY = '${company}'`)),
+  });
+  const today = (await one(`SELECT TO_CHAR(SYSDATE, 'YYYY-MM-DD') AS D FROM DUAL`)).D;
+  const d = await client.describe("term");
+  assert.deepEqual(d.stamp, [{ column: "UPDATEDAT", value: "now" }, { column: "UPDATEDON", value: "now" }, { column: "UPDATEDBY", value: "user" }]);
+  assert.deepEqual(d.scope, { COMPANY: "001" });
+  const p = await prepare(client, "term", sheet([["code", "単価"], ["T1", "120"]]));
+  assert.ok(p.ok, JSON.stringify(p.issues));
+  const res = await client.apply(buildApplyRequest(p.diff, { mode: "execute" }));
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.match(res.script, /SYSDATE/);
+  const after = await term("001");
+  assert.deepEqual([after.P, after.O, after.A.slice(0, 10), after.B], ["120.00", today, today, USER]);
+  assert.equal((await term("002")).P, "500.00");
+  // 戻し SQL は stamp の列も前の値に戻す。
+  await runScript(res.undoScript);
+  assert.deepEqual(await term("001"), { P: "100.00", A: "2026-01-05 10:00:00", O: "2026-01-05", B: "old" });
+
+  // サーバの業務ルール（終了日は開始日より後）は、変えない列（終了日）を DB の値で見る。
+  const bad = await call("Patchiri.aspx", "Apply", applyReq("term", [{ key: { CODE: "T1" }, before: { STARTDATE: "2026-04-01T00:00:00" }, after: { STARTDATE: "2026-10-01T00:00:00" } }]));
+  assert.equal(bad.ok, false);
+  assert.deepEqual(bad.rowErrors.map((e) => [e.code, e.column, e.message]), [["rule_violation", "STARTDATE", "ENDDATE（2026-09-30T00:00:00）は STARTDATE（2026-10-01T00:00:00） 以上にしてください"]]);
 });

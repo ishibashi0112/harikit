@@ -41,7 +41,15 @@ Namespace Global.Patchiri.Server
             res.Cache.SetNoStore()
             res.AppendHeader("X-Content-Type-Options", "nosniff")
             If String.Equals(method, "GET", StringComparison.Ordinal) OrElse String.Equals(method, "HEAD", StringComparison.Ordinal) Then
-                WritePage(ctx)
+                Dim user = PatchiriWebMethods.CurrentUser()
+                If user Is Nothing Then
+                    ' 差し替えた WhoAmI が名前を返さない（未ログイン）。フォーム認証ならログイン画面に回る。
+                    res.StatusCode = 401
+                    res.ContentType = "text/plain"
+                    res.Write("login required")
+                    Return
+                End If
+                WritePage(ctx, user)
                 Return
             End If
             Dim post = String.Equals(method, "POST", StringComparison.Ordinal)
@@ -50,7 +58,7 @@ Namespace Global.Patchiri.Server
             res.Write(If(post, "application/json required", "not found"))
         End Sub
 
-        Private Shared Sub WritePage(ctx As HttpContext)
+        Private Shared Sub WritePage(ctx As HttpContext, user As String)
             Dim res = ctx.Response
             Dim page = ctx.Request.FilePath
             Dim dir = AssetsDir(page)
@@ -79,7 +87,7 @@ Namespace Global.Patchiri.Server
             html.Append("<script type=""module"" src=""").Append(Encode(js)).Append("""></script>" & vbLf & "</head>" & vbLf & "<body>" & vbLf)
             ' つなぐ先は同じページの WebMethod。ログイン名は見出しに出す（反映ログに残る名前）。
             html.Append("<div id=""root"" data-api=""").Append(Encode(res.ApplyAppPathModifier(page))).Append(""" data-style=""webmethod"" data-user=""")
-            html.Append(Encode(PatchiriWebMethods.CurrentUser())).Append("""></div>" & vbLf)
+            html.Append(Encode(user)).Append("""></div>" & vbLf)
             ' Internet Explorer（Edge の IE モードも）はモジュールの script を読まないので、画面の代わりに案内を出す。
             html.Append("<p id=""patchiri-legacy"" hidden style=""font-family: sans-serif; margin: 2em"">このブラウザでは patchiri の画面を開けません。")
             html.Append("Microsoft Edge か Google Chrome で開いてください（Internet Explorer と、Edge の IE モードでは動きません）。</p>" & vbLf)

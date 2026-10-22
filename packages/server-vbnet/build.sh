@@ -10,9 +10,13 @@ version=${sdk%% *}
 dir=${sdk#*[}
 dir=${dir%]}
 api="$(dirname "$(dirname "$(command -v mono)")")/lib/mono/4.5-api"
+# テストが並んで同時に呼んでも、書きかけの DLL を読まれないよう、別のフォルダに作ってから置き換える。
 mkdir -p bin
+out=$(mktemp -d bin/.build.XXXXXX)
+trap 'rm -rf "$out"' EXIT
 dotnet "$dir/$version/Roslyn/bincore/vbc.dll" -nologo -noconfig -nostdlib -langversion:11 -warnaserror -vbruntime* \
-  -target:library -out:bin/Patchiri.Server.dll -sdkpath:"$api" \
+  -target:library -out:"$out/Patchiri.Server.dll" -sdkpath:"$api" \
   -r:"$api/mscorlib.dll" -r:"$api/System.dll" -r:"$api/System.Core.dll" -r:"$api/System.Data.dll" \
   -r:"$api/System.Configuration.dll" -r:"$api/System.Web.dll" -r:"$api/System.Web.Extensions.dll" \
   src/*.vb
+mv -f "$out/Patchiri.Server.dll" bin/Patchiri.Server.dll
