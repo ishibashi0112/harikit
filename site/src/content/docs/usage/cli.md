@@ -77,4 +77,4 @@ patchiri apply <plan.json> [--execute] [--note <メモ>] [--digest <承認した
 }
 ```
 
-WebForms に載せたサーバは、載せ先のログイン（フォーム認証のクッキー、Windows 認証）を CLI から通せないので、CLI から呼べるのはログインなしで開ける開発環境だけです。業務では、載せたページを開いて出る画面を使ってください（[WebForms に載せる](/servers/webforms/)）。
+WebForms に載せたサーバは、載せ先のログインの中にあります。CLI には Windows 認証を通す仕組みがなく、フォーム認証のクッキーは `--header "Cookie: …"` で渡せてもブラウザから写す手間がかかるので、CLI から呼ぶのはログインなしで開ける開発環境向けです。業務では、載せたページを開いて出る画面を使ってください（[WebForms に載せる](/servers/webforms/)）。

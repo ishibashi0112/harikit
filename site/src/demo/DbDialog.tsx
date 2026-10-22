@@ -164,7 +164,7 @@ function TableView({ db, table, generation, version }: { db: DemoDb; table: "pro
     <div className="demo-table">
       <p className="pt-muted">
         {t.name} の今の中身（{rows.length} 行）。{changed > 0 ? <span className="demo-changed-sample">色の付いたセル</span> : "色の付いたセル"}は、DB を作ったときから変わった値です（今 {changed} 個）。
-        {table === "product" && " updated_at は patchiri の外で書き換えたときだけ変わります。"}
+        {table === "product" && " updated_at は、反映した行ではサーバが反映した時刻を入れます（許可リストの stamp）。色は付けません。"}
       </p>
       <div className="demo-table-grid">
         <SpreadsheetGrid<TableRow>

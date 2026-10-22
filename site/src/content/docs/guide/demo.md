@@ -18,11 +18,12 @@ description: デモで何が動いているか、何を試せるか
 ## 触り方
 
 1. 見出しの「サンプル」で、表に値を入れます。Excel からコピーして表の A1 に貼っても同じです。
-   - **価格改定（通る）**: `¥130`、`1,280`、`令和4年8月1日` のような Excel の表示のままの値、同じ値の行、DB に無いコードが混ざっています。
+   - **価格改定（通る）**: 見出しは表示名（`商品コード`、`単価` など）です。`¥130`、`1,280`、`令和4年8月1日` のような Excel の表示のままの値、同じ値の行、DB に無いコードが混ざっています。
+   - 手元の `.xlsx` は「Excel を開く」で入れられます（ファイルはブラウザの中で読みます）。
    - **誤りあり（直してみる）**: 桁あふれ、必須の空、無い分類コード、読めない日付、業務ルール違反などが混ざっています。赤いセルを直して、もう一度検証してみてください。
 2. 右の「検証して差分を見る」を押します。誤りがなければ「差分」のタブが開きます。
 3. 「DB で確かめる」を押してから、「反映する」を押します。
-4. 見出しの「DB の中身」で、反映した値（色の付いたセル）を確かめます。「SQL を流す」のタブで「直近の戻し SQL を入れる」→「流す」と、反映した行が元に戻ります。
+4. 見出しの「DB の中身」で、反映した値（色の付いたセル）を確かめます。更新日時（`updated_at`）は、サーバが反映した時刻を入れています。「SQL を流す」のタブで「直近の戻し SQL を入れる」→「流す」と、反映した行が元に戻ります。
 
 ## 試すとよいこと
 
@@ -54,4 +55,16 @@ CREATE TABLE m_product (
 );
 ```
 
-許可リストでは、`m_product` の `product_name`、`category_code`、`unit_price`、`release_date`、`on_sale` を更新でき、`updated_at` は読むだけです。`m_category` は外部キーの参照先として読むだけです。
+許可リストでは、`m_product` の `product_name`、`category_code`、`unit_price`、`release_date`、`on_sale` を更新でき、`updated_at` は反映する行ごとにサーバが DB の時刻を入れます（`stamp`）。列には表示名（`labels`）を付けてあります。`m_category` は外部キーの参照先として読むだけです。
+
+```json
+"product": {
+  "table": "public.m_product",
+  "access": "update",
+  "key": ["product_code"],
+  "readable": ["product_code", "product_name", "category_code", "unit_price", "release_date", "on_sale", "updated_at"],
+  "updatable": ["product_name", "category_code", "unit_price", "release_date", "on_sale"],
+  "labels": { "product_code": "商品コード", "unit_price": "単価", "…": "…" },
+  "stamp": { "updated_at": "now" }
+}
+```

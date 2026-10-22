@@ -87,12 +87,24 @@ export const TARGETS: Record<string, TargetConfig> = {
     key: ["product_code"],
     readable: ["product_code", "product_name", "category_code", "unit_price", "release_date", "on_sale", "updated_at"],
     updatable: ["product_name", "category_code", "unit_price", "release_date", "on_sale"],
+    labels: {
+      product_code: "商品コード",
+      product_name: "商品名",
+      category_code: "分類コード",
+      unit_price: "単価",
+      release_date: "発売日",
+      on_sale: "販売中",
+      updated_at: "更新日時",
+    },
+    // 更新日時は、反映する行ごとにサーバが DB の時刻を入れる。
+    stamp: { updated_at: "now" },
   },
   category: {
     table: "public.m_category",
     access: "read",
     key: ["category_code"],
     readable: ["category_code", "category_name"],
+    labels: { category_code: "分類コード", category_name: "分類名" },
   },
 };
 
@@ -131,9 +143,9 @@ export const SAMPLES: Sample[] = [
   {
     id: "price",
     label: "価格改定（通る）",
-    description: "値上げと名前の直し。¥ や桁区切り、和暦の日付は Excel の表示のまま。同じ値の行と、DB に無いコードも混ぜてある。",
+    description: "値上げと名前の直し。見出しは表示名で、¥ や桁区切り、和暦の日付は Excel の表示のまま。同じ値の行と、DB に無いコードも混ぜてある。",
     cells: [
-      ["product_code", "product_name", "unit_price", "release_date"],
+      ["商品コード", "商品名", "単価", "発売日"],
       ["A001", "ボールペン 黒", "¥130", "2024/4/1"],
       ["A002", "ボールペン 赤", "¥130", "2024/4/1"],
       ["A003", "シャープペン 0.5mm", "330", ""],

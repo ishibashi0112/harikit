@@ -26,7 +26,7 @@ export default defineConfig({
       sidebar: [
         { label: "デモを触る", link: "/demo/" },
         { label: "はじめに", items: ["guide/what", "guide/flow", "guide/demo"] },
-        { label: "使い方", items: ["usage/web", "usage/cli", "usage/excel", "usage/rules", "usage/config"] },
+        { label: "使い方", items: ["usage/web", "usage/cli", "usage/excel", "usage/rules", "usage/config", "usage/customize"] },
         { label: "DB", items: ["databases/sqlserver", "databases/oracle", "databases/postgresql", "databases/mysql"] },
         { label: "サーバ", items: ["servers/node", "servers/webforms"] },
         { label: "仕様", items: ["reference/api-spec", "reference/concept"] },

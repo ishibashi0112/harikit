@@ -216,7 +216,7 @@ export default function Demo() {
     <div className="demo-page" style={{ "--demo-logo": `url("${logoUrl}")` } as CSSProperties}>
       {guide && <Guide onClose={() => setGuide(false)} />}
       <div className="demo-app">
-        <PatchiriApp ref={appRef} client={client} serverLabel="ブラウザの中の PostgreSQL（PGlite）" initialRules={RULES_FILE} headerExtra={tools} />
+        <PatchiriApp ref={appRef} client={client} serverLabel="ブラウザの中の PostgreSQL（PGlite）" initialRules={RULES_FILE} headerExtra={tools} excel />
       </div>
     </div>
   );
