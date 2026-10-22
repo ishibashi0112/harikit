@@ -26,6 +26,12 @@ namespace Patchiri.Server
         /// </summary>
         public static void Write(HttpContext ctx)
         {
+            Write(ctx, null);
+        }
+
+        /// <summary>Write と同じ。configPath は画面の設定（screen）を読む設定ファイルで、WebMethod の PatchiriWebMethods.Call に渡すものと同じにする。</summary>
+        public static void Write(HttpContext ctx, string configPath)
+        {
             var method = ctx.Request.HttpMethod;
             var res = ctx.Response;
             res.Clear();
@@ -43,7 +49,7 @@ namespace Patchiri.Server
                     res.Write("login required");
                     return;
                 }
-                WritePage(ctx, user);
+                WritePage(ctx, user, ScreenOrNull(configPath));
                 return;
             }
             res.StatusCode = method == "POST" ? 415 : 404;
@@ -51,7 +57,20 @@ namespace Patchiri.Server
             res.Write(method == "POST" ? "application/json required" : "not found");
         }
 
-        static void WritePage(HttpContext ctx, string user)
+        /// <summary>画面の設定。設定ファイルが読めなければ設定なしで出す（API を呼んだときに internal_error になり、中身はサーバのログに残る）。</summary>
+        static ScreenSettings ScreenOrNull(string configPath)
+        {
+            try
+            {
+                return PatchiriWebMethods.Screen(configPath);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        static void WritePage(HttpContext ctx, string user, ScreenSettings screen)
         {
             var res = ctx.Response;
             var page = ctx.Request.FilePath;
@@ -67,7 +86,8 @@ namespace Patchiri.Server
             res.AppendHeader("Referrer-Policy", "no-referrer");
             var html = new StringBuilder();
             html.Append("<!doctype html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n");
-            html.Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>patchiri</title>\n");
+            var title = screen != null && screen.Title != null ? screen.Title : "patchiri";
+            html.Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>").Append(Encode(title)).Append("</title>\n");
             if (css == null || js == null)
             {
                 // 画面のファイルを置き忘れたとき。真っ白なページにせず、どこに何を置くかを見せる。
@@ -79,10 +99,22 @@ namespace Patchiri.Server
                 return;
             }
             html.Append("<link rel=\"stylesheet\" href=\"").Append(Encode(css)).Append("\">\n");
-            html.Append("<script type=\"module\" src=\"").Append(Encode(js)).Append("\"></script>\n</head>\n<body>\n");
-            // つなぐ先は同じページの WebMethod。ログイン名は見出しに出す（反映ログに残る名前）。
+            html.Append("<script type=\"module\" src=\"").Append(Encode(js)).Append("\"></script>\n");
+            var extraCss = screen != null && screen.CssPath != null ? ReadCss(screen.CssPath) : null;
+            // </style> で閉じられないように、</ を CSS のエスケープにする。
+            if (extraCss != null) html.Append("<style>\n").Append(extraCss.Replace("</", "<\\/")).Append("\n</style>\n");
+            html.Append("</head>\n<body>\n");
+            // つなぐ先は同じページの WebMethod。ログイン名は見出しに出す（反映ログに残る名前）。画面の設定は Node 版と同じ data- 属性で渡す。
             html.Append("<div id=\"root\" data-api=\"").Append(Encode(res.ApplyAppPathModifier(page))).Append("\" data-style=\"webmethod\" data-user=\"");
-            html.Append(Encode(user)).Append("\"></div>\n");
+            html.Append(Encode(user)).Append("\"");
+            if (screen != null)
+            {
+                if (screen.Title != null) html.Append(" data-title=\"").Append(Encode(screen.Title)).Append("\"");
+                if (screen.Theme != null) html.Append(" data-theme=\"").Append(Encode(screen.Theme)).Append("\"");
+                if (screen.NoteRequired != null) html.Append(" data-note-required=\"").Append(Encode(screen.NoteRequired)).Append("\"");
+                if (!screen.Excel) html.Append(" data-excel=\"false\"");
+            }
+            html.Append("></div>\n");
             // Internet Explorer（Edge の IE モードも）はモジュールの script を読まないので、画面の代わりに案内を出す。
             html.Append("<p id=\"patchiri-legacy\" hidden style=\"font-family: sans-serif; margin: 2em\">このブラウザでは patchiri の画面を開けません。");
             html.Append("Microsoft Edge か Google Chrome で開いてください（Internet Explorer と、Edge の IE モードでは動きません）。</p>\n");
@@ -107,6 +139,19 @@ namespace Patchiri.Server
             var path = HostingEnvironment.MapPath(url);
             if (path == null || !File.Exists(path)) return null;
             return url + "?v=" + File.GetLastWriteTimeUtc(path).Ticks.ToString("x", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>画面に足す CSS。読めなければ足さない（画面はそのまま使える）。</summary>
+        static string ReadCss(string path)
+        {
+            try
+            {
+                return File.ReadAllText(path, Encoding.UTF8);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         static string Encode(string s)

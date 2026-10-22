@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { userInfo } from "node:os";
 import { dirname, extname, join, sep } from "node:path";
 import type { AddressInfo } from "node:net";
-import { lockWaitSeconds, type ServerConfig } from "./config.js";
+import { lockWaitSeconds, type ScreenConfig, type ServerConfig } from "./config.js";
 import type { Dialect } from "./dialect.js";
 import { Handlers, type ApplyLogEntry, type RequestContext } from "./handlers.js";
 import { createHttpServer, type StaticFile } from "./http.js";
@@ -83,6 +83,43 @@ export async function loadWebFiles(dir: string): Promise<Map<string, StaticFile>
   return files;
 }
 
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * 同梱の画面の index.html に、画面の設定を書き込む。タイトルと、#root の data- 属性（main.tsx が読む）と、足す CSS。
+ * C#・VB.NET 版のページ（PatchiriScreen）も同じ属性を出す。
+ */
+export function screenPage(html: string, screen: ScreenConfig, css: string | null): string {
+  const attrs: string[] = [];
+  if (screen.title) attrs.push(`data-title="${escapeHtml(screen.title)}"`);
+  if (screen.theme && screen.theme !== "auto") attrs.push(`data-theme="${screen.theme}"`);
+  if (screen.noteRequired) attrs.push(`data-note-required="${escapeHtml(screen.noteRequired === true ? "true" : screen.noteRequired)}"`);
+  if (screen.excel === false) attrs.push('data-excel="false"');
+  // 置き換えの文字列の $ を読ませないよう、関数で返す。
+  let out = html.replace('<div id="root"></div>', () => `<div id="root"${attrs.map((a) => ` ${a}`).join("")}></div>`);
+  if (screen.title) out = out.replace(/<title>[^<]*<\/title>/, () => `<title>${escapeHtml(screen.title!)}</title>`);
+  // </style> で閉じられないように、</ を CSS のエスケープにする。
+  if (css !== null) out = out.replace("</head>", () => `<style>\n${css.replace(/<\//g, "<\\/")}\n</style>\n  </head>`);
+  return out;
+}
+
+/** 画面の設定を、配るファイルの index.html に当てる。CSS のファイルが読めなければ起動を止める。 */
+async function applyScreen(files: Map<string, StaticFile>, screen: ScreenConfig): Promise<void> {
+  const index = files.get("/index.html");
+  if (!index) return;
+  let css: string | null = null;
+  if (screen.css) {
+    try {
+      css = await readFile(screen.css, "utf8");
+    } catch (e) {
+      throw new Error(`設定の誤り: screen.css のファイル ${screen.css} が読めません（${e instanceof Error ? e.message : String(e)}）`);
+    }
+  }
+  const page = { ...index, body: Buffer.from(screenPage(index.body.toString("utf8"), screen, css), "utf8") };
+  files.set("/index.html", page);
+  files.set("/", page);
+}
+
 /** 設定の database.dialect に合う方言を作る。 */
 export function createDialect(database: ServerConfig["database"]): Dialect {
   switch (database.dialect) {
@@ -111,6 +148,7 @@ export async function startServer(config: ServerConfig, options: StartOptions = 
   });
   const webDir = options.web === undefined ? defaultWebDir() : options.web;
   const files = webDir ? await loadWebFiles(webDir) : null;
+  if (files && config.screen) await applyScreen(files, config.screen);
   const server = createHttpServer(handlers, { token, ...(files && { files }) });
   const host = config.listen?.host ?? "127.0.0.1";
   await new Promise<void>((resolve, reject) => {

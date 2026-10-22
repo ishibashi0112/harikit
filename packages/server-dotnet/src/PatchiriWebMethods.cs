@@ -41,6 +41,7 @@ namespace Patchiri.Server
         sealed class Loaded
         {
             public PatchiriService Service;
+            public PatchiriConfig Config;
             public DateTime Stamp;
             public string RulesPath;
             public DateTime RulesStamp;
@@ -111,8 +112,19 @@ namespace Patchiri.Server
             };
         }
 
-        /// <summary>設定ファイルを読んでサービスを作る。設定ファイルか rules のファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
+        /// <summary>同梱の画面の設定（設定ファイルの screen）。書いていなければ null。設定が読めなければ例外。</summary>
+        internal static ScreenSettings Screen(string configPath)
+        {
+            return Load(configPath).Config.Screen;
+        }
+
         static PatchiriService Service(string configPath)
+        {
+            return Load(configPath).Service;
+        }
+
+        /// <summary>設定ファイルを読んでサービスを作る。設定ファイルか rules のファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
+        static Loaded Load(string configPath)
         {
             var path = MapPath(configPath ?? ConfigurationManager.AppSettings["patchiri:config"] ?? DefaultConfigPath);
             var stamp = File.GetLastWriteTimeUtc(path);
@@ -120,7 +132,7 @@ namespace Patchiri.Server
             {
                 Loaded loaded;
                 if (services.TryGetValue(path, out loaded) && loaded.Stamp == stamp
-                    && (loaded.RulesPath == null || File.GetLastWriteTimeUtc(loaded.RulesPath) == loaded.RulesStamp)) return loaded.Service;
+                    && (loaded.RulesPath == null || File.GetLastWriteTimeUtc(loaded.RulesPath) == loaded.RulesStamp)) return loaded;
                 var config = PatchiriConfig.Load(path);
                 var logDir = MapPath(config.LogDir);
                 var service = new PatchiriService(new PatchiriServiceOptions
@@ -133,8 +145,9 @@ namespace Patchiri.Server
                     LogError = e => WriteError(logDir, e),
                     MaxResponseLength = MaxJsonLength(),
                 });
-                services[path] = new Loaded { Service = service, Stamp = stamp, RulesPath = config.RulesPath, RulesStamp = config.RulesStamp };
-                return service;
+                loaded = new Loaded { Service = service, Config = config, Stamp = stamp, RulesPath = config.RulesPath, RulesStamp = config.RulesStamp };
+                services[path] = loaded;
+                return loaded;
             }
         }
 

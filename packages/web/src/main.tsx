@@ -4,7 +4,7 @@ import "@ishibashi0112/spreadsheet-grid/style.css";
 import "./style.css";
 import "./page.css";
 import { PatchiriClient } from "patchiri-core";
-import { PatchiriApp } from "./App.js";
+import { PatchiriApp, type PatchiriAppProps } from "./App.js";
 
 const root = document.getElementById("root")!;
 
@@ -14,10 +14,20 @@ const root = document.getElementById("root")!;
 const { api, style, user } = root.dataset;
 const client = api ? new PatchiriClient({ baseUrl: api, style: style === "webmethod" ? "webmethod" : "rest" }) : undefined;
 
+// 画面の設定（サーバの設定ファイルの screen）。どちらのサーバも同じ data- 属性で渡す。同梱の画面では「Excel を開く」を既定で出す。
+const { title, theme, noteRequired, excel } = root.dataset;
+const screen: PatchiriAppProps = {
+  ...(title && { title }),
+  ...((theme === "light" || theme === "dark") && { theme }),
+  ...(noteRequired && { noteRequired: noteRequired === "true" ? true : noteRequired }),
+  excel: excel !== "false",
+};
+
 createRoot(root).render(
   <StrictMode>
     {client ? (
       <PatchiriApp
+        {...screen}
         client={client}
         serverLabel={location.host}
         headerExtra={
@@ -29,7 +39,7 @@ createRoot(root).render(
         }
       />
     ) : (
-      <PatchiriApp />
+      <PatchiriApp {...screen} />
     )}
   </StrictMode>,
 );

@@ -9,4 +9,4 @@ export { OracleDialect, splitOracleName } from "./oracle.js";
 export { PostgresDialect, type PgConnector, type PgSession, type PostgresOptions } from "./postgres.js";
 export { PgPoolConnector } from "./pg-pool.js";
 export { MySqlDialect, splitMySqlName } from "./mysql.js";
-export { createDialect, defaultWebDir, loadWebFiles, startServer, type StartOptions, type RunningServer } from "./start.js";
+export { createDialect, defaultWebDir, loadWebFiles, screenPage, startServer, type StartOptions, type RunningServer } from "./start.js";

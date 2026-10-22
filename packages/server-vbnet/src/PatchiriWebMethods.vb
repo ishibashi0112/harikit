@@ -45,6 +45,7 @@ Namespace Global.Patchiri.Server
 
         Private NotInheritable Class Loaded
             Public Service As PatchiriService
+            Public Config As PatchiriConfig
             Public Stamp As DateTime
             Public RulesPath As String
             Public RulesStamp As DateTime
@@ -106,14 +107,23 @@ Namespace Global.Patchiri.Server
             }
         End Function
 
-        ''' <summary>設定ファイルを読んでサービスを作る。設定ファイルか rules のファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
+        ''' <summary>同梱の画面の設定（設定ファイルの screen）。書いていなければ Nothing。設定が読めなければ例外。</summary>
+        Friend Shared Function Screen(configPath As String) As ScreenSettings
+            Return Load(configPath).Config.Screen
+        End Function
+
         Private Shared Function Service(configPath As String) As PatchiriService
+            Return Load(configPath).Service
+        End Function
+
+        ''' <summary>設定ファイルを読んでサービスを作る。設定ファイルか rules のファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
+        Private Shared Function Load(configPath As String) As Loaded
             Dim configFile = MapPath(If(configPath, If(ConfigurationManager.AppSettings("patchiri:config"), DefaultConfigPath)))
             Dim stamp = File.GetLastWriteTimeUtc(configFile)
             SyncLock sync
                 Dim cached As Loaded = Nothing
                 If services.TryGetValue(configFile, cached) AndAlso cached.Stamp = stamp AndAlso
-                    (cached.RulesPath Is Nothing OrElse File.GetLastWriteTimeUtc(cached.RulesPath) = cached.RulesStamp) Then Return cached.Service
+                    (cached.RulesPath Is Nothing OrElse File.GetLastWriteTimeUtc(cached.RulesPath) = cached.RulesStamp) Then Return cached
                 Dim config = PatchiriConfig.Load(configFile)
                 Dim logDir = MapPath(config.LogDir)
                 Dim created = New PatchiriService(New PatchiriServiceOptions With {
@@ -125,8 +135,9 @@ Namespace Global.Patchiri.Server
                     .LogError = Sub(e) WriteError(logDir, e),
                     .MaxResponseLength = MaxJsonLength()
                 })
-                services(configFile) = New Loaded With {.Service = created, .Stamp = stamp, .RulesPath = config.RulesPath, .RulesStamp = config.RulesStamp}
-                Return created
+                Dim fresh = New Loaded With {.Service = created, .Config = config, .Stamp = stamp, .RulesPath = config.RulesPath, .RulesStamp = config.RulesStamp}
+                services(configFile) = fresh
+                Return fresh
             End SyncLock
         End Function
 

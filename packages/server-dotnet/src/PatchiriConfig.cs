@@ -35,6 +35,21 @@ namespace Patchiri.Server
         public PatchiriConfigException(string message) : base("設定の誤り: " + message) { }
     }
 
+    /// <summary>同梱の画面の設定（設定ファイルの screen。Node 版と同じ）。</summary>
+    public sealed class ScreenSettings
+    {
+        /// <summary>見出しとブラウザのタブの名前。null なら「patchiri」。</summary>
+        public string Title;
+        /// <summary>"light" か "dark"。null なら OS の設定に合わせる。</summary>
+        public string Theme;
+        /// <summary>メモを必須にするなら "true" か欄の名前。null なら任意。</summary>
+        public string NoteRequired;
+        /// <summary>「Excel を開く」を出すか。既定は出す。</summary>
+        public bool Excel = true;
+        /// <summary>画面に足す CSS のファイル（フルパス）。null なら足さない。</summary>
+        public string CssPath;
+    }
+
     public sealed class PatchiriConfig
     {
         static readonly Regex TargetNameRe = new Regex(@"\A[A-Za-z0-9_-]+\z");
@@ -58,6 +73,8 @@ namespace Patchiri.Server
         public string RulesPath;
         /// <summary>rules のファイルの、読む前の更新日時（UTC）。</summary>
         public DateTime RulesStamp;
+        /// <summary>同梱の画面の設定。screen を書いていなければ null。</summary>
+        public ScreenSettings Screen;
 
         static void Fail(string message)
         {
@@ -302,7 +319,48 @@ namespace Patchiri.Server
                 if (!(o["exposeDbErrors"] is bool)) Fail("exposeDbErrors は true か false です");
                 config.ExposeDbErrors = (bool)o["exposeDbErrors"];
             }
+            if (o.ContainsKey("screen")) config.Screen = ParseScreen(o["screen"], rulesBaseDir);
             return config;
+        }
+
+        static ScreenSettings ParseScreen(object x, string baseDir)
+        {
+            var s = PatchiriJson.AsObject(x);
+            if (s == null) Fail("screen は { \"title\": … } の形です");
+            var screen = new ScreenSettings();
+            foreach (var kv in s)
+            {
+                var text = kv.Value as string;
+                switch (kv.Key)
+                {
+                    case "title":
+                        if (text == null || text.Trim().Length == 0) Fail("screen.title は空でない文字列です");
+                        screen.Title = text;
+                        break;
+                    case "theme":
+                        if (text != "auto" && text != "light" && text != "dark") Fail("screen.theme は \"auto\"、\"light\"、\"dark\" のどれかです");
+                        screen.Theme = text == "auto" ? null : text;
+                        break;
+                    case "noteRequired":
+                        if (kv.Value is bool) screen.NoteRequired = (bool)kv.Value ? "true" : null;
+                        else if (text != null && text.Trim().Length > 0) screen.NoteRequired = text;
+                        else Fail("screen.noteRequired は true / false か、欄の名前（空でない文字列）です");
+                        break;
+                    case "excel":
+                        if (!(kv.Value is bool)) Fail("screen.excel は true / false です");
+                        screen.Excel = (bool)kv.Value;
+                        break;
+                    case "css":
+                        if (string.IsNullOrEmpty(text)) Fail("screen.css は CSS のファイルのパスです");
+                        if (baseDir == null) Fail("screen.css を書くときは PatchiriConfig.Load で読んでください");
+                        screen.CssPath = Path.GetFullPath(Path.Combine(baseDir, text));
+                        break;
+                    default:
+                        Fail("screen." + kv.Key + " という項目はありません");
+                        break;
+                }
+            }
+            return screen;
         }
     }
 }

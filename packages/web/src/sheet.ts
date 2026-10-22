@@ -5,7 +5,9 @@
 import {
   cellRef,
   columnLetter,
+  headerColumn,
   type Cell,
+  type ColumnDef,
   type Conflict,
   type DiffResult,
   type DiffStatus,
@@ -52,13 +54,24 @@ export function toSheet(rows: readonly GridRow[], columnCount: number, name = "g
   return { name, rows: out };
 }
 
-/** 見出しの行（1 行目）に列名を足す。もうあればその列番号を、空きが無ければ右端の次を返す。 */
-export function addHeader(rows: readonly GridRow[], columnCount: number, name: string): { rows: GridRow[]; col: number } {
+/** 列の見せる名前（表示名があればそれ）。 */
+export function columnTitle(col: Pick<ColumnDef, "name" | "label">): string {
+  return col.label || col.name;
+}
+
+/**
+ * 見出しの行（1 行目）に列の見出しを足す。入れるのは表示名があればそれ、無ければ列名。
+ * もうその列の見出し（列名でも表示名でも）があればその列番号を、空きが無ければ右端の次を返す。
+ */
+export function addHeader(rows: readonly GridRow[], columnCount: number, column: string | Pick<ColumnDef, "name" | "label">): { rows: GridRow[]; col: number } {
   const head = rows[0];
   if (!head) throw new Error("行がありません");
+  const def = typeof column === "string" ? { name: column } : column;
+  const names = [def.name, def.label].filter((n): n is string => !!n).map((n) => n.trim().toLowerCase());
   for (let c = 0; c < columnCount; c++) {
-    if (cellText(head, columnLetter(c)).trim().toLowerCase() === name.toLowerCase()) return { rows: [...rows], col: c };
+    if (names.includes(cellText(head, columnLetter(c)).trim().toLowerCase())) return { rows: [...rows], col: c };
   }
+  const name = columnTitle(def);
   let col = 0;
   while (col < columnCount && cellText(head, columnLetter(col)) !== "") col++;
   return { rows: [{ ...head, [columnLetter(col)]: name }, ...rows.slice(1)], col };
@@ -183,17 +196,19 @@ export interface HeaderInfo {
   note: string;
 }
 
-/** 見出しのセル（1 行目）の名前が、ターゲットのどの列に当たるか。 */
-export function headerInfo(desc: TableDescription, text: string): HeaderInfo | undefined {
+/** 見出しのセル（1 行目）の名前が、ターゲットのどの列に当たるか。列名、表示名、別名（aliases）で探す。 */
+export function headerInfo(desc: TableDescription, text: string, aliases?: Record<string, string>): HeaderInfo | undefined {
   const name = text.trim();
   if (name === "") return undefined;
-  const col = desc.columns.find((c) => c.name.toLowerCase() === name.toLowerCase());
+  const col = headerColumn(desc, name, aliases);
   if (!col) return { kind: "unknown", note: `「${name}」は ${desc.target} の列にありません` };
   const isKey = desc.key.some((k) => k.toLowerCase() === col.name.toLowerCase());
+  // 列名でない見出し（表示名や別名）には、どの列に当たったかを添える。
+  const which = col.name.toLowerCase() === name.toLowerCase() ? "" : `${col.name}・`;
   const parts = [col.dbType, col.nullable ? "空を許す" : "必須"];
-  if (isKey) return { kind: "key", note: `キー（行を探す列）・${parts.join("・")}` };
+  if (isKey) return { kind: "key", note: `キー（行を探す列）・${which}${parts.join("・")}` };
   if (!col.updatable) return { kind: "readonly", note: `${col.name} は更新できない列です` };
-  return { kind: "update", note: `更新する列・${parts.join("・")}` };
+  return { kind: "update", note: `更新する列・${which}${parts.join("・")}` };
 }
 
 /** 差分を表で見せるための行。列のキーは "row"、"status"、"k:列名"、"b:列名"（前）、"a:列名"（後）。 */
@@ -240,4 +255,36 @@ export function issuePlace(i: { row?: number; col?: number; cell?: string }): st
 export function stamp(d = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/**
+ * .xlsx のセルを、表に入れる文字列にする（表のセルは文字列だけ）。検証で読める形にそろえる:
+ * 数は 15 桁で丸めた数字、日付は時刻が 0 なら 2024-04-01、時刻だけなら 09:30:00、ほかは 2024-04-01T09:30:00。
+ */
+export function cellString(cell: Cell): string {
+  if (cell === null) return "";
+  if (typeof cell === "string") return cell;
+  if (typeof cell === "number") return Number.isInteger(cell) ? String(cell) : String(parseFloat(cell.toPrecision(15)));
+  if (typeof cell === "boolean") return cell ? "TRUE" : "FALSE";
+  if (cell.kind === "error") return cell.text;
+  const iso = cell.iso.replace(/\.0+$/, "");
+  if (/^(1899-12-3[01]|1904-01-01)T/.test(iso)) return iso.slice(11);
+  return iso.endsWith("T00:00:00") ? iso.slice(0, 10) : iso;
+}
+
+/** シートの見出しの行（0 始まり）から下を、表に入れるセルにする。columns を渡せば、その列（0 始まり）だけをその順に入れる。 */
+export function excelCells(sheet: Sheet, headerRow: number, columns?: readonly number[]): string[][] {
+  return sheet.rows.slice(headerRow).map((r) => (columns ? columns.map((c) => cellString(r[c] ?? null)) : r.map(cellString)));
+}
+
+/** 見出しの行を当てる。上から 20 行のうち、ターゲットの列に当たる見出しが一番多い行（無ければ 0）。 */
+export function guessHeaderRow(sheet: Sheet, desc: Pick<TableDescription, "columns"> | null, aliases?: Record<string, string>): number {
+  if (!desc) return 0;
+  let best = 0;
+  let bestCount = 0;
+  sheet.rows.slice(0, 20).forEach((r, i) => {
+    const count = r.filter((c) => typeof c === "string" && headerColumn(desc, c, aliases)).length;
+    if (count > bestCount) [best, bestCount] = [i, count];
+  });
+  return best;
 }

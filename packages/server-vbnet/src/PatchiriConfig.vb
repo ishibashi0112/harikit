@@ -41,6 +41,20 @@ Namespace Global.Patchiri.Server
         End Sub
     End Class
 
+    ''' <summary>同梱の画面の設定（設定ファイルの screen。Node 版と同じ）。</summary>
+    Public NotInheritable Class ScreenSettings
+        ''' <summary>見出しとブラウザのタブの名前。Nothing なら「patchiri」。</summary>
+        Public Title As String
+        ''' <summary>"light" か "dark"。Nothing なら OS の設定に合わせる。</summary>
+        Public Theme As String
+        ''' <summary>メモを必須にするなら "true" か欄の名前。Nothing なら任意。</summary>
+        Public NoteRequired As String
+        ''' <summary>「Excel を開く」を出すか。既定は出す。</summary>
+        Public Excel As Boolean = True
+        ''' <summary>画面に足す CSS のファイル（フルパス）。Nothing なら足さない。</summary>
+        Public CssPath As String
+    End Class
+
     Public NotInheritable Class PatchiriConfig
 
         Private Shared ReadOnly TargetNameRe As New Regex("\A[A-Za-z0-9_-]+\z")
@@ -64,6 +78,8 @@ Namespace Global.Patchiri.Server
         Public RulesPath As String
         ''' <summary>rules のファイルの、読む前の更新日時（UTC）。</summary>
         Public RulesStamp As DateTime
+        ''' <summary>同梱の画面の設定。screen を書いていなければ Nothing。</summary>
+        Public Screen As ScreenSettings
 
         Private Shared Sub Fail(message As String)
             Throw New PatchiriConfigException(message)
@@ -277,7 +293,43 @@ Namespace Global.Patchiri.Server
                 If Not TypeOf o("exposeDbErrors") Is Boolean Then Fail("exposeDbErrors は true か false です")
                 config.ExposeDbErrors = DirectCast(o("exposeDbErrors"), Boolean)
             End If
+            If o.ContainsKey("screen") Then config.Screen = ParseScreen(o("screen"), rulesBaseDir)
             Return config
+        End Function
+
+        Private Shared Function ParseScreen(x As Object, baseDir As String) As ScreenSettings
+            Dim s = PatchiriJson.AsObject(x)
+            If s Is Nothing Then Fail("screen は { ""title"": … } の形です")
+            Dim settings As New ScreenSettings()
+            For Each kv In s
+                Dim text = TryCast(kv.Value, String)
+                Select Case kv.Key
+                    Case "title"
+                        If text Is Nothing OrElse text.Trim().Length = 0 Then Fail("screen.title は空でない文字列です")
+                        settings.Title = text
+                    Case "theme"
+                        If text <> "auto" AndAlso text <> "light" AndAlso text <> "dark" Then Fail("screen.theme は ""auto""、""light""、""dark"" のどれかです")
+                        settings.Theme = If(text = "auto", Nothing, text)
+                    Case "noteRequired"
+                        If TypeOf kv.Value Is Boolean Then
+                            settings.NoteRequired = If(DirectCast(kv.Value, Boolean), "true", Nothing)
+                        ElseIf text IsNot Nothing AndAlso text.Trim().Length > 0 Then
+                            settings.NoteRequired = text
+                        Else
+                            Fail("screen.noteRequired は true / false か、欄の名前（空でない文字列）です")
+                        End If
+                    Case "excel"
+                        If Not TypeOf kv.Value Is Boolean Then Fail("screen.excel は true / false です")
+                        settings.Excel = DirectCast(kv.Value, Boolean)
+                    Case "css"
+                        If String.IsNullOrEmpty(text) Then Fail("screen.css は CSS のファイルのパスです")
+                        If baseDir Is Nothing Then Fail("screen.css を書くときは PatchiriConfig.Load で読んでください")
+                        settings.CssPath = IO.Path.GetFullPath(IO.Path.Combine(baseDir, text))
+                    Case Else
+                        Fail("screen." & kv.Key & " という項目はありません")
+                End Select
+            Next
+            Return settings
         End Function
 
     End Class

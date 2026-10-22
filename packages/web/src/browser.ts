@@ -4,7 +4,6 @@
 import { PatchiriClient, type RulesConfig } from "patchiri-core";
 
 const TOKEN_KEY = "patchiri.token";
-const RULES_KEY = "patchiri.rules";
 
 /**
  * サーバが起動時に出す URL（http://127.0.0.1:7357/#token=…）からトークンを受け取る。
@@ -52,10 +51,11 @@ export function parseRules(name: string, text: string): RulesFile {
   return { name, config };
 }
 
-/** 前に選んだ業務ルールのファイル。毎回選ばなくて済むよう、このブラウザに覚えておく。 */
-export function loadRules(): RulesFile | null {
+/** 前に選んだ業務ルールのファイル。毎回選ばなくて済むよう、このブラウザに覚えておく（key が null なら覚えない）。 */
+export function loadRules(key: string | null): RulesFile | null {
+  if (key === null) return null;
   try {
-    const saved = localStorage.getItem(RULES_KEY);
+    const saved = localStorage.getItem(key);
     if (!saved) return null;
     const { name, text } = JSON.parse(saved) as { name: string; text: string };
     return parseRules(name, text);
@@ -64,10 +64,11 @@ export function loadRules(): RulesFile | null {
   }
 }
 
-export function storeRules(file: { name: string; text: string } | null): void {
+export function storeRules(key: string | null, file: { name: string; text: string } | null): void {
+  if (key === null) return;
   try {
-    if (file) localStorage.setItem(RULES_KEY, JSON.stringify(file));
-    else localStorage.removeItem(RULES_KEY);
+    if (file) localStorage.setItem(key, JSON.stringify(file));
+    else localStorage.removeItem(key);
   } catch {
     // 覚えられなければ、次に開いたときにもう一度選んでもらう。
   }

@@ -34,6 +34,11 @@ Namespace Global.Patchiri.Server
         ''' GET と HEAD は画面、application/json でない POST は 415（ASP.NET が WebMethod に回さない）、ほかは 404。
         ''' </summary>
         Public Shared Sub Write(ctx As HttpContext)
+            Write(ctx, Nothing)
+        End Sub
+
+        ''' <summary>Write と同じ。configPath は画面の設定（screen）を読む設定ファイルで、WebMethod の PatchiriWebMethods.Call に渡すものと同じにする。</summary>
+        Public Shared Sub Write(ctx As HttpContext, configPath As String)
             Dim method = ctx.Request.HttpMethod
             Dim res = ctx.Response
             res.Clear()
@@ -49,7 +54,7 @@ Namespace Global.Patchiri.Server
                     res.Write("login required")
                     Return
                 End If
-                WritePage(ctx, user)
+                WritePage(ctx, user, ScreenOrNull(configPath))
                 Return
             End If
             Dim post = String.Equals(method, "POST", StringComparison.Ordinal)
@@ -58,7 +63,16 @@ Namespace Global.Patchiri.Server
             res.Write(If(post, "application/json required", "not found"))
         End Sub
 
-        Private Shared Sub WritePage(ctx As HttpContext, user As String)
+        ''' <summary>画面の設定。設定ファイルが読めなければ設定なしで出す（API を呼んだときに internal_error になり、中身はサーバのログに残る）。</summary>
+        Private Shared Function ScreenOrNull(configPath As String) As ScreenSettings
+            Try
+                Return PatchiriWebMethods.Screen(configPath)
+            Catch ex As Exception
+                Return Nothing
+            End Try
+        End Function
+
+        Private Shared Sub WritePage(ctx As HttpContext, user As String, settings As ScreenSettings)
             Dim res = ctx.Response
             Dim page = ctx.Request.FilePath
             Dim dir = AssetsDir(page)
@@ -73,7 +87,8 @@ Namespace Global.Patchiri.Server
             res.AppendHeader("Referrer-Policy", "no-referrer")
             Dim html As New StringBuilder()
             html.Append("<!doctype html>" & vbLf & "<html lang=""ja"">" & vbLf & "<head>" & vbLf & "<meta charset=""utf-8"">" & vbLf)
-            html.Append("<meta name=""viewport"" content=""width=device-width, initial-scale=1"">" & vbLf & "<title>patchiri</title>" & vbLf)
+            Dim title = If(settings IsNot Nothing AndAlso settings.Title IsNot Nothing, settings.Title, "patchiri")
+            html.Append("<meta name=""viewport"" content=""width=device-width, initial-scale=1"">" & vbLf & "<title>").Append(Encode(title)).Append("</title>" & vbLf)
             If css Is Nothing OrElse js Is Nothing Then
                 ' 画面のファイルを置き忘れたとき。真っ白なページにせず、どこに何を置くかを見せる。
                 html.Append("</head>" & vbLf & "<body style=""font-family: sans-serif; margin: 2em; line-height: 1.7"">" & vbLf & "<h1>patchiri</h1>" & vbLf)
@@ -84,10 +99,21 @@ Namespace Global.Patchiri.Server
                 Return
             End If
             html.Append("<link rel=""stylesheet"" href=""").Append(Encode(css)).Append(""">" & vbLf)
-            html.Append("<script type=""module"" src=""").Append(Encode(js)).Append("""></script>" & vbLf & "</head>" & vbLf & "<body>" & vbLf)
-            ' つなぐ先は同じページの WebMethod。ログイン名は見出しに出す（反映ログに残る名前）。
+            html.Append("<script type=""module"" src=""").Append(Encode(js)).Append("""></script>" & vbLf)
+            Dim extraCss = If(settings IsNot Nothing AndAlso settings.CssPath IsNot Nothing, ReadCss(settings.CssPath), Nothing)
+            ' </style> で閉じられないように、</ を CSS のエスケープにする。
+            If extraCss IsNot Nothing Then html.Append("<style>" & vbLf).Append(extraCss.Replace("</", "<\/")).Append(vbLf & "</style>" & vbLf)
+            html.Append("</head>" & vbLf & "<body>" & vbLf)
+            ' つなぐ先は同じページの WebMethod。ログイン名は見出しに出す（反映ログに残る名前）。画面の設定は Node 版と同じ data- 属性で渡す。
             html.Append("<div id=""root"" data-api=""").Append(Encode(res.ApplyAppPathModifier(page))).Append(""" data-style=""webmethod"" data-user=""")
-            html.Append(Encode(user)).Append("""></div>" & vbLf)
+            html.Append(Encode(user)).Append("""")
+            If settings IsNot Nothing Then
+                If settings.Title IsNot Nothing Then html.Append(" data-title=""").Append(Encode(settings.Title)).Append("""")
+                If settings.Theme IsNot Nothing Then html.Append(" data-theme=""").Append(Encode(settings.Theme)).Append("""")
+                If settings.NoteRequired IsNot Nothing Then html.Append(" data-note-required=""").Append(Encode(settings.NoteRequired)).Append("""")
+                If Not settings.Excel Then html.Append(" data-excel=""false""")
+            End If
+            html.Append("></div>" & vbLf)
             ' Internet Explorer（Edge の IE モードも）はモジュールの script を読まないので、画面の代わりに案内を出す。
             html.Append("<p id=""patchiri-legacy"" hidden style=""font-family: sans-serif; margin: 2em"">このブラウザでは patchiri の画面を開けません。")
             html.Append("Microsoft Edge か Google Chrome で開いてください（Internet Explorer と、Edge の IE モードでは動きません）。</p>" & vbLf)
@@ -111,6 +137,15 @@ Namespace Global.Patchiri.Server
             Dim fileName = HostingEnvironment.MapPath(url)
             If fileName Is Nothing OrElse Not File.Exists(fileName) Then Return Nothing
             Return url & "?v=" & File.GetLastWriteTimeUtc(fileName).Ticks.ToString("x", CultureInfo.InvariantCulture)
+        End Function
+
+        ''' <summary>画面に足す CSS。読めなければ足さない（画面はそのまま使える）。</summary>
+        Private Shared Function ReadCss(fileName As String) As String
+            Try
+                Return File.ReadAllText(fileName, Encoding.UTF8)
+            Catch ex As Exception
+                Return Nothing
+            End Try
         End Function
 
         Private Shared Function Encode(s As String) As String
