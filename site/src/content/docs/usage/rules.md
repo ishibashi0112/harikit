@@ -30,5 +30,26 @@ description: DB の定義ではわからない決まりを patchiri.rules.json �
 | `maxChangePercent` | DB の今の値からの変動の上限（%、数値の列） |
 | `severity` | `"error"`（既定。差分を作らない）か `"warning"`（差分は作り、問題の一覧に残す） |
 | `message` | 合わないときに出す文 |
+| `when` | この条件に合う行だけに当てる（下の「行のルール」） |
+
+## 行のルール
+
+ほかの列の値も見る決まりは、境界に `{ "column": "列名" }` を書くか、`when` を付けます。
+
+```json
+{
+  "targets": {
+    "term": [
+      { "column": "EndDate", "min": { "column": "StartDate" }, "message": "終了日は開始日より後にしてください" },
+      { "column": "UnitPrice", "max": 0, "when": { "column": "Kind", "equals": "9" } },
+      { "column": "Qty", "required": true, "when": { "column": "Kind", "oneOf": ["1", "2"] } }
+    ]
+  }
+}
+```
+
+- 境界の `{ "column": … }` は、同じ行のその列の値と比べます。比べられるのは数どうしか、同じ型の日付・時刻の列です。相手の列が空なら、その境界は見ません。
+- `when` は `column` と、`equals`（その値のとき）、`oneOf`（どれかのとき）、`empty`（`true` なら空のとき、`false` なら空でないとき）のどれか 1 つ。
+- 取込にない列を見るルールは、差分を作るときに DB の今の値で見ます（開始日だけを貼ったら、DB の終了日と比べる）。貼った列にかかわらないルールは見ません。
 
 文字列の桁は DB の定義に合わせて数えます。SQL Server の varchar は列の照合順序の文字コードでバイト数を数え、その文字コードで表せない字（Latin1 の列に日本語など）もエラーにします。

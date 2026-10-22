@@ -42,7 +42,18 @@ export class PatchiriApiError extends Error {
   }
 }
 
-export class PatchiriClient {
+/**
+ * サーバ API 3 本の呼び口。prepare などはこの形だけを使うので、HTTP を通さないつなぎ（同じプロセスの Handlers など）も渡せる。
+ * describe と fetch は ok:false を例外（PatchiriApiError）にし、apply は ok:false をそのまま返す。
+ */
+export interface PatchiriApi {
+  targets(): Promise<DescribeTargetsResponse>;
+  describe(target: string): Promise<TableDescription>;
+  fetch(req: Omit<FetchRequest, "v">): Promise<FetchResponse>;
+  apply(req: Omit<ApplyRequest, "v">): Promise<ApplyResponse | Failure>;
+}
+
+export class PatchiriClient implements PatchiriApi {
   private readonly style: "rest" | "webmethod";
   private readonly fetchFn: typeof fetch;
 

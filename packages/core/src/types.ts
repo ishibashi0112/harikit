@@ -43,6 +43,8 @@ export interface ColumnDef {
   identity?: boolean;
   computed?: boolean;
   hasDefault?: boolean;
+  /** 表示名（許可リストの labels）。取込の見出しは列名でもこれでもよい。 */
+  label?: string;
 }
 
 export interface ForeignKeyDef {
@@ -101,6 +103,12 @@ export interface DescribeTargetsResponse {
   targets: TargetSummary[];
 }
 
+/** サーバが反映のたびに入れる列（許可リストの stamp）。now は DB の今の時刻、user は反映した人。 */
+export interface StampDef {
+  column: string;
+  value: "now" | "user";
+}
+
 export interface TableDescription {
   ok: true;
   v: 1;
@@ -112,6 +120,11 @@ export interface TableDescription {
   columns: ColumnDef[];
   foreignKeys: ForeignKeyDef[];
   limits: Limits;
+  /** サーバに置いた業務ルール（patchiri.rules.json のこのターゲットの分）。コアは外せないルールとして使う。 */
+  rules?: unknown[];
+  stamp?: StampDef[];
+  /** このターゲットで触れる行の固定の条件（許可リストの scope）。 */
+  scope?: Row;
 }
 
 export interface FetchRequest {
