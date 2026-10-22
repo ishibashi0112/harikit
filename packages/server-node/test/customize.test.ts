@@ -1,7 +1,22 @@
-// 許可リストのカスタマイズの口（labels、stamp、scope、roles、rules）と、whoAmI / isInRole の差し替え。
+// 許可リストのカスタマイズの口（labels、stamp、scope、roles、rules）と、whoAmI / isInRole の差し替え、同梱の画面の設定（screen）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkConfig, createHttpServer, Handlers, Unauthenticated, type ApplyLogEntry, type HandlerDeps, type ServerConfig, type TableMeta } from "../src/index.js";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  checkConfig,
+  createHttpServer,
+  Handlers,
+  loadConfig,
+  screenPage,
+  startServer,
+  Unauthenticated,
+  type ApplyLogEntry,
+  type HandlerDeps,
+  type ServerConfig,
+  type TableMeta,
+} from "../src/index.js";
 import { CONFIG, FakeDialect } from "./fake.js";
 
 const TERM: TableMeta = {
@@ -213,4 +228,49 @@ test("許可リストと DB が合わない stamp・scope・rules は internal_e
   assert.match((await run({ stamp: { StartDate: "user" } as Record<string, "user"> }))[1]!, /updatable にも|文字列の列ではありません/);
   assert.match((await run({ scope: { Company: "0001" } }))[1]!, /scope.Company の値が列に合いません/);
   assert.match((await run({}, { rules: { targets: { term: [{ column: "Nope", min: 0 }] } } }))[1]!, /rules.targets.term の誤り/);
+});
+
+test("画面の設定: screen を index.html のタイトルと data- 属性、足す CSS にする", async () => {
+  const html = '<!doctype html><html><head><title>patchiri</title></head><body><div id="root"></div></body></html>';
+  assert.equal(screenPage(html, {}, null), html);
+  const page = screenPage(html, { title: 'A&B "$&" 更新', theme: "dark", noteRequired: "依頼番号", excel: false }, ".pt-app { --pt-accent: red } /* </style> */");
+  assert.match(page, /<title>A&amp;B &quot;\$&amp;&quot; 更新<\/title>/);
+  assert.match(page, /<div id="root" data-title="A&amp;B &quot;\$&amp;&quot; 更新" data-theme="dark" data-note-required="依頼番号" data-excel="false"><\/div>/);
+  assert.match(page, /<style>\n\.pt-app \{ --pt-accent: red \} \/\* <\\\/style> \*\/\n<\/style>/);
+  assert.match(screenPage(html, { noteRequired: true, theme: "auto", excel: true }, null), /<div id="root" data-note-required="true"><\/div>/);
+
+  // 設定ファイルから: css は設定ファイルのフォルダから読み、Node 版が配る画面に入る。
+  const dir = await mkdtemp(join(tmpdir(), "patchiri-screen-"));
+  const web = join(dir, "web");
+  await writeFile(join(dir, "patchiri.screen.css"), ".pt-app { --pt-accent: #0b7a75 }");
+  await mkdir(web);
+  await writeFile(join(web, "index.html"), html);
+  await writeFile(join(dir, "patchiri.config.json"), JSON.stringify({ ...CONFIG, listen: { port: 0 }, screen: { title: "単価の更新", css: "patchiri.screen.css" } }));
+  const config = await loadConfig(join(dir, "patchiri.config.json"));
+  assert.equal(config.screen?.css, join(dir, "patchiri.screen.css"));
+  const server = await startServer(config, { dialect: new FakeDialect(), web, token: "t" });
+  try {
+    const res = await fetch(`${server.url}/`);
+    const body = await res.text();
+    assert.match(body, /<title>単価の更新<\/title>/);
+    assert.match(body, /data-title="単価の更新"/);
+    assert.match(body, /--pt-accent: #0b7a75/);
+    assert.equal(await (await fetch(`${server.url}/index.html`)).text(), body);
+  } finally {
+    await server.close();
+  }
+  // CSS のファイルが読めなければ起動しない。
+  await assert.rejects(startServer({ ...config, screen: { css: join(dir, "nothing.css") } }, { dialect: new FakeDialect(), web, token: "t" }), /screen.css のファイル .* が読めません/);
+});
+
+test("設定の誤り: screen", () => {
+  const bad = (screen: unknown) => () => checkConfig({ ...CONFIG, screen } as ServerConfig);
+  assert.throws(bad("x"), /screen は/);
+  assert.throws(bad({ titel: "x" }), /screen.titel という項目はありません/);
+  assert.throws(bad({ title: " " }), /screen.title は空でない文字列です/);
+  assert.throws(bad({ theme: "blue" }), /screen.theme は/);
+  assert.throws(bad({ noteRequired: "" }), /screen.noteRequired は/);
+  assert.throws(bad({ excel: "yes" }), /screen.excel は true \/ false です/);
+  assert.throws(bad({ css: 1 }), /screen.css は/);
+  assert.doesNotThrow(bad({ title: "x", theme: "light", noteRequired: false, excel: true, css: "a.css" }));
 });

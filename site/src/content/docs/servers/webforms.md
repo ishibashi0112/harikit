@@ -81,6 +81,7 @@ patchiri は、つないだセッションの `NLS_COMP`・`NLS_SORT`（`BINARY`
 | `logDir` | 反映ログのフォルダ | `~/App_Data/patchiri-log` |
 | `exposeDbErrors` | エラーの文に DB の生のエラー文を出すか | `false` |
 | `lockWaitSeconds` | 反映で行のロックを待つ秒数（SQL Server は `SET LOCK_TIMEOUT`、Oracle は `FOR UPDATE WAIT`）。`database` の中にも書ける | `10` |
+| `screen` | 画面のタイトル、色、メモの必須、「Excel を開く」、足す CSS（[画面の設定](/usage/config/#画面の設定)） | なし |
 
 許可リストか `rules` のファイルを保存し直すと、次の呼び出しから読み直します。
 
@@ -121,9 +122,16 @@ public static Dictionary<string, object> Describe(Dictionary<string, object> req
     return PatchiriWebMethods.Call("describe", req, "~/App_Data/sales.config.json");
 }
 // Fetch と Apply も同じ。
+
+// 画面の設定（screen）も同じファイルから読むよう、Page_Load にも渡す。
+protected void Page_Load(object sender, EventArgs e)
+{
+    PatchiriScreen.Write(Context, "~/App_Data/sales.config.json");
+    Response.End();
+}
 ```
 
-ページごとに web.config の `<location>` で権限を掛ければ、「営業部のページは営業部の人だけ、営業部の行だけ」にできます。
+ページごとに web.config の `<location>` で権限を掛ければ、「営業部のページは営業部の人だけ、営業部の行だけ」にできます。`screen` の `title` をページごとに変えれば、どのページを開いているかも見分けられます。
 
 ## 画面について
 

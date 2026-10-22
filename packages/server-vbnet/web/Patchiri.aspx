@@ -7,6 +7,7 @@
     ' ブラウザでこのページを開くと画面が出る（画面のファイルは隣の patchiri/ に置く。PatchiriScreen.vb）。ページの名前と置き場所は自由。
     ' 認証と権限はこのページに掛ける（web.config の <location path="Admin/Patchiri.aspx"> と <authorization> など）。画面と API の両方に効く。
     ' ページごとに別の許可リストを使うなら、Call の 3 つ目に設定ファイルを渡す（PatchiriWebMethods.Call("describe", req, "~/App_Data/sales.config.json")）。
+    ' 画面の設定（screen）もその設定ファイルから読むので、Page_Load の PatchiriScreen.Write にも同じものを渡す（PatchiriScreen.Write(Context, "~/App_Data/sales.config.json")）。
     ' 「誰が」を Session から取るアプリは、Global.asax で PatchiriWebMethods.WhoAmI を差し替え、
     ' <WebMethod(EnableSession:=True)> と、ページの EnableSessionState="ReadOnly" にする（README の「誰が反映したか」）。
 

@@ -1,5 +1,5 @@
 /*
- * patchiri の画面。色はここの変数だけで決め、ダークは OS の設定に合わせる。
+ * patchiri の画面。色はここの変数だけで決め、ダークは OS の設定に合わせる（PatchiriApp の theme で決めたときは data-theme）。
  * ほかのアプリに埋め込んでも外に効かないよう、すべて .pt-app の中に閉じる（ページ全体の指定は page.css）。
  * 要素への指定は :where で詳細度を下げ、spreadsheet-grid や pt- のクラスの指定に負けるようにしておく。
  * 見出しと段落の余白だけは .pt-app を残し、埋め込む側の p { margin: … } などに負けないようにする。
@@ -28,8 +28,31 @@
   color-scheme: light;
 }
 
+.pt-app[data-theme="dark"] {
+  --pt-bg: #15181c;
+  --pt-surface: #1d2126;
+  --pt-border: #343a42;
+  --pt-text: #e6e9ec;
+  --pt-muted: #9aa4ae;
+  --pt-accent: #4c8dff;
+  --pt-accent-text: #0b1220;
+  --pt-danger: #ff7b72;
+  --pt-danger-bg: #3a1d1d;
+  --pt-ok: #56d364;
+  --pt-ok-bg: #16301d;
+  --pt-warn: #e3b341;
+  --pt-warn-bg: #3a2e12;
+  --pt-change-bg: #1c2f4d;
+  --pt-before-bg: #262a30;
+  --pt-notfound-bg: #3a2e12;
+  --pt-head-bg: #262b33;
+  --pt-key: #b392f0;
+  --pt-read: #3fb9b1;
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: dark) {
-  .pt-app {
+  .pt-app:not([data-theme="light"]) {
     --pt-bg: #15181c;
     --pt-surface: #1d2126;
     --pt-border: #343a42;
@@ -116,6 +139,22 @@
   display: inline-flex;
   gap: 6px;
   font-weight: 600;
+}
+
+/* サーバに置いた業務ルール（外せない）。 */
+.pt-rules--server {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--pt-head-bg);
+  color: var(--pt-key);
+  font-size: 12px;
+  line-height: 22px;
+  cursor: help;
+}
+
+.pt-rules--server svg {
+  align-self: center;
+  margin-right: -2px;
 }
 
 .pt-bar-end {
@@ -331,6 +370,38 @@
   overflow-wrap: anywhere;
 }
 
+/* 表示名があるときの、DB の列名。 */
+.pt-colname-db {
+  margin-left: 6px;
+  color: var(--pt-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* 自動で入る列（stamp）と、触れる行の範囲（scope）。 */
+.pt-auto {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--pt-bg);
+  font-size: 12px;
+}
+
+.pt-auto dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.pt-auto dd {
+  margin: 2px 0 0 46px;
+  color: var(--pt-muted);
+}
+
 .pt-summary + .pt-actions {
   margin-top: 8px;
 }
@@ -349,6 +420,12 @@
 .pt-tag--key {
   background: var(--pt-key);
   color: #ffffff;
+}
+
+.pt-tag--auto,
+.pt-tag--scope {
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border);
 }
 
 .pt-summary {
@@ -486,6 +563,19 @@
   color: var(--pt-muted);
 }
 
+.pt-required {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--pt-danger-bg);
+  color: var(--pt-danger);
+  font-size: 11px;
+}
+
+.pt-note--required input {
+  border-color: var(--pt-danger);
+}
+
 .pt-note input {
   padding: 5px 8px;
   border: 1px solid var(--pt-border);
@@ -609,4 +699,52 @@
     width: auto;
     overflow: visible;
   }
+}
+
+/* 開いた Excel のシートと見出しの行を選ぶ欄。 */
+.pt-excel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--pt-border);
+  border-radius: 8px;
+  background: var(--pt-surface);
+}
+
+.pt-excel .pt-field select {
+  min-width: 140px;
+}
+
+.pt-excel-row {
+  width: 64px;
+  padding: 4px 8px;
+  border: 1px solid var(--pt-border);
+  border-radius: 6px;
+  background: var(--pt-surface);
+}
+
+.pt-excel-head {
+  flex: 1;
+  min-width: 200px;
+  font-size: 13px;
+}
+
+.pt-excel .pt-actions {
+  margin: 0;
+}
+
+.pt-excel-skip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--pt-muted);
+  font-size: 12px;
+}
+
+.pt-tabs > .pt-button {
+  margin-right: 8px;
 }

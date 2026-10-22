@@ -85,6 +85,20 @@ export type DatabaseConnection = SqlServerConnection | OracleConnection | Postgr
 
 const DIALECTS = ["sqlserver", "oracle", "postgresql", "mysql"];
 
+/** 同梱の画面の設定（Node 版が配る画面、C#・VB.NET 版のページ）。どれも任意。 */
+export interface ScreenConfig {
+  /** 見出しとブラウザのタブの名前。既定は「patchiri」。 */
+  title?: string;
+  /** 色。既定は "auto"（OS の設定に合わせる）。 */
+  theme?: "auto" | "light" | "dark";
+  /** メモを書かないと反映できないようにする。文字列なら欄の名前（「依頼番号」など）。 */
+  noteRequired?: boolean | string;
+  /** 「Excel を開く」を出すか。既定は出す。 */
+  excel?: boolean;
+  /** 画面に足す CSS のファイル（設定ファイルのフォルダから。色の変数 --pt-accent などの上書きに使う）。 */
+  css?: string;
+}
+
 export interface ServerConfig {
   listen?: { host?: string; port?: number };
   database: DatabaseConnection;
@@ -101,6 +115,8 @@ export interface ServerConfig {
   rules?: RulesConfig | string;
   /** 反映で行のロックを待つ秒数。database.lockWaitSeconds と同じ（どちらに書いてもよい）。 */
   lockWaitSeconds?: number;
+  /** 同梱の画面の設定。 */
+  screen?: ScreenConfig;
 }
 
 export const DEFAULT_LIMITS: Limits = { maxFetchKeys: 1000, maxApplyRows: 5000 };
@@ -124,6 +140,7 @@ export function checkConfig(config: ServerConfig): void {
     for (const k of ["host", "database", "user"] as const) if (typeof db[k] !== "string" || !db[k]) fail(`database.${k} がありません`);
   }
   if (db.lockWaitSeconds !== undefined && !(Number.isInteger(db.lockWaitSeconds) && db.lockWaitSeconds >= 1)) fail("database.lockWaitSeconds は 1 以上の整数です");
+  if (config.screen !== undefined) checkScreen(config.screen, fail);
   if (config.lockWaitSeconds !== undefined) {
     if (!(Number.isInteger(config.lockWaitSeconds) && config.lockWaitSeconds >= 1)) fail("lockWaitSeconds は 1 以上の整数です");
     if (db.lockWaitSeconds !== undefined && db.lockWaitSeconds !== config.lockWaitSeconds) fail("lockWaitSeconds と database.lockWaitSeconds が違います（どちらか一方に書いてください）");
@@ -192,4 +209,17 @@ export function checkConfig(config: ServerConfig): void {
 /** 反映で行のロックを待つ秒数（最上位か database のどちらか）。 */
 export function lockWaitSeconds(config: ServerConfig): number | undefined {
   return config.lockWaitSeconds ?? config.database.lockWaitSeconds;
+}
+
+function checkScreen(screen: unknown, fail: (m: string) => never): void {
+  if (!isObject(screen)) fail("screen は { \"title\": … } の形です");
+  const s = screen as Record<string, unknown>;
+  for (const k of Object.keys(s)) if (!["title", "theme", "noteRequired", "excel", "css"].includes(k)) fail(`screen.${k} という項目はありません`);
+  if (s.title !== undefined && (typeof s.title !== "string" || !s.title.trim())) fail("screen.title は空でない文字列です");
+  if (s.theme !== undefined && !["auto", "light", "dark"].includes(s.theme as string)) fail('screen.theme は "auto"、"light"、"dark" のどれかです');
+  if (s.noteRequired !== undefined && typeof s.noteRequired !== "boolean" && (typeof s.noteRequired !== "string" || !s.noteRequired.trim())) {
+    fail("screen.noteRequired は true / false か、欄の名前（空でない文字列）です");
+  }
+  if (s.excel !== undefined && typeof s.excel !== "boolean") fail("screen.excel は true / false です");
+  if (s.css !== undefined && (typeof s.css !== "string" || !s.css)) fail("screen.css は CSS のファイルのパスです");
 }

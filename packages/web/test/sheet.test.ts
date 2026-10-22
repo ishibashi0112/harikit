@@ -1,7 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PatchiriClient, prepare, type FetchRequest, type Row, type TableDescription } from "patchiri-core";
-import { addConflictMarks, addHeader, buildMarks, diffGridRows, headerInfo, liveMark, markKey, rowsFromCells, toSheet, type GridRow } from "../src/sheet.js";
+import {
+  addConflictMarks,
+  addHeader,
+  buildMarks,
+  cellString,
+  columnTitle,
+  diffGridRows,
+  excelCells,
+  guessHeaderRow,
+  headerInfo,
+  liveMark,
+  markKey,
+  rowsFromCells,
+  toSheet,
+  type GridRow,
+} from "../src/sheet.js";
 
 const product: TableDescription = {
   ok: true,
@@ -180,4 +195,67 @@ test("headerInfo: 見出しの名前がどの列に当たるか", () => {
   assert.equal(headerInfo(product, "UpdatedAt")?.kind, "readonly");
   assert.equal(headerInfo(product, "Foo")?.kind, "unknown");
   assert.equal(headerInfo(product, ""), undefined);
+});
+
+/** 表示名（labels）のある定義。 */
+const labeled: TableDescription = {
+  ...product,
+  columns: product.columns.map((c) => (c.name === "UnitPrice" ? { ...c, label: "単価" } : c.name === "ProductCode" ? { ...c, label: "商品コード" } : c)),
+};
+
+test("表示名: 見出しは列名でも表示名でも別名でもよく、＋見出しは表示名を入れる", () => {
+  assert.equal(columnTitle(labeled.columns[2]!), "単価");
+  assert.equal(columnTitle(labeled.columns[1]!), "ProductName");
+  assert.equal(headerInfo(labeled, "単価")?.kind, "update");
+  assert.match(headerInfo(labeled, "単価")!.note, /UnitPrice/);
+  assert.doesNotMatch(headerInfo(labeled, "UnitPrice")!.note, /UnitPrice/);
+  assert.equal(headerInfo(labeled, "商品コード")?.kind, "key");
+  assert.equal(headerInfo(labeled, "品名")?.kind, "unknown");
+  assert.equal(headerInfo(labeled, "品名", { 品名: "ProductName" })?.kind, "update");
+
+  const rows = rowsFromCells([["ProductCode", "", ""]], 3, (() => { let n = 0; return () => ++n; })()).rows;
+  const a = addHeader(rows, 3, labeled.columns[2]!);
+  assert.equal(a.col, 1);
+  assert.equal(a.rows[0]!.B, "単価");
+  // 見出しが列名でも表示名でも、もうあればその列。
+  assert.equal(addHeader(a.rows, 3, labeled.columns[2]!).col, 1);
+  assert.equal(addHeader(a.rows, 3, labeled.columns[0]!).col, 0);
+  const byName = rowsFromCells([["UnitPrice"]], 1, (() => { let n = 0; return () => ++n; })()).rows;
+  assert.equal(addHeader(byName, 1, labeled.columns[2]!).col, 0);
+});
+
+test("Excel を開く: セルを文字列にし、見出しの行を当て、当たらない列を外せる", () => {
+  assert.equal(cellString(null), "");
+  assert.equal(cellString(1200), "1200");
+  assert.equal(cellString(0.1 + 0.2), "0.3");
+  assert.equal(cellString(true), "TRUE");
+  assert.equal(cellString({ kind: "date", iso: "2024-04-01T00:00:00.000" }), "2024-04-01");
+  assert.equal(cellString({ kind: "date", iso: "2024-04-01T09:30:00.000" }), "2024-04-01T09:30:00");
+  assert.equal(cellString({ kind: "date", iso: "2024-04-01T09:30:00.250" }), "2024-04-01T09:30:00.250");
+  assert.equal(cellString({ kind: "date", iso: "1899-12-30T09:30:00.000" }), "09:30:00");
+  assert.equal(cellString({ kind: "error", text: "#N/A" }), "#N/A");
+
+  const sheet = {
+    name: "価格改定",
+    rows: [
+      ["2026年11月 価格改定"],
+      [],
+      ["商品コード", "単価", "備考"],
+      ["A001", 130, "値上げ"],
+      ["A002", 1300.5, null],
+    ],
+  };
+  assert.equal(guessHeaderRow(sheet, labeled), 2);
+  assert.equal(guessHeaderRow(sheet, null), 0);
+  assert.equal(guessHeaderRow({ name: "x", rows: [["a"], ["b"]] }, labeled), 0);
+  assert.deepEqual(excelCells(sheet, 2), [
+    ["商品コード", "単価", "備考"],
+    ["A001", "130", "値上げ"],
+    ["A002", "1300.5", ""],
+  ]);
+  assert.deepEqual(excelCells(sheet, 2, [0, 1]), [
+    ["商品コード", "単価"],
+    ["A001", "130"],
+    ["A002", "1300.5"],
+  ]);
 });

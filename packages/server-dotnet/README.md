@@ -88,6 +88,7 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
 | --- | --- | --- |
 | `targets` | 許可リスト（仕様 2）。Node 版とそのまま写せる。表示名（`labels`）、自動で入れる列（`stamp`）、触れる行の条件（`scope`）、使えるロール（`roles`）も書ける | （必須） |
 | `rules` | サーバに置く業務ルール（`patchiri.rules.json` と同じ形）。中身か、このファイルのフォルダからのパス。describe で画面に渡し、apply で `error` のルールを見直す | なし |
+| `screen` | 画面の設定（Node 版と同じ）。`title`（見出しとタブの名前）、`theme`（`"auto"`、`"light"`、`"dark"`）、`noteRequired`（`true` か欄の名前で、メモを書かないと反映できない）、`excel`（「Excel を開く」を出すか、既定は出す）、`css`（画面に足す CSS のファイル。このファイルのフォルダから。ページに `<style>` で入れる） | なし |
 | `limits` | `maxFetchKeys`、`maxApplyRows` | 1000、5000 |
 | `connectionStringName` | web.config の `connectionStrings` の名前。接続文字列はこのファイルに書かない | `Patchiri` |
 | `logDir` | 反映ログのフォルダ。`~/` はアプリの中、相対ならアプリのフォルダから | `~/App_Data/patchiri-log` |
@@ -125,6 +126,13 @@ public static Dictionary<string, object> Describe(Dictionary<string, object> req
 {
     return PatchiriWebMethods.Call("describe", req, "~/App_Data/sales.config.json");
 }
+
+// 画面の設定（screen）も同じファイルから読む。
+protected void Page_Load(object sender, EventArgs e)
+{
+    PatchiriScreen.Write(Context, "~/App_Data/sales.config.json");
+    Response.End();
+}
 ```
 
 ## 記録
@@ -153,7 +161,7 @@ public static Dictionary<string, object> Describe(Dictionary<string, object> req
 - **real / float の値**: `JavaScriptSerializer` は指数のない数を decimal で読むが、`Convert.ToDouble(decimal)` は最も近い double にならないことがある（real の 0.11 である 0.10999999940395355 など）。送り返された `before` が DB の値とずれて毎回衝突するので、文字列を通して読む。返すときも、.NET Framework の `"R"` が x64 で読み戻せない形を返すことがあるため、読み戻せることを確かめた decimal にして渡す。
 - **パラメータの長さ**: SqlClient は `Size` より長い値を黙って切る（先頭に 0 が並ぶ長い数の文字列が 0 になる、など）。列や既定の長さより長い値は長いまま渡し、DB に読ませるか弾かせる。
 - **CSRF**: `X-Patchiri: 1` がなければ 403。`application/json` でない呼び出しは WebMethod に届かず、ページが 415 を返す（GET は画面）。
-- **画面のページ**: HTML はサーバで書き（`PatchiriScreen`）、ログイン名などは HTML に入れるときにエスケープする。Content-Security-Policy（スクリプトと通信は同じオリジンだけ）と `X-Frame-Options: SAMEORIGIN` を付ける。載せ先が `globalization` の `responseEncoding` を Shift_JIS などにしていても UTF-8 で返す。
+- **画面のページ**: HTML はサーバで書き（`PatchiriScreen`）、ログイン名や `screen` の文字は HTML に入れるときにエスケープする（足す CSS は `</` を `<\/` にして `<style>` を閉じさせない）。Content-Security-Policy（スクリプトと通信は同じオリジンだけ）と `X-Frame-Options: SAMEORIGIN` を付ける。載せ先が `globalization` の `responseEncoding` を Shift_JIS などにしていても UTF-8 で返す。
 - **Oracle の数**: `NUMBER` は .NET の `decimal`（28 桁）に収まらないことがある（`NUMBER(38)` を読むと `OverflowException`）ので、`TO_CHAR` で文字列にして読み、`TO_NUMBER` で渡す。日時も `TO_CHAR` / `TO_TIMESTAMP` で文字列を通す（秒の小数 9 桁まで）。`BOOLEAN`（23ai）は 19.x の ODP.NET でも扱えるよう、`CASE` と `TO_BOOLEAN` で数と文字列を通す。
 - **Oracle の文字コード**: `VARCHAR2` / `CHAR` の値が DB の文字コードで表せるかとバイト数の最後の確認は、PL/SQL のブロックで DB に `TO_CHAR` させて確かめる（SQL の中だと 4000 バイトで切れるため）。
 - **ソースの文字コード**: `.cs` と `.aspx` は BOM 付きの UTF-8 にしてある。BOM がないと ASP.NET が OS の既定の文字コード（日本語の Windows なら Shift_JIS）で読むことがあり、日本語のコメントで壊れうるため。
@@ -190,7 +198,7 @@ PATCHIRI_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"patchir
 | `src/PatchiriConfig.cs` | 許可リストと設定の読み込み |
 | `src/PatchiriRules.cs` | サーバに置く業務ルール（コアの `rules.ts` と同じ決まりと文） |
 | `src/PatchiriWebMethods.cs` | WebMethod からの入口（ヘッダの確認、設定の読み込み、接続文字列の `providerName` で DB を選ぶ、ログイン名とロールの判定と差し替え） |
-| `src/PatchiriScreen.cs` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所） |
+| `src/PatchiriScreen.cs` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所、設定の `screen`） |
 | `src/PatchiriFileLog.cs` | 反映ログとエラーのファイル出力 |
 | `src/PatchiriJson.cs` | `JavaScriptSerializer` の形を扱う小道具 |
 | `web/Patchiri.aspx` | 載せ先に置くページ（名前は自由） |

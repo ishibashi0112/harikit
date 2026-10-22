@@ -1,5 +1,5 @@
 // .NET 版サーバのカスタマイズの口を、ASP.NET（WebMethod）と実際の SQL Server で通すテスト。
-// 許可リストの labels / stamp / scope / roles と rules（ファイル）、Global.asax で差し替える PatchiriWebMethods.WhoAmI / IsInRole、
+// 許可リストの labels / stamp / scope / roles と rules（ファイル）、画面の設定（screen）、Global.asax で差し替える PatchiriWebMethods.WhoAmI / IsInRole、
 // ページごとの許可リスト（Call の configPath）を見る。場面は Node 版の stamp-scenario.ts と同じ。
 // PATCHIRI_TEST_MSSQL があり、ASP.NET を動かせるときだけ動く（webmethod.integration.test.mjs と同じ）。
 
@@ -127,9 +127,11 @@ before(async () => {
       // 設定ファイルのフォルダ（App_Data）から読む。
       rules: "patchiri.rules.json",
       database: { lockWaitSeconds: 1 },
+      screen: { title: "単価の更新 <A&B>", theme: "dark", noteRequired: "依頼番号", excel: false, css: "patchiri.screen.css" },
     }),
   );
   await writeFile(join(root, "App_Data", "patchiri.rules.json"), JSON.stringify(RULES));
+  await writeFile(join(root, "App_Data", "patchiri.screen.css"), ".pt-app { --pt-accent: #0b7a75 } /* </style> */");
   // ページごとの許可リスト: 会社 002 の行だけを、ロール MasterAdmin の人だけが触れる。
   await writeFile(join(root, "Other.aspx"), otherPage("~/App_Data/other.config.json"));
   await writeFile(
@@ -165,10 +167,13 @@ test("WhoAmI が名前を返さなければ、API も画面も 401", { skip }, a
   // 画面は 401。フォーム認証が効いていれば（Mono の既定）ASP.NET がログインの画面への転送（302）にする。
   const page = await fetch(`${url}/Patchiri.aspx`, { redirect: "manual" });
   assert.ok([302, 401].includes(page.status), String(page.status));
-  // 名前があれば画面を返し、その名前を見出しに出す。
+  // 名前があれば画面を返し、その名前を見出しに出す。画面の設定（screen）は Node 版と同じ data- 属性と、足す CSS。
   const ok = await fetch(`${url}/Patchiri.aspx`, { headers: { "X-Emp": EMP } });
   assert.equal(ok.status, 200);
-  assert.match(await ok.text(), /data-user="E1234"/);
+  const html = await ok.text();
+  assert.match(html, /data-user="E1234" data-title="単価の更新 &lt;A&amp;B&gt;" data-theme="dark" data-note-required="依頼番号" data-excel="false">/);
+  assert.match(html, /<title>単価の更新 &lt;A&amp;B&gt;<\/title>/);
+  assert.match(html, /<style>\n\.pt-app \{ --pt-accent: #0b7a75 \} \/\* <\\\/style> \*\/\n<\/style>/);
 });
 
 test("describe: 表示名、stamp、scope、ファイルに置いた業務ルール", { skip }, async () => {

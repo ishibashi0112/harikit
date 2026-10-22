@@ -25,7 +25,7 @@ VB.NET の Web サイトの `App_Code` には C# のソースを混ぜられな�
 5. **web.config に足す**: C# 版と同じ（[C# 版の「載せ方」の 5](../server-dotnet/README.md#載せ方)）。接続文字列 `Patchiri`（Oracle なら `providerName` も）、ページへの `<authorization>`（画面と API の両方に効く）、`maxRequestLength`、`maxJsonLength`。
 6. **開く**: ブラウザで `https://.../Admin/Patchiri.aspx` を開く。Edge か Chrome で開くことなど、C# 版と同じ（[C# 版の「載せ方」の 6](../server-dotnet/README.md#載せ方)）。
 
-設定の項目（`targets`、`rules`、`limits`、`connectionStringName`、`logDir`、`exposeDbErrors`、`lockWaitSeconds`）、「誰が反映したか」とロールの判定の差し替え（`PatchiriWebMethods.WhoAmI` / `IsInRole`）、ページごとの許可リスト（`PatchiriWebMethods.Call` の 3 つ目）、反映ログとエラーのファイル、気をつけていること（varchar の列への日本語、char の埋め空白、照合順序と厳密な比較、止まる `script`、トリガー、`maxJsonLength`、real の値、パラメータの長さ、CSRF、画面のページ、Oracle のセッションの設定と数）は C# 版の README のとおり。
+設定の項目（`targets`、`rules`、`screen`、`limits`、`connectionStringName`、`logDir`、`exposeDbErrors`、`lockWaitSeconds`）、「誰が反映したか」とロールの判定の差し替え（`PatchiriWebMethods.WhoAmI` / `IsInRole`）、ページごとの許可リスト（`PatchiriWebMethods.Call` の 3 つ目と `PatchiriScreen.Write` の 2 つ目）、反映ログとエラーのファイル、気をつけていること（varchar の列への日本語、char の埋め空白、照合順序と厳密な比較、止まる `script`、トリガー、`maxJsonLength`、real の値、パラメータの長さ、CSRF、画面のページ、Oracle のセッションの設定と数）は C# 版の README のとおり。
 
 `Global.asax` での差し替えは VB.NET ではこう書く（Session を読むなら、ページの WebMethod を `<WebMethod(EnableSession:=True)>` に、`EnableSessionState` を `"ReadOnly"` にする）。
 
@@ -72,7 +72,7 @@ PATCHIRI_TEST_DOTNET_PKG=packages/server-vbnet PATCHIRI_TEST_ORACLE='{"connectSt
 | `src/PatchiriConfig.vb` | 許可リストと設定の読み込み |
 | `src/PatchiriRules.vb` | サーバに置く業務ルール（コアの `rules.ts`、C# 版の `PatchiriRules.cs` と同じ決まりと文） |
 | `src/PatchiriWebMethods.vb` | WebMethod からの入口（ヘッダの確認、設定の読み込み、接続文字列の `providerName` で DB を選ぶ、ログイン名とロールの判定と差し替え） |
-| `src/PatchiriScreen.vb` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所） |
+| `src/PatchiriScreen.vb` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所、設定の `screen`） |
 | `src/PatchiriFileLog.vb` | 反映ログとエラーのファイル出力 |
 | `src/PatchiriJson.vb` | `JavaScriptSerializer` の形を扱う小道具 |
 | `web/Patchiri.aspx` | 載せ先に置くページ（`Language="VB"`、名前は自由） |

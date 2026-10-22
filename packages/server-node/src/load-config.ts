@@ -22,6 +22,8 @@ export async function loadConfig(path: string): Promise<ServerConfig> {
       throw new Error(`設定の誤り: rules のファイル ${file} が JSON として読めません（${e instanceof Error ? e.message : String(e)}）`);
     }
   }
+  // 画面に足す CSS も、設定ファイルのフォルダから。
+  if (config.screen && typeof config.screen.css === "string" && config.screen.css) config.screen.css = resolve(dirname(path), config.screen.css);
   checkConfig(config);
   return config;
 }
