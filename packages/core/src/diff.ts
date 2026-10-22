@@ -1,6 +1,6 @@
 // 差分。検証済みの行を DB の今の値と比べ、「変わる」「同じ」「キーなし」に分ける（仕様 5）。
 
-import { checkChange, type CompiledRule } from "./rules.js";
+import { checkChange, checkRule, isRowRule, type CompiledRule } from "./rules.js";
 import { cellRef } from "./table.js";
 import type { ApplyMode, ApplyRequest, FetchedRow, Row, TableDescription, Value } from "./types.js";
 import type { Issue, ParsedRow, ValidationResult } from "./validate.js";
@@ -41,9 +41,24 @@ export function validRows(validation: ValidationResult): ParsedRow[] {
   return validation.rows.filter((r) => r.ok);
 }
 
+/** 行のルールのうち、取込に無い列を見るもの（差分で DB の今の値を使って見る）。取込の列にかかわらないものは見ない。 */
+export function deferredRules(rules: readonly CompiledRule[], validation: Pick<ValidationResult, "columnIndex" | "updateColumns">): CompiledRule[] {
+  return rules.filter(
+    (r) => isRowRule(r) && r.columns.some((c) => validation.columnIndex[c] === undefined) && r.columns.some((c) => validation.updateColumns.includes(c)),
+  );
+}
+
+/** 差分を作るときに、取込の列のほかに fetch しておく列（差分で見る行のルールが使う）。 */
+export function ruleColumnsToFetch(rules: readonly CompiledRule[], validation: Pick<ValidationResult, "columnIndex" | "updateColumns">): string[] {
+  const out: string[] = [];
+  for (const r of deferredRules(rules, validation)) for (const c of r.columns) if (validation.columnIndex[c] === undefined && !out.includes(c)) out.push(c);
+  return out;
+}
+
 /** fetch の結果（validRows と同じ順）と取込の行を比べる。 */
 export function diff(desc: TableDescription, validation: ValidationResult, fetched: FetchedRow[], options: { rules?: CompiledRule[] } = {}): DiffResult {
   const changeRules = (options.rules ?? []).filter((r) => r.maxChangePercent !== undefined);
+  const laterRules = deferredRules(options.rules ?? [], validation);
   const cols = new Map(desc.columns.map((c) => [c.name, c]));
   const counts: Record<DiffStatus, number> = { change: 0, same: 0, not_found: 0 };
   const issues: Issue[] = [];
@@ -61,12 +76,18 @@ export function diff(desc: TableDescription, validation: ValidationResult, fetch
     if (other) {
       for (const k of validation.keyColumns) {
         const c = validation.columnIndex[k]!;
-        issues.push({ severity: "error", message: `${other.row + 1} 行目と DB 上で同じ行を指しています`, row: p.row, col: c, cell: cellRef(p.row, c), column: k });
+        issues.push({ severity: "error", code: "same_db_row", message: `${other.row + 1} 行目と DB 上で同じ行を指しています`, row: p.row, col: c, cell: cellRef(p.row, c), column: k, params: { otherRow: other.row } });
       }
     }
     byDbKey.set(dbKey, p);
     const current: Row = {};
     const changes: ColumnChange[] = [];
+    // 反映した後の行（DB の今の値に取込の値を重ねたもの）。行のルールはこれで見る。
+    const merged: Row = { ...f.values, ...p.key, ...p.values };
+    const ruleIssue = (rule: CompiledRule, message: string, column: string) => {
+      const c = validation.columnIndex[column]!;
+      issues.push({ severity: rule.severity ?? "error", code: "rule_violation", message, row: p.row, col: c, cell: cellRef(p.row, c), column });
+    };
     for (const col of validation.updateColumns) {
       const before = f.values[col] ?? null;
       const after = p.values[col] ?? null;
@@ -75,9 +96,16 @@ export function diff(desc: TableDescription, validation: ValidationResult, fetch
       changes.push({ column: col, before, after });
       for (const rule of changeRules) {
         if (rule.column !== col) continue;
-        const broken = checkChange(rule, before, after);
-        const c = validation.columnIndex[col]!;
-        if (broken) issues.push({ severity: rule.severity ?? "error", message: broken, row: p.row, col: c, cell: cellRef(p.row, c), column: col });
+        const broken = checkChange(rule, before, after, merged);
+        if (broken) ruleIssue(rule, broken, col);
+      }
+    }
+    if (changes.length > 0) {
+      for (const rule of laterRules) {
+        if (!(rule.column in merged)) continue;
+        const broken = checkRule(rule, merged[rule.column]!, merged);
+        // 取込に無い列のルールは、取込にある最初の列のセルに付ける。
+        if (broken) ruleIssue(rule, broken, validation.columnIndex[rule.column] !== undefined ? rule.column : rule.columns.find((c) => validation.columnIndex[c] !== undefined)!);
       }
     }
     const status: DiffStatus = changes.length > 0 ? "change" : "same";

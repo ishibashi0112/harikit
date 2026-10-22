@@ -1,7 +1,7 @@
 // 取込から差分までを通す。describe → 検証 → 参照先の確認 → fetch → 差分。
 
-import type { PatchiriClient } from "./client.js";
-import { diff, validRows, type DiffResult } from "./diff.js";
+import type { PatchiriApi } from "./client.js";
+import { diff, ruleColumnsToFetch, validRows, type DiffResult } from "./diff.js";
 import { compileRules, type RulesConfig } from "./rules.js";
 import { cellRef, type Sheet } from "./table.js";
 import type { FetchedRow, Row, TableDescription } from "./types.js";
@@ -19,7 +19,7 @@ export interface PrepareResult {
 }
 
 /** キーを上限ごとに分けて fetch する。 */
-export async function fetchAll(client: PatchiriClient, desc: Pick<TableDescription, "target" | "limits">, keys: Row[], columns?: string[]): Promise<FetchedRow[]> {
+export async function fetchAll(client: Pick<PatchiriApi, "fetch">, desc: Pick<TableDescription, "target" | "limits">, keys: Row[], columns?: string[]): Promise<FetchedRow[]> {
   const size = Math.max(1, desc.limits.maxFetchKeys);
   const out: FetchedRow[] = [];
   for (let start = 0; start < keys.length; start += size) {
@@ -30,14 +30,14 @@ export async function fetchAll(client: PatchiriClient, desc: Pick<TableDescripti
 }
 
 /** 外部キーの参照先に値があるかを確かめる。 */
-export async function checkReferences(client: PatchiriClient, desc: TableDescription, v: ValidationResult): Promise<Issue[]> {
+export async function checkReferences(client: Pick<PatchiriApi, "fetch">, desc: TableDescription, v: ValidationResult): Promise<Issue[]> {
   const issues: Issue[] = [];
   const types = new Map(desc.columns.map((c) => [c.name, c.type]));
   for (const fk of desc.foreignKeys) {
     const present = fk.columns.filter((c) => v.updateColumns.includes(c));
     if (present.length === 0) continue;
     if (fk.referencedTarget === null || present.length !== fk.columns.length) {
-      issues.push({ severity: "warning", message: `参照先 ${fk.referencedTable} を確認できません（${fk.name}）` });
+      issues.push({ severity: "warning", code: "reference_unchecked", message: `参照先 ${fk.referencedTable} を確認できません（${fk.name}）`, params: { table: fk.referencedTable, foreignKey: fk.name } });
       continue;
     }
     const refDesc = { target: fk.referencedTarget, limits: desc.limits };
@@ -62,7 +62,7 @@ export async function checkReferences(client: PatchiriClient, desc: TableDescrip
       for (const r of list[i]!.rows) {
         for (const c of fk.columns) {
           const col = v.columnIndex[c]!;
-          issues.push({ severity: "error", message: `${fk.referencedTable} にありません`, row: r, col, cell: cellRef(r, col), column: c });
+          issues.push({ severity: "error", code: "reference_missing", message: `${fk.referencedTable} にありません`, row: r, col, cell: cellRef(r, col), column: c, params: { table: fk.referencedTable } });
         }
       }
     });
@@ -71,16 +71,27 @@ export async function checkReferences(client: PatchiriClient, desc: TableDescrip
 }
 
 export interface PrepareOptions extends Omit<ValidateOptions, "rules"> {
-  /** 業務ルールの設定（ファイルの中身）。このターゲットの分だけ使う。 */
+  /**
+   * 業務ルールの設定（ファイルの中身）。このターゲットの分だけ使う。
+   * サーバに置いたルール（describe の rules）があれば、それに足して使う（サーバのルールは外せない）。
+   */
   rules?: RulesConfig;
 }
 
+/** サーバに置いたルール（describe の rules）と、手元のルール（ファイルの中身）のこのターゲットの分を、使える形にする。 */
+export function compileTargetRules(description: Pick<TableDescription, "target" | "columns" | "rules">, rules: RulesConfig | undefined): ReturnType<typeof compileRules> {
+  const targets = rules?.targets;
+  const local = compileRules(description, targets && Object.hasOwn(targets, description.target) ? targets[description.target] : undefined);
+  if (description.rules === undefined) return local;
+  const server = compileRules(description, description.rules, "サーバの業務ルール");
+  return { rules: [...server.rules, ...local.rules], issues: [...server.issues, ...local.issues] };
+}
+
 /** シートを検証して差分まで作る。エラーがあれば差分は作らない（変動率のエラーは差分を作ってから出る）。 */
-export async function prepare(client: PatchiriClient, target: string, sheet: Sheet, options: PrepareOptions = {}): Promise<PrepareResult> {
+export async function prepare(client: PatchiriApi, target: string, sheet: Sheet, options: PrepareOptions = {}): Promise<PrepareResult> {
   const description = await client.describe(target);
   if (description.access !== "update") throw new Error(`${target} は読むだけのターゲットです`);
-  const targets = options.rules?.targets;
-  const compiled = compileRules(description, targets && Object.hasOwn(targets, target) ? targets[target] : undefined);
+  const compiled = compileTargetRules(description, options.rules);
   const validation = validate(description, sheet, { ...options, rules: compiled.rules });
   const issues = [...compiled.issues, ...validation.issues];
   const done = (d: DiffResult | null): PrepareResult => {
@@ -91,7 +102,8 @@ export async function prepare(client: PatchiriClient, target: string, sheet: She
   // 見出しの誤りでなければ、他の行に誤りがあっても参照先は確かめる（依頼者へ一度に返すため）。
   if (validation.rows.length > 0) issues.push(...(await checkReferences(client, description, validation)));
   if (issues.some((i) => i.severity === "error")) return done(null);
-  const fetched = await fetchAll(client, description, validRows(validation).map((r) => r.key), validation.updateColumns);
+  const columns = [...validation.updateColumns, ...ruleColumnsToFetch(compiled.rules, validation)];
+  const fetched = await fetchAll(client, description, validRows(validation).map((r) => r.key), columns);
   return done(diff(description, validation, fetched, { rules: compiled.rules }));
 }
 

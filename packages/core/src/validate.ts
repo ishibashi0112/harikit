@@ -4,7 +4,7 @@
 
 import { readBooleanText, readDateText, readNumberText, readTimeText } from "./display.js";
 import { byteCount } from "./encoding.js";
-import { checkRule, type CompiledRule } from "./rules.js";
+import { checkRule, isRowRule, type CompiledRule } from "./rules.js";
 import { cellRef, type Cell, type Sheet } from "./table.js";
 import type { ColumnDef, Row, TableDescription, Value } from "./types.js";
 import { BIGINT_RE, canonical, checkValue, DATE_RE, DATETIME_RE, DECIMAL_RE, TIME_RE } from "./values.js";
@@ -12,6 +12,15 @@ import { BIGINT_RE, canonical, checkValue, DATE_RE, DATETIME_RE, DECIMAL_RE, TIM
 export interface Issue {
   severity: "error" | "warning";
   message: string;
+  /**
+   * 問題の種類（文を差し替えたり、種類ごとに扱いを変えたりするため）。
+   * unknown_column、duplicate_column、column_not_updatable、missing_key_column、no_update_columns、encoding_unknown、
+   * invalid_value、key_empty、duplicate_key、whitespace、rule_violation、rules_invalid、reference_missing、reference_unchecked、
+   * same_db_row、それと checkRow が返したもの（既定は custom）。
+   */
+  code?: string;
+  /** 文に入れた値（列名、行番号など）。 */
+  params?: Record<string, unknown>;
   /** シートの行（0 始まり）。シート全体の問題なら無し。 */
   row?: number;
   /** シートの列（0 始まり）。 */
@@ -59,11 +68,38 @@ export interface ValidationResult {
   readings: Reading[];
 }
 
+/** checkRow に渡す 1 行。 */
+export interface RowCheckInput {
+  /** シートの行（0 始まり）。 */
+  row: number;
+  key: Row;
+  /** 正しく読めたセルの値（誤りのあるセルは入らない）。 */
+  values: Row;
+  /** 列名 → シートの列（0 始まり）。 */
+  columnIndex: Record<string, number>;
+}
+
+/** checkRow が返す問題。column を書けばそのセルを指す。 */
+export interface RowCheckIssue {
+  message: string;
+  column?: string;
+  /** 既定は "error"。 */
+  severity?: "error" | "warning";
+  /** 既定は "custom"。 */
+  code?: string;
+}
+
 export interface ValidateOptions {
   /** 見出しの行（0 始まり）。既定は 0。 */
   headerRow?: number;
-  /** 業務ルール（compileRules で作ったもの）。変動率のルールは差分で見る。 */
+  /** 業務ルール（compileRules で作ったもの）。変動率のルールと、取込に無い列を見る行のルールは差分で見る。 */
   rules?: CompiledRule[];
+  /** 見出しの別名（見出しの文字 → 列名）。describe の表示名（label）に加えて使う。大文字小文字は問わない。 */
+  aliases?: Record<string, string>;
+  /** Excel の表示の形（2024/4/1、¥1,200 など）を読み替えるか。既定は true。false なら決まった形（2024-04-01、1200）だけを受ける。 */
+  readDisplay?: boolean;
+  /** 行ごとの自前の確かめ。業務ルールの形で書けない決まりに使う。 */
+  checkRow?: (input: RowCheckInput) => RowCheckIssue[] | void | null | undefined;
 }
 
 /** read は Excel の表示の形から読み替えたこと。 */
@@ -98,8 +134,8 @@ function numberText(text: string, fallback: string, integer: boolean, make: (n: 
 /** Excel のエラー値。貼り付けや CSV では文字列で届くので、.xlsx のエラーのセルと同じく文字列の列でも断る。 */
 const EXCEL_ERRORS = new Set(["#N/A", "#VALUE!", "#REF!", "#DIV/0!", "#NUM!", "#NAME?", "#NULL!", "#SPILL!", "#CALC!", "#GETTING_DATA", "#FIELD!", "#BLOCKED!", "#BUSY!", "#CONNECT!", "#UNKNOWN!"]);
 
-/** セルの値を列の型の値にする。形の確認は checkValue で別に行う。 */
-export function convertCell(col: ColumnDef, cell: Cell): Converted {
+/** セルの値を列の型の値にする。形の確認は checkValue で別に行う。readDisplay が false なら Excel の表示の形は読まない。 */
+export function convertCell(col: ColumnDef, cell: Cell, readDisplay = true): Converted {
   if (cell === null) return { value: null };
   if (typeof cell === "object" && cell.kind === "error") return { error: `セルがエラー値です（${cell.text}）` };
   if (cell === "" && col.type !== "string") return { value: null };
@@ -116,28 +152,28 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
       if (typeof cell === "number") return { value: cell };
       if (typeof cell === "string") {
         if (/^-?\d+$/.test(cell)) return { value: Number(cell) };
-        return numberText(cell, "整数ではありません", true, Number);
+        return readDisplay ? numberText(cell, "整数ではありません", true, Number) : { error: "整数ではありません" };
       }
       return { error: "整数ではありません" };
     case "bigint":
       if (typeof cell === "number") return Number.isSafeInteger(cell) ? { value: String(cell) } : { error: "整数ではありません（精度が足りません）" };
       if (typeof cell === "string") {
         if (BIGINT_RE.test(cell)) return { value: cell };
-        return numberText(cell, "整数ではありません", true, String);
+        return readDisplay ? numberText(cell, "整数ではありません", true, String) : { error: "整数ではありません" };
       }
       return { error: "整数ではありません" };
     case "decimal":
       if (typeof cell === "number") return { value: padScale(formatNumber(cell), col.scale) };
       if (typeof cell === "string") {
         if (DECIMAL_RE.test(cell)) return { value: padScale(cell, col.scale) };
-        return numberText(cell, "数値ではありません", false, (n) => padScale(n, col.scale));
+        return readDisplay ? numberText(cell, "数値ではありません", false, (n) => padScale(n, col.scale)) : { error: "数値ではありません" };
       }
       return { error: "数値ではありません" };
     case "float":
       if (typeof cell === "number") return { value: cell };
       if (typeof cell === "string") {
         if (DECIMAL_RE.test(cell)) return { value: Number(cell) };
-        return numberText(cell, "数値ではありません", false, Number);
+        return readDisplay ? numberText(cell, "数値ではありません", false, Number) : { error: "数値ではありません" };
       }
       return { error: "数値ではありません" };
     case "boolean":
@@ -147,7 +183,7 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
         const s = cell.toLowerCase();
         if (s === "true" || s === "1") return { value: true };
         if (s === "false" || s === "0") return { value: false };
-        const b = readBooleanText(cell);
+        const b = readDisplay ? readBooleanText(cell) : undefined;
         if (b !== undefined) return read(b);
       }
       return { error: "true / false ではありません" };
@@ -157,6 +193,7 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
       }
       if (typeof cell === "string") {
         if (DATE_RE.test(cell)) return { value: cell };
+        if (!readDisplay) return { error: "日付として読めません（2024-04-01 の形で書きます）" };
         const r = readDateText(cell);
         if (r === null) return { error: "日付として読めません（2024-04-01 や 2024/4/1 の形で書きます）" };
         if ("error" in r) return r;
@@ -171,6 +208,7 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
         if (DATE_RE.test(cell)) return { value: `${cell}T00:00:00` };
         const iso = cell.replace(/^(\d{4}-\d{2}-\d{2}) (?=\d)/, "$1T");
         if (DATETIME_RE.test(iso)) return { value: iso };
+        if (!readDisplay) return { error: "日時として読めません（2024-04-01 09:30:00 の形で書きます）" };
         const r = readDateText(cell);
         if (r === null) return { error: "日時として読めません（2024-04-01 09:30:00 や 2024/4/1 9:30 の形で書きます）" };
         if ("error" in r) return r;
@@ -185,6 +223,7 @@ export function convertCell(col: ColumnDef, cell: Cell): Converted {
       if (typeof cell === "string") {
         if (TIME_RE.test(cell)) return { value: cell };
         if (/^\d{2}:\d{2}$/.test(cell)) return { value: `${cell}:00` };
+        if (!readDisplay) return { error: "時刻として読めません（09:30:00 の形で書きます）" };
         const r = readTimeText(cell);
         if (r === null) return { error: "時刻として読めません（09:30:00 や 9:30 の形で書きます）" };
         if ("error" in r) return r;
@@ -200,18 +239,36 @@ function isBlankRow(row: Cell[] | undefined): boolean {
   return !row || row.every((c) => c === null || c === "");
 }
 
-/** シートを describe の結果で検証する。見出しは DB の列名（大文字小文字は問わない）。 */
+/** 見出しの文字から列を探す。列名、表示名（label）、別名（aliases）の順。どれも大文字小文字は問わない。 */
+export function headerColumn(desc: Pick<TableDescription, "columns">, header: string, aliases?: Record<string, string>): ColumnDef | undefined {
+  const name = header.trim().toLowerCase();
+  if (!name) return undefined;
+  const byName = desc.columns.find((c) => c.name.toLowerCase() === name);
+  if (byName) return byName;
+  const byLabel = desc.columns.find((c) => c.label !== undefined && c.label.trim().toLowerCase() === name);
+  if (byLabel) return byLabel;
+  if (!aliases) return undefined;
+  for (const [alias, column] of Object.entries(aliases)) {
+    if (alias.trim().toLowerCase() === name) return desc.columns.find((c) => c.name.toLowerCase() === column.toLowerCase());
+  }
+  return undefined;
+}
+
+/** シートを describe の結果で検証する。見出しは DB の列名か表示名（大文字小文字は問わない）。 */
 export function validate(desc: TableDescription, sheet: Sheet, options: ValidateOptions = {}): ValidationResult {
   const headerRow = options.headerRow ?? 0;
+  const readDisplay = options.readDisplay ?? true;
   const issues: Issue[] = [];
-  const err = (message: string, row?: number, col?: number, column?: string) =>
+  const err = (code: string, message: string, row?: number, col?: number, column?: string, params?: Record<string, unknown>) =>
     issues.push({
       severity: "error",
+      code,
       message,
       ...(row !== undefined && { row }),
       ...(col !== undefined && { col }),
       ...(row !== undefined && col !== undefined && { cell: cellRef(row, col) }),
       ...(column !== undefined && { column }),
+      ...(params && { params }),
     });
 
   const byName = new Map(desc.columns.map((c) => [c.name.toLowerCase(), c]));
@@ -221,17 +278,17 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
   header.forEach((h, c) => {
     if (h === null || h === "") return;
     const name = typeof h === "string" ? h.trim() : String(h);
-    const col = byName.get(name.toLowerCase());
-    if (!col) return err(`列「${name}」は ${desc.target} にありません`, headerRow, c);
-    if (columnIndex[col.name] !== undefined) return err(`列「${col.name}」が 2 回あります`, headerRow, c, col.name);
-    if (!keySet.has(col.name.toLowerCase()) && !col.updatable) return err(`列「${col.name}」は更新できません`, headerRow, c, col.name);
+    const col = headerColumn(desc, name, options.aliases);
+    if (!col) return err("unknown_column", `列「${name}」は ${desc.target} にありません`, headerRow, c, undefined, { header: name });
+    if (columnIndex[col.name] !== undefined) return err("duplicate_column", `列「${col.name}」が 2 回あります`, headerRow, c, col.name);
+    if (!keySet.has(col.name.toLowerCase()) && !col.updatable) return err("column_not_updatable", `列「${col.name}」は更新できません`, headerRow, c, col.name);
     columnIndex[col.name] = c;
   });
 
   const keyColumns = desc.key;
   const updateColumns = desc.columns.filter((c) => columnIndex[c.name] !== undefined && !keySet.has(c.name.toLowerCase())).map((c) => c.name);
-  for (const k of keyColumns) if (columnIndex[k] === undefined) err(`キーの列「${k}」がありません`, undefined, undefined, k);
-  if (updateColumns.length === 0) err("更新する列がありません");
+  for (const k of keyColumns) if (columnIndex[k] === undefined) err("missing_key_column", `キーの列「${k}」がありません`, undefined, undefined, k);
+  if (updateColumns.length === 0) err("no_update_columns", "更新する列がありません");
 
   const readings: Reading[] = [];
   const result: ValidationResult = { ok: false, keyColumns, updateColumns, columnIndex, rows: [], issues, readings };
@@ -239,10 +296,20 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
   for (const name of [...keyColumns, ...updateColumns]) {
     const col = byName.get(name.toLowerCase())!;
     if (col.encoding && byteCount("", col.encoding) === null) {
-      issues.push({ severity: "warning", message: `列「${name}」の文字コード（${col.encoding}）を確認できないので、バイト数と表せない字は見ていません`, column: name });
+      issues.push({
+        severity: "warning",
+        code: "encoding_unknown",
+        message: `列「${name}」の文字コード（${col.encoding}）を確認できないので、バイト数と表せない字は見ていません`,
+        column: name,
+      });
     }
   }
 
+  const rules = options.rules ?? [];
+  const cellRules = rules.filter((r) => !isRowRule(r));
+  // 行のルールのうち、見る列が全部取込にあるものはここで見る（無い列があるものは差分で DB の値を使って見る）。
+  const inSheet = (c: string) => columnIndex[c] !== undefined;
+  const rowRules = rules.filter((r) => isRowRule(r) && r.columns.every(inSheet) && r.columns.some((c) => updateColumns.includes(c)));
   const colDefs = new Map(desc.columns.map((c) => [c.name, c]));
   const seen = new Map<string, number>();
   for (let r = headerRow + 1; r < sheet.rows.length; r++) {
@@ -251,37 +318,65 @@ export function validate(desc: TableDescription, sheet: Sheet, options: Validate
     const key: Row = {};
     const values: Row = {};
     let rowOk = true;
+    const ruleIssue = (rule: CompiledRule, message: string, column: string) => {
+      const severity = rule.severity ?? "error";
+      const c = columnIndex[column]!;
+      issues.push({ severity, code: "rule_violation", message, row: r, col: c, cell: cellRef(r, c), column });
+      if (severity === "error") rowOk = false;
+    };
     for (const name of [...keyColumns, ...updateColumns]) {
       const c = columnIndex[name]!;
       const col = colDefs.get(name)!;
-      const conv = convertCell(col, cells![c] ?? null);
+      const conv = convertCell(col, cells![c] ?? null, readDisplay);
       let message = "error" in conv ? conv.error : checkValue(col, conv.value);
-      if (!message && keyColumns.includes(name) && "value" in conv && conv.value === null) message = "キーが空です";
+      let code = "invalid_value";
+      if (!message && keyColumns.includes(name) && "value" in conv && conv.value === null) {
+        message = "キーが空です";
+        code = "key_empty";
+      }
       if (message) {
-        err(message, r, c, name);
+        err(code, message, r, c, name);
         rowOk = false;
         continue;
       }
       const value = (conv as { value: Value }).value;
       if ("read" in conv) readings.push({ row: r, col: c, cell: cellRef(r, c), column: name, text: String(cells![c]), value });
-      for (const rule of options.rules ?? []) {
+      for (const rule of cellRules) {
         if (rule.column !== name) continue;
         const broken = checkRule(rule, value);
-        if (!broken) continue;
-        const severity = rule.severity ?? "error";
-        issues.push({ severity, message: broken, row: r, col: c, cell: cellRef(r, c), column: name });
-        if (severity === "error") rowOk = false;
+        if (broken) ruleIssue(rule, broken, name);
       }
       if (typeof value === "string" && value !== value.trim()) {
-        issues.push({ severity: "warning", message: "前後に空白があります（そのまま使います）", row: r, col: c, cell: cellRef(r, c), column: name });
+        issues.push({ severity: "warning", code: "whitespace", message: "前後に空白があります（そのまま使います）", row: r, col: c, cell: cellRef(r, c), column: name });
       }
       (keyColumns.includes(name) ? key : values)[name] = value;
+    }
+    const all: Row = { ...key, ...values };
+    for (const rule of rowRules) {
+      const broken = checkRule(rule, all[rule.column] ?? null, all);
+      if (broken && rule.column in all) ruleIssue(rule, broken, rule.column);
+    }
+    if (options.checkRow) {
+      for (const x of options.checkRow({ row: r, key, values, columnIndex }) ?? []) {
+        const severity = x.severity ?? "error";
+        const column = x.column !== undefined ? headerColumn(desc, x.column)?.name ?? x.column : undefined;
+        const c = column !== undefined ? columnIndex[column] : undefined;
+        issues.push({
+          severity,
+          code: x.code ?? "custom",
+          message: x.message,
+          row: r,
+          ...(c !== undefined && { col: c, cell: cellRef(r, c) }),
+          ...(column !== undefined && { column }),
+        });
+        if (severity === "error") rowOk = false;
+      }
     }
     if (keyColumns.every((k) => k in key)) {
       const keyString = JSON.stringify(keyColumns.map((k) => canonical(colDefs.get(k)!.type, key[k]!)));
       const first = seen.get(keyString);
       if (first !== undefined) {
-        for (const k of keyColumns) err(`キーが ${first + 1} 行目と重複しています`, r, columnIndex[k], k);
+        for (const k of keyColumns) err("duplicate_key", `キーが ${first + 1} 行目と重複しています`, r, columnIndex[k], k, { firstRow: first });
         rowOk = false;
       } else seen.set(keyString, r);
     }

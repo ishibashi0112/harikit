@@ -10,4 +10,5 @@ export * from "./diff.js";
 export * from "./client.js";
 export * from "./prepare.js";
 export * from "./plan.js";
+export { canonicalJson, sha256Hex } from "./digest.js";
 export * from "./report.js";
