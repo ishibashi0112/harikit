@@ -10,6 +10,7 @@ import { join } from "node:path";
 import pg from "pg";
 import { buildApplyRequest, PatchiriClient, prepare, type ApplyResponse, type Failure, type Sheet } from "patchiri-core";
 import { startServer, type RunningServer, type ServerConfig } from "../src/index.js";
+import { stampScenario } from "./stamp-scenario.js";
 
 const env = process.env.PATCHIRI_TEST_POSTGRES;
 const skip = env ? false : "PATCHIRI_TEST_POSTGRES がないので飛ばす";
@@ -379,4 +380,25 @@ test("改行や長い値も、出力した SQL で崩れない", { skip }, async
   // 流し直すと、値が変わっていないので戻しが当たる（比べ方も崩れていない）。
   assert.deepEqual(await runScript(d1.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
   assert.deepEqual(await runScript(d2.undoScript), ["patchiri: 1 / 1 行を戻しました"]);
+});
+
+test("stamp（DB の時刻と反映した人）、scope、表示名、サーバの業務ルール", { skip }, async () => {
+  await stampScenario({
+    database: { dialect: "postgresql", host: conn!.host, port: conn!.port ?? 5432, database: conn!.database, user: conn!.user, password: conn!.password },
+    table: "ht.term",
+    reset: async () => {
+      await q(`DROP TABLE IF EXISTS ht.term`);
+      await q(`CREATE TABLE ht.term (company varchar(3) NOT NULL, code varchar(4) NOT NULL, kind varchar(1) NOT NULL, startdate date NOT NULL, enddate date,
+        price numeric(9,2), updatedat timestamp(3), updatedon date, updatedby varchar(10), PRIMARY KEY (company, code))`);
+      await q(`INSERT INTO ht.term VALUES ('001', 'T1', '1', '2026-04-01', '2026-09-30', 100, '2026-01-05 10:00:00', '2026-01-05', 'old'),
+        ('002', 'T1', '1', '2026-04-01', NULL, 500, NULL, NULL, NULL)`);
+    },
+    row: async (company) => {
+      const r = await one(`SELECT price::text AS price, to_char(startdate, 'YYYY-MM-DD') AS "startDate", to_char(updatedat, 'YYYY-MM-DD HH24:MI:SS') AS "updatedAt",
+        to_char(updatedon, 'YYYY-MM-DD') AS "updatedOn", updatedby AS "updatedBy" FROM ht.term WHERE company = '${company}'`);
+      return r as never;
+    },
+    today: async () => String((await one(`SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS d`)).d),
+    runScript: (script) => runScript(script),
+  });
 });

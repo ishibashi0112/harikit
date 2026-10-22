@@ -33,8 +33,10 @@ Namespace Global.Patchiri.Server
     Public NotInheritable Class PatchiriServiceOptions
         Public Config As PatchiriConfig
         Public Dialect As IPatchiriDialect
-        ''' <summary>反映した人。WebForms では HttpContext.Current.User.Identity.Name。</summary>
+        ''' <summary>反映した人。WebForms では PatchiriWebMethods.WhoAmI（既定は HttpContext.Current.User.Identity.Name）。</summary>
         Public WhoAmI As Func(Of String)
+        ''' <summary>ロールの判定（許可リストの roles）。Nothing なら、roles を書いたターゲットは誰も使えない（閉じる側に倒す）。</summary>
+        Public IsInRole As Func(Of String, Boolean)
         ''' <summary>反映ログを 1 件書く。</summary>
         Public Log As Action(Of Dictionary(Of String, Object))
         ''' <summary>サーバ側のエラーを残す。</summary>
@@ -64,6 +66,17 @@ Namespace Global.Patchiri.Server
             Public Updatable As HashSet(Of String)
             ''' <summary>小文字の列名 → 列。</summary>
             Public ByName As Dictionary(Of String, ColumnMeta)
+            ''' <summary>列名（DB の綴り）→ 表示名。</summary>
+            Public Labels As Dictionary(Of String, String)
+            ''' <summary>stamp の列（DB の綴り）と "now" / "user"。</summary>
+            Public Stamp As List(Of KeyValuePair(Of ColumnMeta, String))
+            ''' <summary>scope（DB の綴り）。</summary>
+            Public Scope As Row
+            ''' <summary>scope のうちキーでない列。DB で行を探すときはキーに足す。</summary>
+            Public ScopeColumns As List(Of String)
+            ''' <summary>サーバに置いた業務ルール（rules にこのターゲットが無ければ Nothing）。</summary>
+            Public RawRules As Object
+            Public Rules As List(Of PatchiriRule)
 
             Public Function Find(columnName As String) As ColumnMeta
                 Dim c As ColumnMeta = Nothing
@@ -83,6 +96,8 @@ Namespace Global.Patchiri.Server
             Public Key As Row
             Public Before As Row
             Public After As Row
+            ''' <summary>stamp の列の、反映する前の値（ロックして読んだもの。stamp を書いたターゲットだけ）。</summary>
+            Public StampBefore As Row
         End Class
 
         Private ReadOnly o As PatchiriServiceOptions
@@ -90,6 +105,8 @@ Namespace Global.Patchiri.Server
         Private ReadOnly metaCache As New Dictionary(Of String, TableMeta)(StringComparer.Ordinal)
         Private ReadOnly applied As New Dictionary(Of String, Dictionary(Of String, Object))(StringComparer.Ordinal)
         Private ReadOnly appliedOrder As New Queue(Of String)()
+        ''' <summary>ターゲットごとの、使える形にした業務ルール（テーブル定義の覚えと同じく、設定を読み直すまで持つ）。</summary>
+        Private ReadOnly rulesCache As New Dictionary(Of String, List(Of PatchiriRule))(StringComparer.Ordinal)
 
         Public Sub New(options As PatchiriServiceOptions)
             If options.Config Is Nothing OrElse options.Dialect Is Nothing Then Throw New ArgumentException("Config と Dialect は必須です")
@@ -174,6 +191,16 @@ Namespace Global.Patchiri.Server
             Return meta
         End Function
 
+        ''' <summary>ターゲットを使えるか（roles）。roles を書いていなければ誰でも。判定の手段がなければ使えない。</summary>
+        Private Function Allowed(target As TargetConfig) As Boolean
+            If target.Roles Is Nothing Then Return True
+            If o.IsInRole Is Nothing Then Return False
+            For Each role In target.Roles
+                If o.IsInRole.Invoke(role) Then Return True
+            Next
+            Return False
+        End Function
+
         Private Function Resolve(nameObj As Object) As Resolved
             Dim name = TryCast(nameObj, String)
             If name Is Nothing OrElse Not o.Config.Targets.ContainsKey(name) Then
@@ -182,6 +209,11 @@ Namespace Global.Patchiri.Server
                 }
             End If
             Dim target = o.Config.Targets(name)
+            If Not Allowed(target) Then
+                Throw New PatchiriFailure("forbidden", "ターゲット " & name & " を使う権限がありません") With {
+                    .Details = New Dictionary(Of String, Object) From {{"target", name}}
+                }
+            End If
             Dim meta = GetMeta(target.Table)
             Dim dbCols As New Dictionary(Of String, ColumnMeta)()
             For Each c In meta.Columns
@@ -205,7 +237,7 @@ Namespace Global.Patchiri.Server
             For Each k In key
                 If Not readable.Contains(k) Then Throw New InvalidOperationException(name & " のキー列 " & k & " が readable にありません")
             Next
-            Dim allowed As New HashSet(Of String)(If(target.Access = "update", pick(target.Updatable), New List(Of String)()))
+            Dim allowedColumns As New HashSet(Of String)(If(target.Access = "update", pick(target.Updatable), New List(Of String)()))
             Dim r As New Resolved With {
                 .Name = name,
                 .Target = target,
@@ -220,9 +252,82 @@ Namespace Global.Patchiri.Server
                 If Not readable.Contains(c.Name) Then Continue For
                 r.Columns.Add(c)
                 r.ByName(c.Name.ToLowerInvariant()) = c
-                If allowed.Contains(c.Name) AndAlso Not key.Contains(c.Name) AndAlso c.Type <> "other" AndAlso Not c.Identity AndAlso Not c.Computed Then r.Updatable.Add(c.Name)
+                If allowedColumns.Contains(c.Name) AndAlso Not key.Contains(c.Name) AndAlso c.Type <> "other" AndAlso Not c.Identity AndAlso Not c.Computed Then r.Updatable.Add(c.Name)
             Next
+            r.Labels = New Dictionary(Of String, String)()
+            For Each kv In target.Labels
+                r.Labels(pick(New List(Of String) From {kv.Key})(0)) = kv.Value
+            Next
+            r.Stamp = New List(Of KeyValuePair(Of ColumnMeta, String))()
+            For Each kv In target.Stamp
+                Dim col As ColumnMeta = Nothing
+                If Not dbCols.TryGetValue(kv.Key.ToLowerInvariant(), col) Then
+                    Throw New InvalidOperationException("許可リストの列 " & name & ".stamp." & kv.Key & " が " & meta.Table & " にありません")
+                End If
+                If key.Contains(col.Name) Then Throw New InvalidOperationException(name & " のキー列 " & col.Name & " は stamp にできません")
+                If col.Identity OrElse col.Computed Then Throw New InvalidOperationException(name & ".stamp の " & col.Name & " は自動で入る列（IDENTITY や計算列）です")
+                If kv.Value = "now" AndAlso o.Dialect.NowExpression(col) Is Nothing Then
+                    Throw New InvalidOperationException(name & ".stamp の " & col.Name & " は日付・時刻の列ではありません（""now"" は日付・時刻の列だけ）")
+                End If
+                If kv.Value = "user" AndAlso col.Type <> "string" Then
+                    Throw New InvalidOperationException(name & ".stamp の " & col.Name & " は文字列の列ではありません（""user"" は文字列の列だけ）")
+                End If
+                r.Stamp.Add(New KeyValuePair(Of ColumnMeta, String)(col, kv.Value))
+            Next
+            r.Scope = New Row()
+            r.ScopeColumns = New List(Of String)()
+            For Each kv In target.Scope
+                Dim col As ColumnMeta = Nothing
+                If Not dbCols.TryGetValue(kv.Key.ToLowerInvariant(), col) Then
+                    Throw New InvalidOperationException("許可リストの列 " & name & ".scope." & kv.Key & " が " & meta.Table & " にありません")
+                End If
+                Dim msg = PatchiriValues.CheckValue(col, kv.Value, False)
+                If msg IsNot Nothing Then Throw New InvalidOperationException(name & ".scope." & col.Name & " の値が列に合いません（" & msg & "）")
+                r.Scope(col.Name) = kv.Value
+                If Not key.Contains(col.Name) Then r.ScopeColumns.Add(col.Name)
+            Next
+            If o.Config.Rules IsNot Nothing AndAlso o.Config.Rules.ContainsKey(name) Then
+                r.RawRules = o.Config.Rules(name)
+                SyncLock sync
+                    Dim cached As List(Of PatchiriRule) = Nothing
+                    If rulesCache.TryGetValue(name, cached) Then r.Rules = cached
+                End SyncLock
+                If r.Rules Is Nothing Then
+                    Dim errors As New List(Of String)()
+                    Dim compiled = PatchiriRules.Compile(name, r.Columns, r.RawRules, "サーバの業務ルール", errors)
+                    If errors.Count > 0 Then Throw New InvalidOperationException("rules.targets." & name & " の誤り: " & String.Join(" / ", errors))
+                    SyncLock sync
+                        rulesCache(name) = compiled
+                    End SyncLock
+                    r.Rules = compiled
+                End If
+            End If
             Return r
+        End Function
+
+        ''' <summary>キーが scope の中か（scope に書いたキー列は、その値と厳密に同じでなければ外）。</summary>
+        Private Shared Function InScope(r As Resolved, key As Row) As Boolean
+            For Each k In r.Key
+                If Not r.Scope.ContainsKey(k) Then Continue For
+                If Not PatchiriValues.SameColumnValue(r.Meta.Column(k), key(k), r.Scope(k)) Then Return False
+            Next
+            Return True
+        End Function
+
+        ''' <summary>DB で行を探すときのキーの列（キーに scope の列を足したもの）。</summary>
+        Private Shared Function DbKeyColumns(r As Resolved) As List(Of String)
+            Dim list As New List(Of String)(r.Key)
+            list.AddRange(r.ScopeColumns)
+            Return list
+        End Function
+
+        ''' <summary>DB で行を探すときのキー（scope の値を足したもの）。</summary>
+        Private Shared Function DbKey(r As Resolved, key As Row) As Row
+            Dim output As New Row(key)
+            For Each c In r.ScopeColumns
+                output(c) = r.Scope(c)
+            Next
+            Return output
         End Function
 
         Private Function Limits() As Dictionary(Of String, Object)
@@ -234,6 +339,8 @@ Namespace Global.Patchiri.Server
                 Dim targets As New List(Of Object)()
                 For Each targetName In o.Config.TargetNames
                     Dim t = o.Config.Targets(targetName)
+                    ' 使えないターゲットは一覧に出さない（roles）。
+                    If Not Allowed(t) Then Continue For
                     targets.Add(New Dictionary(Of String, Object) From {{"target", targetName}, {"table", t.Table}, {"access", t.Access}})
                 Next
                 Dim list = Ok()
@@ -262,6 +369,8 @@ Namespace Global.Patchiri.Server
                 If c.Identity Then col("identity") = True
                 If c.Computed Then col("computed") = True
                 If c.HasDefault Then col("hasDefault") = True
+                Dim label As String = Nothing
+                If r.Labels.TryGetValue(c.Name, label) Then col("label") = label
                 columns.Add(col)
             Next
             Dim foreignKeys As New List(Of Object)()
@@ -284,6 +393,21 @@ Namespace Global.Patchiri.Server
             res("columns") = columns
             res("foreignKeys") = foreignKeys
             res("limits") = Limits()
+            If r.RawRules IsNot Nothing Then res("rules") = r.RawRules
+            If r.Stamp.Count > 0 Then
+                Dim stamp As New List(Of Object)()
+                For Each kv In r.Stamp
+                    stamp.Add(New Dictionary(Of String, Object) From {{"column", kv.Key.Name}, {"value", kv.Value}})
+                Next
+                res("stamp") = stamp
+            End If
+            If r.Scope.Count > 0 Then
+                Dim scope As New Dictionary(Of String, Object)()
+                For Each kv In r.Scope
+                    scope(kv.Key) = If(TypeOf kv.Value Is Double, PatchiriJson.JsonNumber(DirectCast(kv.Value, Double)), kv.Value)
+                Next
+                res("scope") = scope
+            End If
             Return res
         End Function
 
@@ -305,6 +429,7 @@ Namespace Global.Patchiri.Server
             Next
             For Each targetName In o.Config.TargetNames
                 Try
+                    ' 使えないターゲット（roles）も「確認できない」扱いになる。
                     Dim r = Resolve(targetName)
                     If Not String.Equals(o.Dialect.NormalizeTable(r.Meta.Table), want, StringComparison.Ordinal) Then Continue For
                     If r.Key.Count = cols.Count AndAlso r.Key.TrueForAll(Function(k) cols.Contains(k.ToLowerInvariant())) Then Return targetName
@@ -378,7 +503,29 @@ Namespace Global.Patchiri.Server
             For Each c In columns
                 If Not r.Key.Contains(c) Then all.Add(c)
             Next
-            Dim rows = If(keys.Count = 0, New List(Of Row)(), o.Dialect.FetchRows(r.Meta, r.Key, all, keys))
+            ' scope の外のキーは DB に聞かずに「見つからない」。値にはキーと頼んだ列だけを返す（scope の列は出さない）。
+            Dim asked As New List(Of Integer)()
+            Dim askedKeys As New List(Of Row)()
+            For i = 0 To keys.Count - 1
+                If Not InScope(r, keys(i)) Then Continue For
+                asked.Add(i)
+                askedKeys.Add(DbKey(r, keys(i)))
+            Next
+            Dim found = If(askedKeys.Count = 0, New List(Of Row)(), o.Dialect.FetchRows(r.Meta, DbKeyColumns(r), all, askedKeys))
+            Dim rows As New List(Of Row)()
+            For i = 0 To keys.Count - 1
+                rows.Add(Nothing)
+            Next
+            For j = 0 To asked.Count - 1
+                If found(j) Is Nothing Then Continue For
+                Dim values As New Row()
+                For Each c In all
+                    Dim v As Object = Nothing
+                    found(j).TryGetValue(c, v)
+                    values(c) = v
+                Next
+                rows(asked(j)) = values
+            Next
             Dim outRows As New List(Of Object)()
             For i = 0 To rows.Count - 1
                 Dim item As New Dictionary(Of String, Object) From {{"index", i}, {"found", rows(i) IsNot Nothing}}
@@ -392,10 +539,20 @@ Namespace Global.Patchiri.Server
             Return res
         End Function
 
+        Private Const ApplyTooLarge As String = "反映の結果（SQL と戻し SQL）が大きすぎて返せないので、何も反映していません。行を分けるか、web.config の maxJsonLength を上げてください"
+
+        ''' <summary>WebMethod で返せる長さか（WebMethod は {"d": 結果} で返す）。</summary>
+        Private Shared Function ResponseLength(result As Dictionary(Of String, Object)) As Integer
+            Return PatchiriJson.Stringify(New Dictionary(Of String, Object) From {{"d", result}}).Length
+        End Function
+
+        Private Function Fits(result As Dictionary(Of String, Object)) As Boolean
+            Return Not o.MaxResponseLength.HasValue OrElse ResponseLength(result) <= o.MaxResponseLength.Value
+        End Function
+
         Private Sub EnsureFits(result As Dictionary(Of String, Object), message As String)
             If Not o.MaxResponseLength.HasValue Then Return
-            ' WebMethod は {"d": 結果} で返す。
-            Dim length = PatchiriJson.Stringify(New Dictionary(Of String, Object) From {{"d", result}}).Length
+            Dim length = ResponseLength(result)
             If length <= o.MaxResponseLength.Value Then Return
             Throw New PatchiriFailure("too_many_rows", message) With {
                 .Details = New Dictionary(Of String, Object) From {{"maxJsonLength", o.MaxResponseLength.Value}, {"length", length}}
@@ -539,6 +696,7 @@ Namespace Global.Patchiri.Server
             End If
 
             Dim appliedBy = If(o.WhoAmI IsNot Nothing, o.WhoAmI.Invoke(), "")
+            CheckStampUser(r, appliedBy)
             Dim appliedAt = LocalIso(If(o.Now IsNot Nothing, o.Now.Invoke(), DateTime.Now))
             Dim logEntry As Func(Of String, Dictionary(Of String, Object)) =
                 Function(outcome)
@@ -551,16 +709,16 @@ Namespace Global.Patchiri.Server
                     entry("outcome") = outcome
                     Dim list As New List(Of Object)()
                     For Each item In rows
-                        list.Add(New Dictionary(Of String, Object) From {{"key", item.Key}, {"before", item.Before}, {"after", item.After}})
+                        Dim logRow As New Dictionary(Of String, Object) From {{"key", item.Key}, {"before", item.Before}, {"after", item.After}}
+                        If item.StampBefore IsNot Nothing Then logRow("stampBefore") = item.StampBefore
+                        list.Add(logRow)
                     Next
                     entry("rows") = list
                     Return entry
                 End Function
 
-            ' SQL の文面と返す結果は先に作る（コミットした後に失敗して戻し SQL が返らない、を避ける）。
-            Dim script As String = Nothing
-            Dim undoScript As String = Nothing
-            RenderScripts(r, requestId, mode, rows, script, undoScript)
+            ' 反映する SQL の文面は先に作る。戻し SQL は stamp の列の今の値を使うので、ロックして読んだ後（コミットの前）に作る。
+            Dim script = RenderApplyScript(r, requestId, mode, rows, appliedBy)
             Dim result = Ok()
             result("requestId") = requestId
             result("mode") = mode
@@ -569,31 +727,66 @@ Namespace Global.Patchiri.Server
             Dim targetResult As New Dictionary(Of String, Object) From {{"target", r.Name}, {"updated", If(mode = "execute", rows.Count, 0)}}
             result("results") = New List(Of Object) From {targetResult}
             result("script") = script
-            result("undoScript") = undoScript
-            EnsureFits(result, "反映の結果（SQL と戻し SQL）が大きすぎて返せないので、何も反映していません。行を分けるか、web.config の maxJsonLength を上げてください")
+            ' 返せない大きさなら、DB に触る前に止める（コミットした後に戻し SQL が返らない、を避ける）。
+            ' stamp があれば戻し SQL はロックして読んだ値で作り直し、もう一度確かめる。
+            result("undoScript") = RenderUndoScript(r, requestId, rows)
+            EnsureFits(result, ApplyTooLarge)
+            Dim userStamp As New Row()
+            Dim nowStamp As New List(Of String)()
+            For Each kv In r.Stamp
+                If kv.Value = "user" Then
+                    userStamp(kv.Key.Name) = appliedBy
+                Else
+                    nowStamp.Add(kv.Key.Name)
+                End If
+            Next
+            ' ロックした行から読む列: stamp の列（戻し SQL のため）と、サーバの業務ルールが見るほかの列。
+            Dim dbKeyCols = DbKeyColumns(r)
+            Dim readBase As New List(Of String)()
+            For Each kv In r.Stamp
+                If Not readBase.Contains(kv.Key.Name) Then readBase.Add(kv.Key.Name)
+            Next
+            For Each rule In ErrorRules(r)
+                For Each c In rule.Columns
+                    If Not readBase.Contains(c) Then readBase.Add(c)
+                Next
+            Next
 
             ' 2〜6. トランザクションの中で、ロックを掛けて今の値を確かめてから流す。
             Dim conflicts As New List(Of Object)()
+            Dim ruleErrors As List(Of Object) = Nothing
+            Dim tooLarge = False
             Dim updated = 0
             Dim duplicate As Integer() = Nothing
             Try
                 o.Dialect.RunTransaction(
                     Function(tx)
                         Dim dbKeys As New Dictionary(Of String, Integer)(StringComparer.Ordinal)
+                        Dim readValues As New List(Of Row)()
                         For index = 0 To rows.Count - 1
                             Dim item = rows(index)
-                            Dim locked = tx.LockAndCompare(r.Meta, r.Key, item.Key, item.Before)
+                            If Not InScope(r, item.Key) Then
+                                conflicts.Add(New Dictionary(Of String, Object) From {{"target", r.Name}, {"index", index}, {"key", item.Key}, {"reason", "not_found"}})
+                                readValues.Add(New Row())
+                                Continue For
+                            End If
+                            Dim read As New List(Of String)()
+                            For Each c In readBase
+                                If Not dbKeyCols.Contains(c) AndAlso Not item.Before.ContainsKey(c) Then read.Add(c)
+                            Next
+                            Dim locked = tx.LockAndCompare(r.Meta, dbKeyCols, DbKey(r, item.Key), item.Before, read)
+                            readValues.Add(If(locked.Read, New Row()))
                             If Not locked.Found Then
                                 conflicts.Add(New Dictionary(Of String, Object) From {{"target", r.Name}, {"index", index}, {"key", item.Key}, {"reason", "not_found"}})
                                 Continue For
                             End If
-                            Dim dbKey = PatchiriValues.KeyIdentity(r.KeyColumns, locked.DbKey)
+                            Dim dbKeyId = PatchiriValues.KeyIdentity(r.KeyColumns, locked.DbKey)
                             Dim other As Integer
-                            If dbKeys.TryGetValue(dbKey, other) Then
+                            If dbKeys.TryGetValue(dbKeyId, other) Then
                                 duplicate = New Integer() {other, index}
                                 Return False
                             End If
-                            dbKeys(dbKey) = index
+                            dbKeys(dbKeyId) = index
                             If locked.Changed IsNot Nothing AndAlso locked.Changed.Count > 0 Then
                                 conflicts.Add(New Dictionary(Of String, Object) From {
                                     {"target", r.Name},
@@ -605,9 +798,35 @@ Namespace Global.Patchiri.Server
                                 })
                             End If
                         Next
-                        If conflicts.Count > 0 OrElse mode = "check" Then Return False
+                        If conflicts.Count > 0 Then Return False
+                        Dim broken = CheckServerRules(r, rows, readValues)
+                        If broken.Count > 0 Then
+                            ruleErrors = broken
+                            Return False
+                        End If
+                        If r.Stamp.Count > 0 Then
+                            For i = 0 To rows.Count - 1
+                                Dim stampBefore As New Row()
+                                For Each kv In r.Stamp
+                                    Dim v As Object = Nothing
+                                    readValues(i).TryGetValue(kv.Key.Name, v)
+                                    stampBefore(kv.Key.Name) = v
+                                Next
+                                rows(i).StampBefore = stampBefore
+                            Next
+                            result("undoScript") = RenderUndoScript(r, requestId, rows)
+                            If Not Fits(result) Then
+                                tooLarge = True
+                                Return False
+                            End If
+                        End If
+                        If mode = "check" Then Return False
                         For Each item In rows
-                            Dim n = tx.Update(r.Meta, r.Key, item.Key, item.After)
+                            Dim values As New Row(item.After)
+                            For Each kv In userStamp
+                                values(kv.Key) = kv.Value
+                            Next
+                            Dim n = tx.Update(r.Meta, dbKeyCols, DbKey(r, item.Key), values, nowStamp)
                             If n <> 1 Then Throw New PatchiriDbException("UPDATE の影響行数が " & n & " でした（1 のはず）: " & PatchiriJson.Stringify(item.Key))
                             updated += n
                         Next
@@ -632,6 +851,13 @@ Namespace Global.Patchiri.Server
                     }
                 }
             End If
+            If ruleErrors IsNot Nothing Then
+                Dim indexes As New HashSet(Of Integer)()
+                For Each e As Dictionary(Of String, Object) In ruleErrors
+                    indexes.Add(CInt(e("index")))
+                Next
+                Throw New PatchiriFailure("bad_request", indexes.Count & " 行がサーバの業務ルールに合いません") With {.RowErrors = ruleErrors}
+            End If
             If conflicts.Count > 0 Then
                 Dim entry = logEntry("conflict")
                 entry("conflicts") = conflicts
@@ -639,6 +865,7 @@ Namespace Global.Patchiri.Server
                 Throw New PatchiriFailure("conflict", conflicts.Count & " 行が差分を取った後に変わっていたため、何も反映していません") With {.Conflicts = conflicts}
             End If
 
+            If tooLarge Then EnsureFits(result, ApplyTooLarge)
             targetResult("updated") = updated
             If mode = "execute" Then
                 SyncLock sync
@@ -705,18 +932,120 @@ Namespace Global.Patchiri.Server
             End Try
         End Sub
 
-        Private Sub RenderScripts(r As Resolved, requestId As String, mode As String, rows As List(Of ApplyRow), ByRef script As String, ByRef undoScript As String)
-            Dim d = o.Dialect
-            Dim head = "-- patchiri " & requestId & " " & r.Name & " (" & r.Meta.Table & ") " & rows.Count & "行"
-            Dim updates As New List(Of ScriptUpdate)()
-            Dim undoUpdates As New List(Of ScriptUpdate)()
-            For Each item In rows
-                updates.Add(New ScriptUpdate With {.Set = item.After, .Key = item.Key, .Expect = item.Before})
-                undoUpdates.Add(New ScriptUpdate With {.Set = item.Before, .Key = item.Key, .Expect = item.After})
+        ''' <summary>サーバの業務ルールのうち error のもの。</summary>
+        Private Shared Function ErrorRules(r As Resolved) As List(Of PatchiriRule)
+            Dim list As New List(Of PatchiriRule)()
+            If r.Rules Is Nothing Then Return list
+            For Each rule In r.Rules
+                If rule.Severity = "error" Then list.Add(rule)
             Next
-            script = d.RenderScript(r.Meta, head & " " & If(mode = "check", "実行予定", "実行済み"), updates, "apply")
-            undoScript = d.RenderScript(r.Meta, head & " の戻し", undoUpdates, "undo")
+            Return list
+        End Function
+
+        ''' <summary>stamp の "user" の列に、反映した人の名前が入るか。入らなければ DB に触る前に止める。</summary>
+        Private Sub CheckStampUser(r As Resolved, user As String)
+            For Each kv In r.Stamp
+                If kv.Value <> "user" Then Continue For
+                Dim col = kv.Key
+                Dim bad = PatchiriValues.CheckValue(col, user, False)
+                If bad Is Nothing Then
+                    Dim res = o.Dialect.CheckStrings(r.Meta, New List(Of KeyValuePair(Of String, String)) From {New KeyValuePair(Of String, String)(col.Name, user)})(0)
+                    If res IsNot Nothing AndAlso Not res.Encodable Then
+                        bad = "列の文字コードで表せない字があります"
+                    ElseIf res IsNot Nothing AndAlso col.MaxBytes.HasValue AndAlso res.Bytes > col.MaxBytes.Value Then
+                        bad = col.MaxBytes.Value & " バイトを超えています（" & res.Bytes & " バイト）"
+                    End If
+                End If
+                If bad IsNot Nothing Then
+                    Throw New PatchiriFailure("bad_request", "反映した人の名前（" & user & "）が stamp の列 " & col.Name & " に入りません（" & bad & "）") With {
+                        .Details = New Dictionary(Of String, Object) From {{"column", col.Name}}
+                    }
+                End If
+            Next
         End Sub
+
+        ''' <summary>
+        ''' サーバに置いた業務ルールのうち error のものを、反映した後の行（ロックして読んだ値に after を重ねたもの）で見る。
+        ''' 行が変える列にかかわるルールだけを見る（変えない列のルールは見ない）。
+        ''' </summary>
+        Private Function CheckServerRules(r As Resolved, rows As List(Of ApplyRow), readValues As List(Of Row)) As List(Of Object)
+            Dim errors As New List(Of Object)()
+            Dim rules = ErrorRules(r)
+            If rules.Count = 0 Then Return errors
+            For i = 0 To rows.Count - 1
+                Dim item = rows(i)
+                Dim merged As New Row(readValues(i))
+                For Each kv In r.Scope
+                    merged(kv.Key) = kv.Value
+                Next
+                For Each kv In item.Key
+                    merged(kv.Key) = kv.Value
+                Next
+                For Each kv In item.After
+                    merged(kv.Key) = kv.Value
+                Next
+                For Each rule In rules
+                    Dim touched As String = Nothing
+                    For Each c In rule.Columns
+                        If item.After.ContainsKey(c) Then
+                            touched = c
+                            Exit For
+                        End If
+                    Next
+                    If touched Is Nothing Then Continue For
+                    Dim changesColumn = item.After.ContainsKey(rule.Column)
+                    Dim column = If(changesColumn, rule.Column, touched)
+                    Dim v As Object = Nothing
+                    merged.TryGetValue(rule.Column, v)
+                    Dim broken = PatchiriRules.Check(rule, v, merged)
+                    If broken Is Nothing AndAlso changesColumn Then broken = PatchiriRules.CheckChange(rule, item.Before(rule.Column), item.After(rule.Column), merged)
+                    If broken Is Nothing Then Continue For
+                    errors.Add(New Dictionary(Of String, Object) From {
+                        {"target", r.Name},
+                        {"index", i},
+                        {"code", "rule_violation"},
+                        {"column", column},
+                        {"message", PatchiriRules.MessageAt(rule, broken, column, merged)}
+                    })
+                Next
+            Next
+            Return errors
+        End Function
+
+        Private Shared Function ScriptHead(r As Resolved, requestId As String, rows As List(Of ApplyRow)) As String
+            Return "-- patchiri " & requestId & " " & r.Name & " (" & r.Meta.Table & ") " & rows.Count & "行"
+        End Function
+
+        Private Function RenderApplyScript(r As Resolved, requestId As String, mode As String, rows As List(Of ApplyRow), user As String) As String
+            Dim now As New List(Of String)()
+            For Each kv In r.Stamp
+                If kv.Value = "now" Then now.Add(kv.Key.Name)
+            Next
+            Dim updates As New List(Of ScriptUpdate)()
+            For Each item In rows
+                Dim values As New Row(item.After)
+                For Each kv In r.Stamp
+                    If kv.Value = "user" Then values(kv.Key.Name) = user
+                Next
+                updates.Add(New ScriptUpdate With {.Set = values, .Key = DbKey(r, item.Key), .Expect = item.Before, .Now = If(now.Count > 0, now, Nothing)})
+            Next
+            Return o.Dialect.RenderScript(r.Meta, ScriptHead(r, requestId, rows) & " " & If(mode = "check", "実行予定", "実行済み"), updates, "apply")
+        End Function
+
+        ''' <summary>戻し SQL。stamp の列は反映する前の値（ロックして読んだ値）に戻す。戻す条件はデータの列が after のままか。</summary>
+        Private Function RenderUndoScript(r As Resolved, requestId As String, rows As List(Of ApplyRow)) As String
+            Dim updates As New List(Of ScriptUpdate)()
+            For Each item In rows
+                Dim values As New Row(item.Before)
+                If item.StampBefore IsNot Nothing Then
+                    For Each kv In item.StampBefore
+                        values(kv.Key) = kv.Value
+                    Next
+                End If
+                updates.Add(New ScriptUpdate With {.Set = values, .Key = DbKey(r, item.Key), .Expect = item.After})
+            Next
+            Return o.Dialect.RenderScript(r.Meta, ScriptHead(r, requestId, rows) & " の戻し", updates, "undo")
+        End Function
 
     End Class
 

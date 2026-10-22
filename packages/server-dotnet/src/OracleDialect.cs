@@ -882,16 +882,18 @@ namespace Patchiri.Server
                 this.tx = tx;
             }
 
-            public LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before)
+            public LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before, IList<string> read)
             {
                 var keyCols = meta.ColumnsOf(keyColumns);
                 var beforeCols = meta.ColumnsOf(before.Keys);
+                var readCols = meta.ColumnsOf(read ?? new string[0]);
                 var cmd = d.driver.Command(conn, tx, "");
                 var where = new List<string>();
                 for (var i = 0; i < keyCols.Count; i++) where.Add(KeyCondition(keyCols[i], d.BindValue(cmd, "k" + i, keyCols[i], key[keyCols[i].Name])));
                 var select = new List<string>();
                 var all = new List<ColumnMeta>(keyCols);
                 all.AddRange(beforeCols);
+                all.AddRange(readCols);
                 for (var i = 0; i < all.Count; i++) select.Add(SelectExpr(all[i], "") + " AS " + QuoteName("__v" + i));
                 for (var i = 0; i < beforeCols.Count; i++)
                 {
@@ -912,16 +914,19 @@ namespace Patchiri.Server
                     locked.Current[beforeCols[i].Name] = ReadValue(beforeCols[i], row[keyCols.Count + i]);
                     if (Convert.ToInt32(row[all.Count + i], CultureInfo.InvariantCulture) != 1) locked.Changed.Add(beforeCols[i].Name);
                 }
+                locked.Read = new Row();
+                for (var i = 0; i < readCols.Count; i++) locked.Read[readCols[i].Name] = ReadValue(readCols[i], row[keyCols.Count + beforeCols.Count + i]);
                 return locked;
             }
 
-            public int Update(TableMeta meta, IList<string> keyColumns, Row key, Row set)
+            public int Update(TableMeta meta, IList<string> keyColumns, Row key, Row set, IList<string> now)
             {
                 var keyCols = meta.ColumnsOf(keyColumns);
                 var setCols = meta.ColumnsOf(set.Keys);
                 var cmd = d.driver.Command(conn, tx, "");
                 var assigns = new List<string>();
                 for (var i = 0; i < setCols.Count; i++) assigns.Add(QuoteName(setCols[i].Name) + " = " + d.BindValue(cmd, "p" + i, setCols[i], set[setCols[i].Name]));
+                assigns.AddRange(NowAssigns(meta, now));
                 var where = new List<string>();
                 for (var i = 0; i < keyCols.Count; i++) where.Add(KeyCondition(keyCols[i], d.BindValue(cmd, "k" + i, keyCols[i], key[keyCols[i].Name])));
                 cmd.CommandText = "UPDATE " + QuoteTable(meta) + " SET " + string.Join(", ", assigns) + " WHERE " + string.Join(" AND ", where);
@@ -1021,11 +1026,31 @@ namespace Patchiri.Server
             return int.Parse(Convert.ToString(p.Value, CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
         }
 
+        /// <summary>列に DB の今の時刻を入れる式（stamp の "now"）。DATE は SYSDATE、TIMESTAMP は DB のサーバの時刻（SYSTIMESTAMP）からタイムゾーンを外したもの。</summary>
+        public string NowExpression(ColumnMeta col)
+        {
+            if (col.Type != "date" && col.Type != "datetime") return null;
+            return col.DbType == "DATE" ? "SYSDATE" : "CAST(SYSTIMESTAMP AS TIMESTAMP)";
+        }
+
+        static List<string> NowAssigns(TableMeta meta, IList<string> now)
+        {
+            var assigns = new List<string>();
+            if (now == null) return assigns;
+            foreach (var c in meta.ColumnsOf(now))
+            {
+                if (c.Type != "date" && c.Type != "datetime") throw new InvalidOperationException("列 " + c.Name + " は日付・時刻の列ではありません");
+                assigns.Add(QuoteName(c.Name) + " = " + (c.DbType == "DATE" ? "SYSDATE" : "CAST(SYSTIMESTAMP AS TIMESTAMP)"));
+            }
+            return assigns;
+        }
+
         string RenderUpdate(TableMeta meta, ScriptUpdate u)
         {
             var t = Table(meta);
             var assigns = new List<string>();
             foreach (var c in meta.ColumnsOf(u.Set.Keys)) assigns.Add(QuoteName(c.Name) + " = " + Literal(c, u.Set[c.Name], t));
+            assigns.AddRange(NowAssigns(meta, u.Now));
             var conds = new List<string>();
             foreach (var c in meta.ColumnsOf(u.Key.Keys)) conds.Add(KeyCondition(c, Literal(c, u.Key[c.Name], t)));
             foreach (var c in meta.ColumnsOf(u.Expect.Keys)) conds.Add(SameCondition(c, u.Expect[c.Name] == null ? null : Literal(c, u.Expect[c.Name], t), t.Collate));

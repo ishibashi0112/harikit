@@ -9,6 +9,7 @@ import { join } from "node:path";
 import sql from "mssql";
 import { buildApplyRequest, PatchiriClient, prepare, type ApplyResponse, type Failure } from "patchiri-core";
 import { startServer, type RunningServer, type ServerConfig } from "../src/index.js";
+import { stampScenario } from "./stamp-scenario.js";
 
 const env = process.env.PATCHIRI_TEST_MSSQL;
 const skip = env ? false : "PATCHIRI_TEST_MSSQL がないので飛ばす";
@@ -338,4 +339,26 @@ test("ほかのセッションがロックしている行は、待ちきれな�
     await other.rollback();
   }
   assert.equal((await q(`SELECT Qty FROM dbo.Item WHERE Code = 'A001'`))[0]!.Qty, 5);
+});
+
+test("stamp（DB の時刻と反映した人）、scope、表示名、サーバの業務ルール", { skip }, async () => {
+  await stampScenario({
+    database: { dialect: "sqlserver", server: conn!.server, port: conn!.port ?? 1433, database: DB, user: conn!.user, password: conn!.password, options: { encrypt: false, trustServerCertificate: true } },
+    table: "dbo.Term",
+    reset: async () => {
+      await q(`DROP TABLE IF EXISTS dbo.Term`);
+      await q(`CREATE TABLE dbo.Term (
+          Company varchar(3) NOT NULL, Code varchar(4) NOT NULL, Kind varchar(1) NOT NULL, StartDate date NOT NULL, EndDate date NULL,
+          Price decimal(9,2) NULL, UpdatedAt datetime2(3) NULL, UpdatedOn date NULL, UpdatedBy varchar(10) NULL, PRIMARY KEY (Company, Code));
+        INSERT INTO dbo.Term VALUES ('001', 'T1', '1', '2026-04-01', '2026-09-30', 100.00, '2026-01-05T10:00:00', '2026-01-05', 'old'),
+          ('002', 'T1', '1', '2026-04-01', NULL, 500.00, NULL, NULL, NULL);`);
+    },
+    row: async (company) => {
+      const [r] = await q(`SELECT CONVERT(varchar(20), Price) AS price, CONVERT(char(10), StartDate, 23) AS startDate, CONVERT(char(19), UpdatedAt, 120) AS updatedAt,
+        CONVERT(char(10), UpdatedOn, 23) AS updatedOn, UpdatedBy AS updatedBy FROM dbo.Term WHERE Company = '${company}'`);
+      return r as never;
+    },
+    today: async () => String((await q(`SELECT CONVERT(char(10), SYSDATETIME(), 23) AS d`))[0]!.d),
+    runScript: (script) => q(script),
+  });
 });

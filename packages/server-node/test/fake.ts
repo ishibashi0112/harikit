@@ -1,7 +1,7 @@
 // テスト用のメモリ上の方言と許可リスト（handlers と CLI のテストで使う）。
 
 import { sameValue, type Row } from "patchiri-core";
-import type { Dialect, ScriptUpdate, ServerConfig, TableMeta, Transaction } from "../src/index.js";
+import type { ColumnMeta, Dialect, ScriptUpdate, ServerConfig, TableMeta, Transaction } from "../src/index.js";
 
 export const META: TableMeta = {
   table: "dbo.M_Product",
@@ -32,13 +32,21 @@ export class FakeDialect implements Dialect {
     ],
     "dbo.m_category": [{ CategoryCode: "C01" }],
   };
+  /** 足したテーブル（normalizeTable の名前 → 定義）。 */
+  metas: Record<string, TableMeta> = {};
   updates = 0;
+  /** stamp の "now" に入れる値。 */
+  clock = "2026-10-22T09:00:00.000";
   checkStrings?: Dialect["checkStrings"];
   normalizeTable(t: string) {
     return (t.includes(".") ? t : `dbo.${t}`).toLowerCase();
   }
   async describeTable(t: string) {
-    return this.normalizeTable(t) === "dbo.m_product" ? META : CATEGORY;
+    const name = this.normalizeTable(t);
+    return this.metas[name] ?? (name === "dbo.m_product" ? META : CATEGORY);
+  }
+  nowExpression(col: ColumnMeta) {
+    return col.type === "date" || col.type === "datetime" ? "NOW()" : null;
   }
   private find(table: string, keyColumns: string[], key: Row) {
     return this.tables[this.normalizeTable(table)]!.find((r) => keyColumns.every((k) => String(r[k]).toLowerCase() === String(key[k]).toLowerCase()));
@@ -52,18 +60,20 @@ export class FakeDialect implements Dialect {
   async transaction<T>(fn: (tx: Transaction) => Promise<{ commit: boolean; value: T }>) {
     const saved = structuredClone(this.tables);
     const tx: Transaction = {
-      lockAndCompare: async (meta, keyColumns, key, before) => {
+      lockAndCompare: async (meta, keyColumns, key, before, read = []) => {
         const r = this.find(meta.table, keyColumns, key);
         if (!r) return { found: false };
         const types = new Map(meta.columns.map((c) => [c.name, c.type]));
         const current = Object.fromEntries(Object.keys(before).map((c) => [c, r[c]!]));
         const changed = Object.keys(before).filter((c) => !sameValue(types.get(c)!, r[c]!, before[c]!));
-        return { found: true, current, changed, dbKey: Object.fromEntries(keyColumns.map((k) => [k, r[k]!])) };
+        const values = Object.fromEntries(read.map((c) => [c, r[c] ?? null]));
+        return { found: true, current, changed, dbKey: Object.fromEntries(keyColumns.map((k) => [k, r[k]!])), read: values };
       },
-      update: async (meta, keyColumns, key, set) => {
+      update: async (meta, keyColumns, key, set, now = []) => {
         const r = this.find(meta.table, keyColumns, key);
         if (!r) return 0;
         Object.assign(r, set);
+        for (const c of now) r[c] = this.clock;
         this.updates++;
         return 1;
       },
@@ -78,7 +88,7 @@ export class FakeDialect implements Dialect {
     }
   }
   renderScript(meta: TableMeta, head: string, updates: ScriptUpdate[]) {
-    return [head, ...updates.map((u) => `UPDATE ${meta.table} SET ${JSON.stringify(u.set)} WHERE ${JSON.stringify({ ...u.key, ...u.expect })};`)].join("\n") + "\n";
+    return [head, ...updates.map((u) => `UPDATE ${meta.table} SET ${JSON.stringify(u.set)}${u.now?.length ? ` NOW ${u.now.join(",")}` : ""} WHERE ${JSON.stringify({ ...u.key, ...u.expect })};`)].join("\n") + "\n";
   }
   async close() {}
 }

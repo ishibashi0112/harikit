@@ -86,29 +86,61 @@ VB.NET のアプリ（Web サイトの `App_Code` など）には、同じもの
 
 | 項目 | 意味 | 既定 |
 | --- | --- | --- |
-| `targets` | 許可リスト（仕様 2）。Node 版とそのまま写せる | （必須） |
+| `targets` | 許可リスト（仕様 2）。Node 版とそのまま写せる。表示名（`labels`）、自動で入れる列（`stamp`）、触れる行の条件（`scope`）、使えるロール（`roles`）も書ける | （必須） |
+| `rules` | サーバに置く業務ルール（`patchiri.rules.json` と同じ形）。中身か、このファイルのフォルダからのパス。describe で画面に渡し、apply で `error` のルールを見直す | なし |
 | `limits` | `maxFetchKeys`、`maxApplyRows` | 1000、5000 |
 | `connectionStringName` | web.config の `connectionStrings` の名前。接続文字列はこのファイルに書かない | `Patchiri` |
 | `logDir` | 反映ログのフォルダ。`~/` はアプリの中、相対ならアプリのフォルダから | `~/App_Data/patchiri-log` |
 | `exposeDbErrors` | `db_error` の `message` に DB の生のエラー文を出すか | `false` |
-| `lockWaitSeconds` | 反映で行のロックを待つ秒数（SQL Server は `SET LOCK_TIMEOUT`、Oracle は `FOR UPDATE WAIT`）。ほかのセッションがロックしたままなら、待つのをやめて何も変えず `db_error`（「対象の行がほかのセッションにロックされています…」）で返す | `10` |
+| `lockWaitSeconds` | 反映で行のロックを待つ秒数（SQL Server は `SET LOCK_TIMEOUT`、Oracle は `FOR UPDATE WAIT`）。ほかのセッションがロックしたままなら、待つのをやめて何も変えず `db_error`（「対象の行がほかのセッションにロックされています…」）で返す。Node 版と同じく `database.lockWaitSeconds` にも書ける | `10` |
 
-- 置き場所を変えるときは web.config の `appSettings` に `<add key="patchiri:config" value="~/App_Data/patchiri.config.json" />`。
-- このファイルを保存し直すと、次の呼び出しで読み直す（覚えていたテーブル定義も捨てる）。テーブルの定義を変えたときも、保存し直すかアプリを再起動する。
+- 置き場所を変えるときは web.config の `appSettings` に `<add key="patchiri:config" value="~/App_Data/patchiri.config.json" />`。ページごとに別のファイルを使うなら、下の「ページごとの許可リスト」。
+- このファイルか `rules` のファイルを保存し直すと、次の呼び出しで読み直す（覚えていたテーブル定義も捨てる）。テーブルの定義を変えたときも、保存し直すかアプリを再起動する。
+
+## 誰が反映したかとロール
+
+- 反映した人（`appliedBy`。反映ログと、`stamp` の `"user"` の列に入る）は、既定では載せ先の認証が決めた名前（`HttpContext.Current.User.Identity.Name`。ログインしていなければ `(anonymous)`）。
+- 許可リストの `roles` は、既定では `User.IsInRole` で判定する（Windows 認証のグループ、ロール マネージャーなど）。入っていない人には、ターゲットの一覧に出さず、指しても `forbidden`。
+- 自前のログインで Session に社員番号や権限を置くアプリは、`Global.asax` の `Application_Start` で差し替える。
+
+```csharp
+void Application_Start(object sender, EventArgs e)
+{
+    PatchiriWebMethods.WhoAmI = ctx => ctx.Session == null ? null : ctx.Session["EmployeeCode"] as string;
+    PatchiriWebMethods.IsInRole = (ctx, role) => ctx.Session != null && role.Equals(ctx.Session["Role"] as string);
+}
+```
+
+- 差し替えた `WhoAmI` が名前を返さない（`null` か `""`）呼び出しは、未ログインとして API も画面も HTTP 401（API はフォーム認証のログイン画面への転送にしない。画面はフォーム認証が効いていればログイン画面に回る）。1 回の呼び出しの中では最初の答えを使う。
+- Session を読むなら、ページの 3 つの WebMethod を `[WebMethod(EnableSession = true)]` に、ページの `EnableSessionState` を `"ReadOnly"` にする（既定のページは Session を使わない）。
+- 判定が例外を投げたら `internal_error`（中身は `error-*.log`）。
+
+## ページごとの許可リスト
+
+部署ごとに触れる行（`scope`）やテーブルを分けたいときは、ページを分け、`PatchiriWebMethods.Call` の 3 つ目に許可リストのファイルを渡す（`~/` はアプリの中、相対ならアプリのフォルダから）。読んだ許可リストはファイルごとに覚える。
+
+```csharp
+[WebMethod]
+public static Dictionary<string, object> Describe(Dictionary<string, object> req)
+{
+    return PatchiriWebMethods.Call("describe", req, "~/App_Data/sales.config.json");
+}
+```
 
 ## 記録
 
-- 反映ログ: `App_Data/patchiri-log/apply-YYYY-MM-DD.jsonl`。1 行 1 件で、形は Node 版と同じ（誰が・いつ・`requestId`・`note`・行ごとの前後の値）。
+- 反映ログ: `App_Data/patchiri-log/apply-YYYY-MM-DD.jsonl`。1 行 1 件で、形は Node 版と同じ（誰が・いつ・`requestId`・`note`・行ごとの前後の値。`stamp` があれば、その列の前の値 `stampBefore` も）。
 - サーバのエラー: 同じフォルダの `error-YYYY-MM-DD.log`（`db_error`、`internal_error` の中身）と `System.Diagnostics.Trace`。
 - アプリプールのユーザーに `App_Data/patchiri-log` への書き込み権限が要る。書けなくても反映の結果（戻し SQL）は返す。
-- `appliedBy` は載せ先の認証が決めた名前（`HttpContext.Current.User.Identity.Name`）。ログインしていなければ `(anonymous)`。
+- `appliedBy` は「誰が反映したかとロール」のとおり。
 
 ## Node 版と同じく気をつけていること
 
 - 文字列は varchar の列でも nvarchar のパラメータで渡し、出力する SQL も `N'...'` で書く（列と DB の既定の照合順序が違うと日本語が「?」になるため）。
 - `char` / `nchar` の列は DB が末尾を空白で埋めるので、末尾の空白だけの違いは「同じ値」とみなす。
 - どの行か（キー）は列の照合順序で探し、値が変わっていないか（apply の `before`、戻し SQL と反映 SQL の値の条件）は厳密に比べる（仕様 1.6）。`CAST([列] AS nvarchar(max)) COLLATE Latin1_General_BIN2 = 値` に、固定長でない列は `DATALENGTH` の一致も付ける。Japanese_CI_AS の `=` は 'ボールペン' と 'ﾎﾞｰﾙﾍﾟﾝ' を同じとみなすので、そのままだと後から別の人が直した行を上書きする。varchar の列に直接 BIN2 を当てると日本語が「?」に崩れるので、先に nvarchar に直す。
-- SQL の文面と戻し SQL はトランザクションの前に作り、コミットした後にログが書けなくても結果を返す。
+- SQL の文面と戻し SQL はコミットの前に作り、コミットした後にログが書けなくても結果を返す（`stamp` があれば、戻し SQL はロックして読んだ stamp の列の値で作り直す）。
+- サーバに置いた業務ルール（`rules`）は、ロックして読んだ値に `after` を重ねた行で見る（ルールが見るほかの列も同じ読み取りで読む）。正規表現は `RegexOptions.ECMAScript` で読むので、`\p{…}` は使えず、`$` は末尾の改行の前にも当たる（[src/PatchiriRules.cs](src/PatchiriRules.cs)）。
 - `script` は UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, …` を続け、`check` で出した SQL を後から人が流したときに、行が見つからないか値が変わっていれば全部戻して止まる（メッセージにキーの値）。`undoScript` は止めずに、今の値が patchiri で入れた値のままの行だけ戻す。
 - `real` の列は float のまま double にして返す（0.1 に丸めると、送り返された `before` が DB の値と合わず衝突になる）。
 - 文字列の列のバイト数（`maxBytes`）と、列の文字コードで表せない字は、反映の前にサーバが `invalid_value` で止める（SQL Server は黙って「?」に置き換えるため）。まず .NET の文字コードで書いて読み戻して確かめ（どの字かを示せる）、最後に DB 自身に列の照合順序で varchar にして戻させて確かめる（.NET の表と DB のコードページは完全には一致しないため）。
@@ -137,6 +169,7 @@ PATCHIRI_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"patchir
 
 - [test/screen.e2e.test.mjs](test/screen.e2e.test.mjs): 画面を本物のブラウザで通す。載せ先によくある形（フォーム認証、ページは `Admin/MasterUpdate.aspx` に名前を変えて置き、特定のユーザーだけに許す）で、ログイン → 貼り付け → 検証 → DB で確かめる → 反映、反映ログの「誰が」、権限のない人は画面も API も使えないこと、ログインが切れたときの案内と別のタブでログインし直して続けられることを見る。ブラウザは Playwright の Chromium（`npx playwright install chromium`）。入っているブラウザを使うなら `PATCHIRI_TEST_BROWSER_CHANNEL=msedge` など、途中の画面を残すなら `PATCHIRI_TEST_SCREENSHOTS` にフォルダを渡す。
 - [test/webmethod.integration.test.mjs](test/webmethod.integration.test.mjs): Node 版の結合テストと同じ場面（取込から反映、衝突、戻し、照合順序、char の空白）に、値の厳密な比べ方（全角半角・かな・末尾の空白）、止まる `script`、ロック待ちの打ち切り、監査トリガー、real の値の読み戻し、64 文字より長い数の文字列、文字コードとバイト数（DB での最後の確認は [test/Probe.aspx](test/Probe.aspx) で .NET 側の確認を外して見る）、`duplicate_key`、HTTP の 403 / 415、ページを開いたときの画面の HTML、`maxJsonLength` の手前で止めることを足したもの。
+- [test/customize.integration.test.mjs](test/customize.integration.test.mjs): 許可リストの `labels`・`stamp`・`scope`・`roles`、ファイルに置いた `rules`（書き直したら読み直す）、`Global.asax` で差し替えた `WhoAmI` / `IsInRole`（名前がなければ 401）、ページごとの許可リスト（`Call` の `configPath`）、設定の誤り。既定の `User.IsInRole` での `roles` は webmethod.integration.test.mjs で見る。
 - [test/oracle.integration.test.mjs](test/oracle.integration.test.mjs): 実際の Oracle で、Node 版の Oracle のテストと同じ場面（CHAR のキーとシノニム、取込から反映・衝突・戻し、空文字、BYTE / CHAR の長さと DB での最後の確認、厳密な比べ方、`NUMBER(38)`、`BINARY_FLOAT`、ロック待ち、`BOOLEAN`、出力した SQL を大文字小文字を無視するセッションや改行を含む値で流す）を通す。載せ先のカルチャを `de-DE` にして、数の読み書きがカルチャに依らないことと、セッションの設定を戻してから接続をプールに返すこと（[test/OracleSessions.aspx](test/OracleSessions.aspx)）も見る。ODP.NET は .NET SDK（`dotnet`）で NuGet から集めて `bin` に置く（[test/odpnet](test/odpnet)。版は `PATCHIRI_TEST_ODPNET_VERSION`、既定は 23.x）。
 - [test/host.mjs](test/host.mjs): ページを載せる Web のフォルダを作り、ASP.NET で動かす。環境変数で選ぶ。
   - `PATCHIRI_TEST_DOTNET_HOST`: `mono`（既定。[test/TestHost.cs](test/TestHost.cs) の小さなホストで動かす。Ubuntu の `xsp4` は今の Mono では起動しないため）か `iis`（Windows の IIS に、テストごとにアプリプールとアプリを作って載せる。管理者で動かす）。
@@ -155,7 +188,8 @@ PATCHIRI_TEST_ORACLE='{"connectString":"localhost:1521/FREEPDB1","user":"patchir
 | `src/PatchiriDialect.cs` | DB ごとの違いを閉じ込める入口（ほかの DB はここに足す） |
 | `src/PatchiriValues.cs` | 値の形の確認と比較（コアの `values.ts` と同じ判定） |
 | `src/PatchiriConfig.cs` | 許可リストと設定の読み込み |
-| `src/PatchiriWebMethods.cs` | WebMethod からの入口（ヘッダの確認、設定の読み込み、接続文字列の `providerName` で DB を選ぶ、ログイン名） |
+| `src/PatchiriRules.cs` | サーバに置く業務ルール（コアの `rules.ts` と同じ決まりと文） |
+| `src/PatchiriWebMethods.cs` | WebMethod からの入口（ヘッダの確認、設定の読み込み、接続文字列の `providerName` で DB を選ぶ、ログイン名とロールの判定と差し替え） |
 | `src/PatchiriScreen.cs` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所） |
 | `src/PatchiriFileLog.cs` | 反映ログとエラーのファイル出力 |
 | `src/PatchiriJson.cs` | `JavaScriptSerializer` の形を扱う小道具 |

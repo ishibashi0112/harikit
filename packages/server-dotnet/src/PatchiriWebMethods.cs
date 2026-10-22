@@ -2,14 +2,14 @@
 // Patchiri.aspx の [WebMethod] Describe / Fetch / Apply は、ここの Call を呼ぶだけにする。
 //
 // 設定: web.config の appSettings "patchiri:config"（既定 ~/App_Data/patchiri.config.json）に許可リストを置き、
-// 接続文字列は connectionStrings の名前（既定 "Patchiri"）で指す。認証と権限は載せ先のアプリに任せる（仕様 1.4）。
+// 接続文字列は connectionStrings の名前（既定 "Patchiri"）で指す。ページごとに別の許可リストを使うなら Call の configPath で渡す。
+// 認証と権限は載せ先のアプリに任せる（仕様 1.4）。「誰が」とロールの判定は WhoAmI / IsInRole で差し替えられる。
 
 using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Web;
 using System.Web.Configuration;
 using System.Web.Hosting;
@@ -20,13 +20,46 @@ namespace Patchiri.Server
     {
         const string DefaultConfigPath = "~/App_Data/patchiri.config.json";
         const string DefaultLogDir = "~/App_Data/patchiri-log";
+        /// <summary>1 回の呼び出しの中で、判定した利用者を覚えておく HttpContext.Items の名前。</summary>
+        const string UserItem = "patchiri:user";
+
+        /// <summary>
+        /// 反映した人の名前を決める。null（既定）なら載せ先の認証の名前（User.Identity.Name。ログインしていなければ "(anonymous)"）。
+        /// 自前のログインで Session に社員番号を置くアプリなどは、Global.asax の Application_Start で差し替える:
+        /// <code>PatchiriWebMethods.WhoAmI = ctx => ctx.Session == null ? null : ctx.Session["UserId"] as string;</code>
+        /// 差し替えた判定が名前を返さない（null か ""）呼び出しは、未ログインとして API も画面も HTTP 401 にする。
+        /// Session を読むなら、ページの WebMethod を [WebMethod(EnableSession = true)] に、ページを EnableSessionState="ReadOnly" にする。
+        /// </summary>
+        public static Func<HttpContext, string> WhoAmI;
+
+        /// <summary>
+        /// ロールの判定（許可リストの roles）。null（既定）なら User.IsInRole（Windows のグループ、ロール マネージャーなど）。
+        /// Session に権限を置くアプリなどは、WhoAmI と同じく Application_Start で差し替える。
+        /// </summary>
+        public static Func<HttpContext, string, bool> IsInRole;
+
+        sealed class Loaded
+        {
+            public PatchiriService Service;
+            public DateTime Stamp;
+            public string RulesPath;
+            public DateTime RulesStamp;
+        }
 
         static readonly object sync = new object();
-        static PatchiriService service;
-        static string servicePath;
-        static DateTime serviceStamp;
+        /// <summary>設定ファイルのパス → 読んだサービス。</summary>
+        static readonly Dictionary<string, Loaded> services = new Dictionary<string, Loaded>(StringComparer.OrdinalIgnoreCase);
 
         public static Dictionary<string, object> Call(string name, Dictionary<string, object> req)
+        {
+            return Call(name, req, null);
+        }
+
+        /// <summary>
+        /// API を 1 本呼ぶ。configPath はこのページの許可リスト（"~/" で始まればアプリの中、相対ならアプリのフォルダから）。
+        /// null なら appSettings の patchiri:config。
+        /// </summary>
+        public static Dictionary<string, object> Call(string name, Dictionary<string, object> req, string configPath)
         {
             var ctx = HttpContext.Current;
             ctx.Response.Cache.SetCacheability(HttpCacheability.NoCache);
@@ -37,45 +70,70 @@ namespace Patchiri.Server
                 ctx.Response.StatusCode = 403;
                 return new Dictionary<string, object> { { "message", "X-Patchiri: 1 header required" } };
             }
-            PatchiriService s;
+            string user;
             try
             {
-                s = Service();
+                user = CurrentUser();
             }
             catch (Exception e)
             {
                 WriteError(MapPath(DefaultLogDir), e);
-                return new Dictionary<string, object>
-                {
-                    { "ok", false },
-                    { "v", 1 },
-                    { "error", new Dictionary<string, object> { { "code", "internal_error" }, { "message", "patchiri の設定を読めません（詳細はサーバのログ）" } } },
-                };
+                return InternalError("patchiri の利用者を判定できません（詳細はサーバのログ）");
+            }
+            if (user == null)
+            {
+                // フォーム認証のログイン画面への転送にも、IIS のエラーページにもしない（画面は 401 を見てログインし直しを促す）。
+                ctx.Response.SuppressFormsAuthenticationRedirect = true;
+                ctx.Response.TrySkipIisCustomErrors = true;
+                ctx.Response.StatusCode = 401;
+                return new Dictionary<string, object> { { "message", "login required" } };
+            }
+            PatchiriService s;
+            try
+            {
+                s = Service(configPath);
+            }
+            catch (Exception e)
+            {
+                WriteError(MapPath(DefaultLogDir), e);
+                return InternalError("patchiri の設定を読めません（詳細はサーバのログ）");
             }
             return s.Handle(name, req);
         }
 
-        /// <summary>設定ファイルを読んでサービスを作る。設定ファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
-        static PatchiriService Service()
+        static Dictionary<string, object> InternalError(string message)
         {
-            var path = MapPath(ConfigurationManager.AppSettings["patchiri:config"] ?? DefaultConfigPath);
+            return new Dictionary<string, object>
+            {
+                { "ok", false },
+                { "v", 1 },
+                { "error", new Dictionary<string, object> { { "code", "internal_error" }, { "message", message } } },
+            };
+        }
+
+        /// <summary>設定ファイルを読んでサービスを作る。設定ファイルか rules のファイルを保存し直すと読み直す（テーブル定義の覚えも捨てる）。</summary>
+        static PatchiriService Service(string configPath)
+        {
+            var path = MapPath(configPath ?? ConfigurationManager.AppSettings["patchiri:config"] ?? DefaultConfigPath);
             var stamp = File.GetLastWriteTimeUtc(path);
             lock (sync)
             {
-                if (service != null && path == servicePath && stamp == serviceStamp) return service;
-                var config = PatchiriConfig.Parse(File.ReadAllText(path, Encoding.UTF8));
+                Loaded loaded;
+                if (services.TryGetValue(path, out loaded) && loaded.Stamp == stamp
+                    && (loaded.RulesPath == null || File.GetLastWriteTimeUtc(loaded.RulesPath) == loaded.RulesStamp)) return loaded.Service;
+                var config = PatchiriConfig.Load(path);
                 var logDir = MapPath(config.LogDir);
-                service = new PatchiriService(new PatchiriServiceOptions
+                var service = new PatchiriService(new PatchiriServiceOptions
                 {
                     Config = config,
                     Dialect = CreateDialect(config),
                     WhoAmI = CurrentUser,
+                    IsInRole = CurrentUserInRole,
                     Log = entry => PatchiriFileLog.WriteApply(logDir, entry),
                     LogError = e => WriteError(logDir, e),
                     MaxResponseLength = MaxJsonLength(),
                 });
-                servicePath = path;
-                serviceStamp = stamp;
+                services[path] = new Loaded { Service = service, Stamp = stamp, RulesPath = config.RulesPath, RulesStamp = config.RulesStamp };
                 return service;
             }
         }
@@ -96,12 +154,35 @@ namespace Patchiri.Server
                 + " には対応していません（SQL Server は System.Data.SqlClient、Oracle は " + OracleDialect.ProviderName + "）");
         }
 
-        /// <summary>反映した人。載せ先の認証（フォーム認証、Windows 認証など）が決めた名前を使う。画面の見出しにも出す。</summary>
+        /// <summary>
+        /// 反映した人。WhoAmI を差し替えていればその答え（名前がなければ null）、なければ載せ先の認証が決めた名前。画面の見出しにも出す。
+        /// 1 回の呼び出しの中では最初の答えを使う（反映ログと stamp の列で名前がずれないように）。
+        /// </summary>
         internal static string CurrentUser()
         {
             var ctx = HttpContext.Current;
-            if (ctx != null && ctx.User != null && ctx.User.Identity != null && ctx.User.Identity.IsAuthenticated) return ctx.User.Identity.Name;
-            return "(anonymous)";
+            if (ctx == null) return null;
+            if (ctx.Items.Contains(UserItem)) return ctx.Items[UserItem] as string;
+            string user;
+            var hook = WhoAmI;
+            if (hook != null)
+            {
+                user = hook(ctx);
+                if (user == "") user = null;
+            }
+            else if (ctx.User != null && ctx.User.Identity != null && ctx.User.Identity.IsAuthenticated) user = ctx.User.Identity.Name;
+            else user = "(anonymous)";
+            ctx.Items[UserItem] = user;
+            return user;
+        }
+
+        static bool CurrentUserInRole(string role)
+        {
+            var ctx = HttpContext.Current;
+            if (ctx == null) return false;
+            var hook = IsInRole;
+            if (hook != null) return hook(ctx, role);
+            return ctx.User != null && ctx.User.IsInRole(role);
         }
 
         /// <summary>WebMethod が返せる JSON の長さ（web.config の jsonSerialization maxJsonLength）。</summary>

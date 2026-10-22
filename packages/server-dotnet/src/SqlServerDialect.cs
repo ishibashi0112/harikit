@@ -487,16 +487,18 @@ namespace Patchiri.Server
                 this.commandTimeout = commandTimeout;
             }
 
-            public LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before)
+            public LockedRow LockAndCompare(TableMeta meta, IList<string> keyColumns, Row key, Row before, IList<string> read)
             {
                 var keyCols = meta.ColumnsOf(keyColumns);
                 var beforeCols = meta.ColumnsOf(before.Keys);
+                var readCols = meta.ColumnsOf(read ?? new string[0]);
                 var cmd = new SqlCommand { Connection = conn, Transaction = tx, CommandTimeout = commandTimeout };
                 var where = new List<string>();
                 for (var i = 0; i < keyCols.Count; i++) where.Add(Condition(keyCols[i], BindValue(cmd, "k" + i, keyCols[i], key[keyCols[i].Name])));
                 var select = new List<string>();
                 var all = new List<ColumnMeta>(keyCols);
                 all.AddRange(beforeCols);
+                all.AddRange(readCols);
                 for (var i = 0; i < all.Count; i++) select.Add(SelectExpr(all[i], "") + " AS " + QuoteName("__v" + i));
                 for (var i = 0; i < beforeCols.Count; i++)
                 {
@@ -516,16 +518,19 @@ namespace Patchiri.Server
                     locked.Current[beforeCols[i].Name] = ReadValue(beforeCols[i], row[keyCols.Count + i]);
                     if (Convert.ToInt32(row[all.Count + i], CultureInfo.InvariantCulture) != 1) locked.Changed.Add(beforeCols[i].Name);
                 }
+                locked.Read = new Row();
+                for (var i = 0; i < readCols.Count; i++) locked.Read[readCols[i].Name] = ReadValue(readCols[i], row[keyCols.Count + beforeCols.Count + i]);
                 return locked;
             }
 
-            public int Update(TableMeta meta, IList<string> keyColumns, Row key, Row set)
+            public int Update(TableMeta meta, IList<string> keyColumns, Row key, Row set, IList<string> now)
             {
                 var keyCols = meta.ColumnsOf(keyColumns);
                 var setCols = meta.ColumnsOf(set.Keys);
                 var cmd = new SqlCommand { Connection = conn, Transaction = tx, CommandTimeout = commandTimeout };
                 var assigns = new List<string>();
                 for (var i = 0; i < setCols.Count; i++) assigns.Add(QuoteName(setCols[i].Name) + " = " + BindValue(cmd, "p" + i, setCols[i], set[setCols[i].Name]));
+                assigns.AddRange(NowAssigns(meta, now));
                 var where = new List<string>();
                 for (var i = 0; i < keyCols.Count; i++) where.Add(Condition(keyCols[i], BindValue(cmd, "k" + i, keyCols[i], key[keyCols[i].Name])));
                 // ExecuteNonQuery の戻り値はトリガーの中の行数も足すので、UPDATE そのものの行数を @@ROWCOUNT で読む。
@@ -674,7 +679,7 @@ namespace Patchiri.Server
             lines.Add("BEGIN TRANSACTION;");
             foreach (var u in updates)
             {
-                lines.Add(RenderUpdate(meta, u.Set, u.Key, u.Expect) + ";");
+                lines.Add(RenderUpdate(meta, u.Set, u.Key, u.Expect, u.Now) + ";");
                 // 後から人が流したときに、変わっていた行だけ黙って飛ばさない。XACT_ABORT ON なので THROW で全部戻る。
                 // @@ROWCOUNT はトリガーがあっても UPDATE 文そのものの行数。
                 if (kind == "apply")
@@ -689,10 +694,29 @@ namespace Patchiri.Server
             return "N'" + s.Replace("'", "''") + "'";
         }
 
-        static string RenderUpdate(TableMeta meta, Row set, Row key, Row values)
+        /// <summary>列に DB の今の時刻を入れる式（stamp の "now"）。date の列には日付だけが入る。</summary>
+        public string NowExpression(ColumnMeta col)
+        {
+            return col.Type == "date" || col.Type == "datetime" ? "SYSDATETIME()" : null;
+        }
+
+        static List<string> NowAssigns(TableMeta meta, IList<string> now)
+        {
+            var assigns = new List<string>();
+            if (now == null) return assigns;
+            foreach (var c in meta.ColumnsOf(now))
+            {
+                if (c.Type != "date" && c.Type != "datetime") throw new InvalidOperationException("列 " + c.Name + " は日付・時刻の列ではありません");
+                assigns.Add(QuoteName(c.Name) + " = SYSDATETIME()");
+            }
+            return assigns;
+        }
+
+        static string RenderUpdate(TableMeta meta, Row set, Row key, Row values, IList<string> now)
         {
             var assigns = new List<string>();
             foreach (var c in meta.ColumnsOf(set.Keys)) assigns.Add(QuoteName(c.Name) + " = " + Literal(c, set[c.Name]));
+            assigns.AddRange(NowAssigns(meta, now));
             var conds = new List<string>();
             foreach (var c in meta.ColumnsOf(key.Keys)) conds.Add(Condition(c, key[c.Name] == null ? null : Literal(c, key[c.Name])));
             foreach (var c in meta.ColumnsOf(values.Keys)) conds.Add(StrictCondition(c, values[c.Name] == null ? null : Literal(c, values[c.Name])));

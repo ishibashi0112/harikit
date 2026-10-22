@@ -2,7 +2,11 @@
 
 import {
   canonical,
+  checkChange,
+  checkRule,
   checkValue,
+  compileRules,
+  ruleMessageAt,
   sameColumnValue,
   type ApiError,
   type ApplyMode,
@@ -13,11 +17,13 @@ import {
   type Limits,
   type Row,
   type RowError,
+  type CompiledRule,
+  type StampDef,
   type TableDescription,
   type Value,
 } from "patchiri-core";
 import { DEFAULT_LIMITS, type ServerConfig, type TargetConfig } from "./config.js";
-import { DbError, type Dialect, type TableMeta } from "./dialect.js";
+import { DbError, type ColumnMeta, type Dialect, type TableMeta } from "./dialect.js";
 
 export interface ApplyLogEntry {
   requestId: string;
@@ -28,16 +34,32 @@ export interface ApplyLogEntry {
   target: string;
   table: string;
   outcome: "applied" | "checked" | "conflict" | "error";
-  rows: { key: Row; before: Row; after: Row }[];
+  /** stampBefore は stamp の列の、反映する前の値（stamp を書いたターゲットだけ）。 */
+  rows: { key: Row; before: Row; after: Row; stampBefore?: Row }[];
   conflicts?: Conflict[];
   error?: string;
+}
+
+/** whoAmI と isInRole に渡す、呼び出しの文脈。HTTP の入口（http.ts）では req に届いた要求（node:http の IncomingMessage）が入る。 */
+export interface RequestContext {
+  req?: { headers: Record<string, string | string[] | undefined> };
+}
+
+/** whoAmI が名前を返さなかった（未ログイン）。HTTP の入口は 401 にする。 */
+export class Unauthenticated extends Error {
+  constructor() {
+    super("ログインしていません");
+    this.name = "Unauthenticated";
+  }
 }
 
 export interface HandlerDeps {
   config: ServerConfig;
   dialect: Dialect;
-  /** 反映した人（Node 版は OS のユーザー名）。 */
-  whoAmI: () => string;
+  /** 反映した人（Node 版の既定は OS のユーザー名）。名前を返さなければ（null や ""）未ログインで、handle は Unauthenticated を投げる。 */
+  whoAmI: (ctx: RequestContext) => string | null | undefined | Promise<string | null | undefined>;
+  /** ロールの判定（許可リストの roles）。無ければ、roles を書いたターゲットは誰も使えない（閉じる側に倒す）。 */
+  isInRole?: (role: string, ctx: RequestContext) => boolean | Promise<boolean>;
   log: (entry: ApplyLogEntry) => Promise<void>;
   /** サーバ側のエラーを残す。 */
   logError?: (err: unknown) => void;
@@ -74,6 +96,20 @@ interface Resolved {
   key: string[];
   columns: ColumnDef[];
   byName: Map<string, ColumnDef>;
+  /** stamp の列（DB の綴り）。 */
+  stamp: (StampDef & { col: ColumnMeta })[];
+  /** scope（DB の綴り）。 */
+  scope: Row;
+  /** scope のうちキーでない列。DB で行を探すときはキーに足す。 */
+  scopeColumns: string[];
+  /** サーバに置いた業務ルール（rules を書いていなければ undefined）。 */
+  rules?: { raw: unknown[]; compiled: CompiledRule[] };
+}
+
+/** 1 回の呼び出しの、呼んだ人。 */
+interface Caller {
+  user: string;
+  ctx: RequestContext;
 }
 
 export class Handlers {
@@ -86,16 +122,34 @@ export class Handlers {
     this.limits = { ...DEFAULT_LIMITS, ...deps.config.limits };
   }
 
-  async handle(name: "describe" | "fetch" | "apply", body: unknown): Promise<Result> {
+  /** API 1 本を呼ぶ。ctx は whoAmI と isInRole に渡す。whoAmI が名前を返さなければ Unauthenticated を投げる。 */
+  async handle(name: "describe" | "fetch" | "apply", body: unknown, ctx: RequestContext = {}): Promise<Result> {
+    let user: string | null | undefined;
     try {
-      if (!isObject(body)) throw new Fail("bad_request", "リクエストが JSON のオブジェクトではありません");
-      if (body.v !== 1) throw new Fail("version_unsupported", `v=${JSON.stringify(body.v)} には対応していません（1 だけ）`);
-      if (name === "describe") return await this.describe(body);
-      if (name === "fetch") return await this.fetch(body);
-      return await this.apply(body);
+      user = await this.deps.whoAmI(ctx);
     } catch (e) {
       return this.failure(e, body);
     }
+    if (!user) throw new Unauthenticated();
+    const caller: Caller = { user, ctx };
+    try {
+      if (!isObject(body)) throw new Fail("bad_request", "リクエストが JSON のオブジェクトではありません");
+      if (body.v !== 1) throw new Fail("version_unsupported", `v=${JSON.stringify(body.v)} には対応していません（1 だけ）`);
+      if (name === "describe") return await this.describe(body, caller);
+      if (name === "fetch") return await this.fetch(body, caller);
+      return await this.apply(body, caller);
+    } catch (e) {
+      return this.failure(e, body);
+    }
+  }
+
+  /** ターゲットを使えるか（roles）。roles を書いていなければ誰でも。判定の手段がなければ使えない。 */
+  private async allowed(target: TargetConfig, caller: Caller): Promise<boolean> {
+    if (!target.roles) return true;
+    const isInRole = this.deps.isInRole;
+    if (!isInRole) return false;
+    for (const role of target.roles) if (await isInRole(role, caller.ctx)) return true;
+    return false;
   }
 
   private failure(e: unknown, body: unknown): Result {
@@ -133,11 +187,12 @@ export class Handlers {
     return p;
   }
 
-  private async resolve(name: unknown): Promise<Resolved> {
+  private async resolve(name: unknown, caller: Caller): Promise<Resolved> {
     if (typeof name !== "string" || !Object.hasOwn(this.deps.config.targets, name)) {
       throw new Fail("unknown_target", `ターゲット ${String(name)} はありません`, { details: { target: name } });
     }
     const target = this.deps.config.targets[name]!;
+    if (!(await this.allowed(target, caller))) throw new Fail("forbidden", `ターゲット ${name} を使う権限がありません`, { details: { target: name } });
     const meta = await this.getMeta(target.table);
     const dbCols = new Map(meta.columns.map((c) => [c.name.toLowerCase(), c]));
     const pick = (list: string[]) =>
@@ -147,6 +202,7 @@ export class Handlers {
         return col.name;
       });
     const readable = new Set(pick(target.readable));
+    const labels = new Map(Object.entries(target.labels ?? {}).map(([c, l]) => [pick([c])[0]!.toLowerCase(), l.trim()]));
     const key = target.key ? pick(target.key) : meta.primaryKey;
     if (key.length === 0) throw new Error(`${name} のキーがわかりません（主キーがないので key を設定してください）`);
     for (const k of key) if (!readable.has(k)) throw new Error(`${name} のキー列 ${k} が readable にありません`);
@@ -165,25 +221,54 @@ export class Handlers {
         for (const k of ["maxLength", "maxBytes", "encoding", "emptyIsNull", "precision", "scale", "min", "max", "identity", "computed", "hasDefault"] as const) {
           if (c[k] !== undefined) (col as unknown as Record<string, unknown>)[k] = c[k];
         }
+        const label = labels.get(c.name.toLowerCase());
+        if (label !== undefined) col.label = label;
         return col;
       });
-    return { name, target, meta, key, columns, byName: new Map(columns.map((c) => [c.name.toLowerCase(), c])) };
+    const stamp = Object.entries(target.stamp ?? {}).map(([c, value]) => {
+      const col = dbCols.get(c.toLowerCase());
+      if (!col) throw new Error(`許可リストの列 ${name}.stamp.${c} が ${meta.table} にありません`);
+      if (key.includes(col.name)) throw new Error(`${name} のキー列 ${col.name} は stamp にできません`);
+      if (col.identity || col.computed) throw new Error(`${name}.stamp の ${col.name} は自動で入る列（IDENTITY や計算列）です`);
+      if (value === "now" && !this.deps.dialect.nowExpression?.(col)) throw new Error(`${name}.stamp の ${col.name} は日付・時刻の列ではありません（"now" は日付・時刻の列だけ）`);
+      if (value === "user" && col.type !== "string") throw new Error(`${name}.stamp の ${col.name} は文字列の列ではありません（"user" は文字列の列だけ）`);
+      return { column: col.name, value, col };
+    });
+    const scope: Row = {};
+    for (const [c, v] of Object.entries(target.scope ?? {})) {
+      const col = dbCols.get(c.toLowerCase());
+      if (!col) throw new Error(`許可リストの列 ${name}.scope.${c} が ${meta.table} にありません`);
+      const msg = checkValue({ ...col, updatable: false, nullable: false }, v);
+      if (msg) throw new Error(`${name}.scope.${col.name} の値が列に合いません（${msg}）`);
+      scope[col.name] = v;
+    }
+    const byName = new Map(columns.map((c) => [c.name.toLowerCase(), c]));
+    const resolved: Resolved = { name, target, meta, key, columns, byName, stamp, scope, scopeColumns: Object.keys(scope).filter((c) => !key.includes(c)) };
+    const rules = this.deps.config.rules;
+    if (typeof rules === "object" && rules.targets && Object.hasOwn(rules.targets, name)) {
+      const raw = rules.targets[name]!;
+      const { rules: compiled, issues } = compileRules({ target: name, columns }, raw, "サーバの業務ルール");
+      if (issues.length > 0) throw new Error(`rules.targets.${name} の誤り: ${issues.map((i) => i.message).join(" / ")}`);
+      resolved.rules = { raw, compiled };
+    }
+    return resolved;
   }
 
-  private async describe(body: Body): Promise<Result> {
+  private async describe(body: Body, caller: Caller): Promise<Result> {
     if (body.target === undefined) {
-      return {
-        ok: true,
-        v: 1,
-        targets: Object.entries(this.deps.config.targets).map(([target, t]) => ({ target, table: t.table, access: t.access })),
-      };
+      const targets = [];
+      for (const [target, t] of Object.entries(this.deps.config.targets)) {
+        // 使えないターゲットは一覧に出さない（roles）。
+        if (await this.allowed(t, caller)) targets.push({ target, table: t.table, access: t.access });
+      }
+      return { ok: true, v: 1, targets };
     }
-    const r = await this.resolve(body.target);
+    const r = await this.resolve(body.target, caller);
     const readableNames = new Set(r.columns.map((c) => c.name));
     const foreignKeys: ForeignKeyDef[] = [];
     for (const fk of r.meta.foreignKeys) {
       if (!fk.columns.every((c) => readableNames.has(c))) continue;
-      foreignKeys.push({ ...fk, referencedTarget: await this.findReferenceTarget(fk.referencedTable, fk.referencedColumns) });
+      foreignKeys.push({ ...fk, referencedTarget: await this.findReferenceTarget(fk.referencedTable, fk.referencedColumns, caller) });
     }
     const res: TableDescription = {
       ok: true,
@@ -196,6 +281,9 @@ export class Handlers {
       columns: r.columns,
       foreignKeys,
       limits: this.limits,
+      ...(r.rules && { rules: r.rules.raw }),
+      ...(r.stamp.length > 0 && { stamp: r.stamp.map(({ column, value }) => ({ column, value })) }),
+      ...(Object.keys(r.scope).length > 0 && { scope: r.scope }),
     };
     return res as unknown as Result;
   }
@@ -204,12 +292,13 @@ export class Handlers {
    * 参照先テーブルを、キーがちょうど参照先の列になっている読めるターゲットから探す。
    * テーブルは DB で引いた名前で比べる（Oracle のシノニムや既定のスキーマで書いたターゲットも当たるように）。
    */
-  private async findReferenceTarget(table: string, columns: string[]): Promise<string | null> {
+  private async findReferenceTarget(table: string, columns: string[], caller: Caller): Promise<string | null> {
     const want = this.deps.dialect.normalizeTable(table);
     const cols = new Set(columns.map((c) => c.toLowerCase()));
     for (const name of Object.keys(this.deps.config.targets)) {
       try {
-        const r = await this.resolve(name);
+        // 使えないターゲット（roles）も「確認できない」扱いになる。
+        const r = await this.resolve(name, caller);
         if (this.deps.dialect.normalizeTable(r.meta.table) !== want) continue;
         if (r.key.length === cols.size && r.key.every((k) => cols.has(k.toLowerCase()))) return name;
       } catch {
@@ -235,8 +324,25 @@ export class Handlers {
     return { key: out };
   }
 
-  private async fetch(body: Body): Promise<Result> {
-    const r = await this.resolve(body.target);
+  /** キーが scope の中か（scope に書いたキー列は、その値と厳密に同じでなければ外）。 */
+  private inScope(r: Resolved, key: Row): boolean {
+    return r.key.every((k) => !(k in r.scope) || sameColumnValue(r.byName.get(k.toLowerCase()) ?? r.meta.columns.find((c) => c.name === k)!, key[k]!, r.scope[k]!));
+  }
+
+  /** DB で行を探すときのキーの列（キーに scope の列を足したもの）。 */
+  private dbKeyColumns(r: Resolved): string[] {
+    return [...r.key, ...r.scopeColumns];
+  }
+
+  /** DB で行を探すときのキー（scope の値を足したもの）。 */
+  private dbKey(r: Resolved, key: Row): Row {
+    const out: Row = { ...key };
+    for (const c of r.scopeColumns) out[c] = r.scope[c]!;
+    return out;
+  }
+
+  private async fetch(body: Body, caller: Caller): Promise<Result> {
+    const r = await this.resolve(body.target, caller);
     if (!Array.isArray(body.keys)) throw new Fail("bad_request", "keys がありません");
     if (body.keys.length > this.limits.maxFetchKeys) {
       throw new Fail("too_many_rows", `keys は ${this.limits.maxFetchKeys} 件までです`, { details: { limit: this.limits.maxFetchKeys } });
@@ -257,7 +363,14 @@ export class Handlers {
       return n.key!;
     });
     const all = [...r.key, ...columns.filter((c) => !r.key.includes(c))];
-    const rows = keys.length === 0 ? [] : await this.deps.dialect.fetchRows(r.meta, r.key, all, keys);
+    // scope の外のキーは DB に聞かずに「見つからない」。
+    const asked = keys.map((k, index) => ({ k, index })).filter(({ k }) => this.inScope(r, k));
+    const found = asked.length === 0 ? [] : await this.deps.dialect.fetchRows(r.meta, this.dbKeyColumns(r), all, asked.map(({ k }) => this.dbKey(r, k)));
+    const rows: (Row | null)[] = keys.map(() => null);
+    asked.forEach(({ index }, i) => {
+      const values = found[i];
+      if (values) rows[index] = Object.fromEntries(all.map((c) => [c, values[c] ?? null]));
+    });
     return {
       ok: true,
       v: 1,
@@ -266,7 +379,7 @@ export class Handlers {
     };
   }
 
-  private async apply(body: Body): Promise<Result> {
+  private async apply(body: Body, caller: Caller): Promise<Result> {
     const requestId = body.requestId;
     if (typeof requestId !== "string" || !REQUEST_ID_RE.test(requestId)) throw new Fail("bad_request", "requestId がないか、形が違います");
     const mode = body.mode as ApplyMode;
@@ -281,7 +394,7 @@ export class Handlers {
       throw new Fail("bad_request", "changes は要素 1 つの配列です（v1 は 1 テーブルだけ）");
     }
     const change = body.changes[0];
-    const r = await this.resolve(change.target);
+    const r = await this.resolve(change.target, caller);
     if (r.target.access !== "update") throw new Fail("bad_request", `${r.name} は読むだけのターゲットです`);
     if (!Array.isArray(change.rows) || change.rows.length === 0) throw new Fail("bad_request", "rows がありません");
     if (change.rows.length > this.limits.maxApplyRows) {
@@ -349,22 +462,38 @@ export class Handlers {
       throw new Fail("bad_request", `${n} 行に誤りがあります`, { rowErrors });
     }
 
-    const appliedBy = this.deps.whoAmI();
+    const appliedBy = caller.user;
+    await this.checkStampUser(r, appliedBy);
     const appliedAt = localIso(this.deps.now?.() ?? new Date());
-    const logBase = { requestId, mode, ...(note !== undefined && { note }), appliedBy, appliedAt, target: r.name, table: r.meta.table, rows };
+    const logRows: ApplyLogEntry["rows"] = rows.map((row) => ({ ...row }));
+    const logBase = { requestId, mode, ...(note !== undefined && { note }), appliedBy, appliedAt, target: r.name, table: r.meta.table, rows: logRows };
 
-    // SQL の文面は先に作る（コミットした後に失敗して戻し SQL が返らない、を避ける）。
-    const { script, undoScript } = this.renderScripts(r, requestId, mode, rows);
+    // 反映する SQL の文面は先に作る。戻し SQL は stamp の列の今の値を使うので、ロックして読んだ後（コミットの前）に作る。
+    const script = this.renderApplyScript(r, requestId, mode, rows, appliedBy);
+    const userStamp: Row = Object.fromEntries(r.stamp.filter((s) => s.value === "user").map((s) => [s.column, appliedBy]));
+    const nowStamp = r.stamp.filter((s) => s.value === "now").map((s) => s.column);
+    // ロックした行から読む列: stamp の列（戻し SQL のため）と、サーバの業務ルールが見るほかの列。
+    const dbKeyCols = this.dbKeyColumns(r);
+    const ruleColumns = (r.rules?.compiled ?? []).filter((rule) => (rule.severity ?? "error") === "error").flatMap((rule) => rule.columns);
+    const readFor = (row: { before: Row }) =>
+      [...new Set([...r.stamp.map((s) => s.column), ...ruleColumns])].filter((c) => !dbKeyCols.includes(c) && !(c in row.before));
 
     // 2〜6. トランザクションの中で、ロックを掛けて今の値を確かめてから流す。
-    type Outcome = { conflicts: Conflict[]; updated: number; duplicate?: [number, number] };
+    type Outcome = { conflicts: Conflict[]; updated: number; duplicate?: [number, number]; rowErrors?: RowError[]; undoScript?: string };
     let outcome: Outcome;
     try {
       outcome = await this.deps.dialect.transaction<Outcome>(async (tx) => {
         const conflicts: Conflict[] = [];
         const dbKeys = new Map<string, number>();
+        const readValues: Row[] = [];
         for (const [index, row] of rows.entries()) {
-          const locked = await tx.lockAndCompare(r.meta, r.key, row.key, row.before);
+          if (!this.inScope(r, row.key)) {
+            conflicts.push({ target: r.name, index, key: row.key, reason: "not_found" });
+            readValues.push({});
+            continue;
+          }
+          const locked = await tx.lockAndCompare(r.meta, dbKeyCols, this.dbKey(r, row.key), row.before, readFor(row));
+          readValues.push(locked.read ?? {});
           if (!locked.found) {
             conflicts.push({ target: r.name, index, key: row.key, reason: "not_found" });
             continue;
@@ -377,14 +506,21 @@ export class Handlers {
             conflicts.push({ target: r.name, index, key: row.key, reason: "changed", columns: locked.changed, current: locked.current! });
           }
         }
-        if (conflicts.length > 0 || mode === "check") return { commit: false, value: { conflicts, updated: 0 } };
+        if (conflicts.length > 0) return { commit: false, value: { conflicts, updated: 0 } };
+        const ruleErrors = this.checkServerRules(r, rows, rowIndexes, readValues);
+        if (ruleErrors.length > 0) return { commit: false, value: { conflicts, updated: 0, rowErrors: ruleErrors } };
+        rows.forEach((row, i) => {
+          if (r.stamp.length > 0) logRows[i]!.stampBefore = Object.fromEntries(r.stamp.map((s) => [s.column, readValues[i]![s.column] ?? null]));
+        });
+        const undoScript = this.renderUndoScript(r, requestId, rows, logRows);
+        if (mode === "check") return { commit: false, value: { conflicts, updated: 0, undoScript } };
         let updated = 0;
         for (const row of rows) {
-          const n = await tx.update(r.meta, r.key, row.key, row.after);
+          const n = await tx.update(r.meta, dbKeyCols, this.dbKey(r, row.key), { ...row.after, ...userStamp }, nowStamp);
           if (n !== 1) throw new DbError(`UPDATE の影響行数が ${n} でした（1 のはず）: ${JSON.stringify(row.key)}`);
           updated += n;
         }
-        return { commit: true, value: { conflicts, updated } };
+        return { commit: true, value: { conflicts, updated, undoScript } };
       });
     } catch (e) {
       await this.safeLog({ ...logBase, outcome: "error", error: e instanceof Error ? e.message : String(e) });
@@ -394,8 +530,12 @@ export class Handlers {
     if (outcome.duplicate) {
       const [a, b] = outcome.duplicate;
       throw new Fail("bad_request", "1 行に誤りがあります", {
-        rowErrors: [{ target: r.name, index: b, code: "duplicate_key", message: `${a} 番目の行と DB 上で同じ行を指しています` }],
+        rowErrors: [{ target: r.name, index: rowIndexes[b]!, code: "duplicate_key", message: `${rowIndexes[a]} 番目の行と DB 上で同じ行を指しています` }],
       });
+    }
+    if (outcome.rowErrors) {
+      const n = new Set(outcome.rowErrors.map((e) => e.index)).size;
+      throw new Fail("bad_request", `${n} 行がサーバの業務ルールに合いません`, { rowErrors: outcome.rowErrors });
     }
     if (outcome.conflicts.length > 0) {
       await this.safeLog({ ...logBase, outcome: "conflict", conflicts: outcome.conflicts });
@@ -413,7 +553,7 @@ export class Handlers {
       appliedBy,
       results: [{ target: r.name, updated: outcome.updated }],
       script,
-      undoScript,
+      undoScript: outcome.undoScript!,
     };
     if (mode === "execute") this.applied.set(requestId, result);
     // コミットした後なので、ログが書けなくても結果（戻し SQL）は返す。
@@ -457,12 +597,60 @@ export class Handlers {
     }
   }
 
-  private renderScripts(r: Resolved, requestId: string, mode: ApplyMode, rows: { key: Row; before: Row; after: Row }[]) {
-    const d = this.deps.dialect;
-    const head = `-- patchiri ${requestId} ${r.name} (${r.meta.table}) ${rows.length}行`;
-    const script = d.renderScript(r.meta, `${head} ${mode === "check" ? "実行予定" : "実行済み"}`, rows.map((row) => ({ set: row.after, key: row.key, expect: row.before })), "apply");
-    const undoScript = d.renderScript(r.meta, `${head} の戻し`, rows.map((row) => ({ set: row.before, key: row.key, expect: row.after })), "undo");
-    return { script, undoScript };
+  /** stamp の "user" の列に、反映した人の名前が入るか。入らなければ DB に触る前に止める。 */
+  private async checkStampUser(r: Resolved, user: string): Promise<void> {
+    for (const s of r.stamp) {
+      if (s.value !== "user") continue;
+      const msg = checkValue({ ...s.col, updatable: false, nullable: false }, user);
+      let bad = msg;
+      if (!bad && this.deps.dialect.checkStrings) {
+        const [res] = await this.deps.dialect.checkStrings(r.meta, [{ column: s.column, value: user }]);
+        if (res && !res.encodable) bad = "列の文字コードで表せない字があります";
+        else if (res && s.col.maxBytes !== undefined && res.bytes > s.col.maxBytes) bad = `${s.col.maxBytes} バイトを超えています（${res.bytes} バイト）`;
+      }
+      if (bad) throw new Fail("bad_request", `反映した人の名前（${user}）が stamp の列 ${s.column} に入りません（${bad}）`, { details: { column: s.column } });
+    }
+  }
+
+  /**
+   * サーバに置いた業務ルールのうち error のものを、反映した後の行（ロックして読んだ値に after を重ねたもの）で見る。
+   * 行が変える列にかかわるルールだけを見る（変えない列のルールは見ない）。
+   */
+  private checkServerRules(r: Resolved, rows: { key: Row; before: Row; after: Row }[], rowIndexes: number[], readValues: Row[]): RowError[] {
+    const rules = (r.rules?.compiled ?? []).filter((rule) => (rule.severity ?? "error") === "error");
+    if (rules.length === 0) return [];
+    const errors: RowError[] = [];
+    rows.forEach((row, i) => {
+      const merged: Row = { ...readValues[i], ...r.scope, ...row.key, ...row.after };
+      for (const rule of rules) {
+        const touched = rule.columns.filter((c) => c in row.after);
+        if (touched.length === 0) continue;
+        const column = rule.column in row.after ? rule.column : touched[0]!;
+        const broken =
+          checkRule(rule, merged[rule.column] ?? null, merged) ??
+          (rule.column in row.after ? checkChange(rule, row.before[rule.column] ?? null, row.after[rule.column] ?? null, merged) : null);
+        if (broken) errors.push({ target: r.name, index: rowIndexes[i]!, code: "rule_violation", column, message: ruleMessageAt(rule, broken, column, merged) });
+      }
+    });
+    return errors;
+  }
+
+  private scriptHead(r: Resolved, requestId: string, rows: unknown[]): string {
+    return `-- patchiri ${requestId} ${r.name} (${r.meta.table}) ${rows.length}行`;
+  }
+
+  private renderApplyScript(r: Resolved, requestId: string, mode: ApplyMode, rows: { key: Row; before: Row; after: Row }[], user: string): string {
+    const userStamp: Row = Object.fromEntries(r.stamp.filter((s) => s.value === "user").map((s) => [s.column, user]));
+    const now = r.stamp.filter((s) => s.value === "now").map((s) => s.column);
+    const head = `${this.scriptHead(r, requestId, rows)} ${mode === "check" ? "実行予定" : "実行済み"}`;
+    const updates = rows.map((row) => ({ set: { ...row.after, ...userStamp }, key: this.dbKey(r, row.key), expect: row.before, ...(now.length > 0 && { now }) }));
+    return this.deps.dialect.renderScript(r.meta, head, updates, "apply");
+  }
+
+  /** 戻し SQL。stamp の列は反映する前の値（ロックして読んだ値）に戻す。戻す条件はデータの列が after のままか。 */
+  private renderUndoScript(r: Resolved, requestId: string, rows: { key: Row; before: Row; after: Row }[], logRows: ApplyLogEntry["rows"]): string {
+    const updates = rows.map((row, i) => ({ set: { ...row.before, ...logRows[i]!.stampBefore }, key: this.dbKey(r, row.key), expect: row.after }));
+    return this.deps.dialect.renderScript(r.meta, `${this.scriptHead(r, requestId, rows)} の戻し`, updates, "undo");
   }
 }
 

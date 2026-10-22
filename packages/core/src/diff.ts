@@ -1,6 +1,6 @@
 // 差分。検証済みの行を DB の今の値と比べ、「変わる」「同じ」「キーなし」に分ける（仕様 5）。
 
-import { checkChange, checkRule, isRowRule, type CompiledRule } from "./rules.js";
+import { checkChange, checkRule, isRowRule, ruleMessageAt, type CompiledRule } from "./rules.js";
 import { cellRef } from "./table.js";
 import type { ApplyMode, ApplyRequest, FetchedRow, Row, TableDescription, Value } from "./types.js";
 import type { Issue, ParsedRow, ValidationResult } from "./validate.js";
@@ -104,8 +104,10 @@ export function diff(desc: TableDescription, validation: ValidationResult, fetch
       for (const rule of laterRules) {
         if (!(rule.column in merged)) continue;
         const broken = checkRule(rule, merged[rule.column]!, merged);
-        // 取込に無い列のルールは、取込にある最初の列のセルに付ける。
-        if (broken) ruleIssue(rule, broken, validation.columnIndex[rule.column] !== undefined ? rule.column : rule.columns.find((c) => validation.columnIndex[c] !== undefined)!);
+        // 取込に無い列のルールは、取込にある最初の列のセルに付ける（文の頭にルールの列と今の値を付ける）。
+        if (!broken) continue;
+        const column = validation.columnIndex[rule.column] !== undefined ? rule.column : rule.columns.find((c) => validation.columnIndex[c] !== undefined)!;
+        ruleIssue(rule, ruleMessageAt(rule, broken, column, merged), column);
       }
     }
     const status: DiffStatus = changes.length > 0 ? "change" : "same";

@@ -28,8 +28,10 @@ namespace Patchiri.Server
     {
         public PatchiriConfig Config;
         public IPatchiriDialect Dialect;
-        /// <summary>反映した人。WebForms では HttpContext.Current.User.Identity.Name。</summary>
+        /// <summary>反映した人。WebForms では PatchiriWebMethods.WhoAmI（既定は HttpContext.Current.User.Identity.Name）。</summary>
         public Func<string> WhoAmI;
+        /// <summary>ロールの判定（許可リストの roles）。null なら、roles を書いたターゲットは誰も使えない（閉じる側に倒す）。</summary>
+        public Func<string, bool> IsInRole;
         /// <summary>反映ログを 1 件書く。</summary>
         public Action<Dictionary<string, object>> Log;
         /// <summary>サーバ側のエラーを残す。</summary>
@@ -60,6 +62,17 @@ namespace Patchiri.Server
             public HashSet<string> Updatable;
             /// <summary>小文字の列名 → 列。</summary>
             public Dictionary<string, ColumnMeta> ByName;
+            /// <summary>列名（DB の綴り）→ 表示名。</summary>
+            public Dictionary<string, string> Labels;
+            /// <summary>stamp の列（DB の綴り）と "now" / "user"。</summary>
+            public List<KeyValuePair<ColumnMeta, string>> Stamp;
+            /// <summary>scope（DB の綴り）。</summary>
+            public Row Scope;
+            /// <summary>scope のうちキーでない列。DB で行を探すときはキーに足す。</summary>
+            public List<string> ScopeColumns;
+            /// <summary>サーバに置いた業務ルール（rules にこのターゲットが無ければ null）。</summary>
+            public object RawRules;
+            public List<PatchiriRule> Rules;
 
             public ColumnMeta Find(string name)
             {
@@ -81,6 +94,8 @@ namespace Patchiri.Server
             public Row Key;
             public Row Before;
             public Row After;
+            /// <summary>stamp の列の、反映する前の値（ロックして読んだもの。stamp を書いたターゲットだけ）。</summary>
+            public Row StampBefore;
         }
 
         readonly PatchiriServiceOptions o;
@@ -88,6 +103,8 @@ namespace Patchiri.Server
         readonly Dictionary<string, TableMeta> metaCache = new Dictionary<string, TableMeta>(StringComparer.Ordinal);
         readonly Dictionary<string, Dictionary<string, object>> applied = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
         readonly Queue<string> appliedOrder = new Queue<string>();
+        /// <summary>ターゲットごとの、使える形にした業務ルール（テーブル定義の覚えと同じく、設定を読み直すまで持つ）。</summary>
+        readonly Dictionary<string, List<PatchiriRule>> rulesCache = new Dictionary<string, List<PatchiriRule>>(StringComparer.Ordinal);
 
         public PatchiriService(PatchiriServiceOptions options)
         {
@@ -188,6 +205,15 @@ namespace Patchiri.Server
             return meta;
         }
 
+        /// <summary>ターゲットを使えるか（roles）。roles を書いていなければ誰でも。判定の手段がなければ使えない。</summary>
+        bool Allowed(TargetConfig target)
+        {
+            if (target.Roles == null) return true;
+            if (o.IsInRole == null) return false;
+            foreach (var role in target.Roles) if (o.IsInRole(role)) return true;
+            return false;
+        }
+
         Resolved Resolve(object nameObj)
         {
             var name = nameObj as string;
@@ -199,6 +225,13 @@ namespace Patchiri.Server
                 };
             }
             var target = o.Config.Targets[name];
+            if (!Allowed(target))
+            {
+                throw new PatchiriFailure("forbidden", "ターゲット " + name + " を使う権限がありません")
+                {
+                    Details = new Dictionary<string, object> { { "target", name } },
+                };
+            }
             var meta = GetMeta(target.Table);
             var dbCols = new Dictionary<string, ColumnMeta>();
             foreach (var c in meta.Columns) dbCols[c.Name.ToLowerInvariant()] = c;
@@ -237,7 +270,79 @@ namespace Patchiri.Server
                 r.ByName[c.Name.ToLowerInvariant()] = c;
                 if (allowed.Contains(c.Name) && !key.Contains(c.Name) && c.Type != "other" && !c.Identity && !c.Computed) r.Updatable.Add(c.Name);
             }
+            r.Labels = new Dictionary<string, string>();
+            foreach (var kv in target.Labels) r.Labels[pick(new List<string> { kv.Key })[0]] = kv.Value;
+            r.Stamp = new List<KeyValuePair<ColumnMeta, string>>();
+            foreach (var kv in target.Stamp)
+            {
+                ColumnMeta col;
+                if (!dbCols.TryGetValue(kv.Key.ToLowerInvariant(), out col))
+                    throw new InvalidOperationException("許可リストの列 " + name + ".stamp." + kv.Key + " が " + meta.Table + " にありません");
+                if (key.Contains(col.Name)) throw new InvalidOperationException(name + " のキー列 " + col.Name + " は stamp にできません");
+                if (col.Identity || col.Computed) throw new InvalidOperationException(name + ".stamp の " + col.Name + " は自動で入る列（IDENTITY や計算列）です");
+                if (kv.Value == "now" && o.Dialect.NowExpression(col) == null)
+                    throw new InvalidOperationException(name + ".stamp の " + col.Name + " は日付・時刻の列ではありません（\"now\" は日付・時刻の列だけ）");
+                if (kv.Value == "user" && col.Type != "string")
+                    throw new InvalidOperationException(name + ".stamp の " + col.Name + " は文字列の列ではありません（\"user\" は文字列の列だけ）");
+                r.Stamp.Add(new KeyValuePair<ColumnMeta, string>(col, kv.Value));
+            }
+            r.Scope = new Row();
+            r.ScopeColumns = new List<string>();
+            foreach (var kv in target.Scope)
+            {
+                ColumnMeta col;
+                if (!dbCols.TryGetValue(kv.Key.ToLowerInvariant(), out col))
+                    throw new InvalidOperationException("許可リストの列 " + name + ".scope." + kv.Key + " が " + meta.Table + " にありません");
+                var msg = PatchiriValues.CheckValue(col, kv.Value, false);
+                if (msg != null) throw new InvalidOperationException(name + ".scope." + col.Name + " の値が列に合いません（" + msg + "）");
+                r.Scope[col.Name] = kv.Value;
+                if (!key.Contains(col.Name)) r.ScopeColumns.Add(col.Name);
+            }
+            if (o.Config.Rules != null && o.Config.Rules.ContainsKey(name))
+            {
+                r.RawRules = o.Config.Rules[name];
+                lock (sync)
+                {
+                    List<PatchiriRule> cached;
+                    if (rulesCache.TryGetValue(name, out cached)) r.Rules = cached;
+                }
+                if (r.Rules == null)
+                {
+                    var errors = new List<string>();
+                    var compiled = PatchiriRules.Compile(name, r.Columns, r.RawRules, "サーバの業務ルール", errors);
+                    if (errors.Count > 0) throw new InvalidOperationException("rules.targets." + name + " の誤り: " + string.Join(" / ", errors));
+                    lock (sync) rulesCache[name] = compiled;
+                    r.Rules = compiled;
+                }
+            }
             return r;
+        }
+
+        /// <summary>キーが scope の中か（scope に書いたキー列は、その値と厳密に同じでなければ外）。</summary>
+        static bool InScope(Resolved r, Row key)
+        {
+            foreach (var k in r.Key)
+            {
+                if (!r.Scope.ContainsKey(k)) continue;
+                if (!PatchiriValues.SameColumnValue(r.Meta.Column(k), key[k], r.Scope[k])) return false;
+            }
+            return true;
+        }
+
+        /// <summary>DB で行を探すときのキーの列（キーに scope の列を足したもの）。</summary>
+        static List<string> DbKeyColumns(Resolved r)
+        {
+            var list = new List<string>(r.Key);
+            list.AddRange(r.ScopeColumns);
+            return list;
+        }
+
+        /// <summary>DB で行を探すときのキー（scope の値を足したもの）。</summary>
+        static Row DbKey(Resolved r, Row key)
+        {
+            var output = new Row(key);
+            foreach (var c in r.ScopeColumns) output[c] = r.Scope[c];
+            return output;
         }
 
         Dictionary<string, object> Limits()
@@ -253,6 +358,8 @@ namespace Patchiri.Server
                 foreach (var name in o.Config.TargetNames)
                 {
                     var t = o.Config.Targets[name];
+                    // 使えないターゲットは一覧に出さない（roles）。
+                    if (!Allowed(t)) continue;
                     targets.Add(new Dictionary<string, object> { { "target", name }, { "table", t.Table }, { "access", t.Access } });
                 }
                 var list = Ok();
@@ -283,6 +390,8 @@ namespace Patchiri.Server
                 if (c.Identity) col["identity"] = true;
                 if (c.Computed) col["computed"] = true;
                 if (c.HasDefault) col["hasDefault"] = true;
+                string label;
+                if (r.Labels.TryGetValue(c.Name, out label)) col["label"] = label;
                 columns.Add(col);
             }
             var foreignKeys = new List<object>();
@@ -307,6 +416,19 @@ namespace Patchiri.Server
             res["columns"] = columns;
             res["foreignKeys"] = foreignKeys;
             res["limits"] = Limits();
+            if (r.RawRules != null) res["rules"] = r.RawRules;
+            if (r.Stamp.Count > 0)
+            {
+                var stamp = new List<object>();
+                foreach (var kv in r.Stamp) stamp.Add(new Dictionary<string, object> { { "column", kv.Key.Name }, { "value", kv.Value } });
+                res["stamp"] = stamp;
+            }
+            if (r.Scope.Count > 0)
+            {
+                var scope = new Dictionary<string, object>();
+                foreach (var kv in r.Scope) scope[kv.Key] = kv.Value is double ? PatchiriJson.JsonNumber((double)kv.Value) : kv.Value;
+                res["scope"] = scope;
+            }
             return res;
         }
 
@@ -332,6 +454,7 @@ namespace Patchiri.Server
             {
                 try
                 {
+                    // 使えないターゲット（roles）も「確認できない」扱いになる。
                     var r = Resolve(name);
                     if (o.Dialect.NormalizeTable(r.Meta.Table) != want) continue;
                     if (r.Key.Count == cols.Count && r.Key.TrueForAll(k => cols.Contains(k.ToLowerInvariant()))) return name;
@@ -414,7 +537,30 @@ namespace Patchiri.Server
             }
             var all = new List<string>(r.Key);
             foreach (var c in columns) if (!r.Key.Contains(c)) all.Add(c);
-            var rows = keys.Count == 0 ? new List<Row>() : o.Dialect.FetchRows(r.Meta, r.Key, all, keys);
+            // scope の外のキーは DB に聞かずに「見つからない」。値にはキーと頼んだ列だけを返す（scope の列は出さない）。
+            var asked = new List<int>();
+            var askedKeys = new List<Row>();
+            for (var i = 0; i < keys.Count; i++)
+            {
+                if (!InScope(r, keys[i])) continue;
+                asked.Add(i);
+                askedKeys.Add(DbKey(r, keys[i]));
+            }
+            var found = askedKeys.Count == 0 ? new List<Row>() : o.Dialect.FetchRows(r.Meta, DbKeyColumns(r), all, askedKeys);
+            var rows = new List<Row>();
+            for (var i = 0; i < keys.Count; i++) rows.Add(null);
+            for (var j = 0; j < asked.Count; j++)
+            {
+                if (found[j] == null) continue;
+                var values = new Row();
+                foreach (var c in all)
+                {
+                    object v;
+                    found[j].TryGetValue(c, out v);
+                    values[c] = v;
+                }
+                rows[asked[j]] = values;
+            }
             var outRows = new List<object>();
             for (var i = 0; i < rows.Count; i++)
             {
@@ -429,11 +575,23 @@ namespace Patchiri.Server
             return res;
         }
 
+        const string ApplyTooLarge = "反映の結果（SQL と戻し SQL）が大きすぎて返せないので、何も反映していません。行を分けるか、web.config の maxJsonLength を上げてください";
+
+        /// <summary>WebMethod で返せる長さか（WebMethod は {"d": 結果} で返す）。</summary>
+        int ResponseLength(Dictionary<string, object> result)
+        {
+            return PatchiriJson.Stringify(new Dictionary<string, object> { { "d", result } }).Length;
+        }
+
+        bool Fits(Dictionary<string, object> result)
+        {
+            return !o.MaxResponseLength.HasValue || ResponseLength(result) <= o.MaxResponseLength.Value;
+        }
+
         void EnsureFits(Dictionary<string, object> result, string message)
         {
             if (!o.MaxResponseLength.HasValue) return;
-            // WebMethod は {"d": 結果} で返す。
-            var length = PatchiriJson.Stringify(new Dictionary<string, object> { { "d", result } }).Length;
+            var length = ResponseLength(result);
             if (length <= o.MaxResponseLength.Value) return;
             throw new PatchiriFailure("too_many_rows", message)
             {
@@ -594,6 +752,7 @@ namespace Patchiri.Server
             }
 
             var appliedBy = o.WhoAmI != null ? o.WhoAmI() : "";
+            CheckStampUser(r, appliedBy);
             var appliedAt = LocalIso(o.Now != null ? o.Now() : DateTime.Now);
             Func<string, Dictionary<string, object>> logEntry = outcome =>
             {
@@ -605,14 +764,18 @@ namespace Patchiri.Server
                 entry["table"] = r.Meta.Table;
                 entry["outcome"] = outcome;
                 var list = new List<object>();
-                foreach (var row in rows) list.Add(new Dictionary<string, object> { { "key", row.Key }, { "before", row.Before }, { "after", row.After } });
+                foreach (var row in rows)
+                {
+                    var item = new Dictionary<string, object> { { "key", row.Key }, { "before", row.Before }, { "after", row.After } };
+                    if (row.StampBefore != null) item["stampBefore"] = row.StampBefore;
+                    list.Add(item);
+                }
                 entry["rows"] = list;
                 return entry;
             };
 
-            // SQL の文面と返す結果は先に作る（コミットした後に失敗して戻し SQL が返らない、を避ける）。
-            string script, undoScript;
-            RenderScripts(r, requestId, mode, rows, out script, out undoScript);
+            // 反映する SQL の文面は先に作る。戻し SQL は stamp の列の今の値を使うので、ロックして読んだ後（コミットの前）に作る。
+            var script = RenderApplyScript(r, requestId, mode, rows, appliedBy);
             var result = Ok();
             result["requestId"] = requestId;
             result["mode"] = mode;
@@ -621,11 +784,29 @@ namespace Patchiri.Server
             var targetResult = new Dictionary<string, object> { { "target", r.Name }, { "updated", mode == "execute" ? rows.Count : 0 } };
             result["results"] = new List<object> { targetResult };
             result["script"] = script;
-            result["undoScript"] = undoScript;
-            EnsureFits(result, "反映の結果（SQL と戻し SQL）が大きすぎて返せないので、何も反映していません。行を分けるか、web.config の maxJsonLength を上げてください");
+            // 返せない大きさなら、DB に触る前に止める（コミットした後に戻し SQL が返らない、を避ける）。
+            // stamp があれば戻し SQL はロックして読んだ値で作り直し、もう一度確かめる。
+            result["undoScript"] = RenderUndoScript(r, requestId, rows);
+            EnsureFits(result, ApplyTooLarge);
+            var userStamp = new Row();
+            var nowStamp = new List<string>();
+            foreach (var kv in r.Stamp)
+            {
+                if (kv.Value == "user") userStamp[kv.Key.Name] = appliedBy;
+                else nowStamp.Add(kv.Key.Name);
+            }
+            // ロックした行から読む列: stamp の列（戻し SQL のため）と、サーバの業務ルールが見るほかの列。
+            var dbKeyCols = DbKeyColumns(r);
+            var readBase = new List<string>();
+            foreach (var kv in r.Stamp) if (!readBase.Contains(kv.Key.Name)) readBase.Add(kv.Key.Name);
+            foreach (var rule in ErrorRules(r))
+                foreach (var c in rule.Columns)
+                    if (!readBase.Contains(c)) readBase.Add(c);
 
             // 2〜6. トランザクションの中で、ロックを掛けて今の値を確かめてから流す。
             var conflicts = new List<object>();
+            List<object> ruleErrors = null;
+            var tooLarge = false;
             var updated = 0;
             int[] duplicate = null;
             try
@@ -633,10 +814,20 @@ namespace Patchiri.Server
                 o.Dialect.RunTransaction(tx =>
                 {
                     var dbKeys = new Dictionary<string, int>(StringComparer.Ordinal);
+                    var readValues = new List<Row>();
                     for (var index = 0; index < rows.Count; index++)
                     {
                         var row = rows[index];
-                        var locked = tx.LockAndCompare(r.Meta, r.Key, row.Key, row.Before);
+                        if (!InScope(r, row.Key))
+                        {
+                            conflicts.Add(new Dictionary<string, object> { { "target", r.Name }, { "index", index }, { "key", row.Key }, { "reason", "not_found" } });
+                            readValues.Add(new Row());
+                            continue;
+                        }
+                        var read = new List<string>();
+                        foreach (var c in readBase) if (!dbKeyCols.Contains(c) && !row.Before.ContainsKey(c)) read.Add(c);
+                        var locked = tx.LockAndCompare(r.Meta, dbKeyCols, DbKey(r, row.Key), row.Before, read);
+                        readValues.Add(locked.Read ?? new Row());
                         if (!locked.Found)
                         {
                             conflicts.Add(new Dictionary<string, object> { { "target", r.Name }, { "index", index }, { "key", row.Key }, { "reason", "not_found" } });
@@ -663,10 +854,39 @@ namespace Patchiri.Server
                             });
                         }
                     }
-                    if (conflicts.Count > 0 || mode == "check") return false;
+                    if (conflicts.Count > 0) return false;
+                    var broken = CheckServerRules(r, rows, readValues);
+                    if (broken.Count > 0)
+                    {
+                        ruleErrors = broken;
+                        return false;
+                    }
+                    if (r.Stamp.Count > 0)
+                    {
+                        for (var i = 0; i < rows.Count; i++)
+                        {
+                            var stampBefore = new Row();
+                            foreach (var kv in r.Stamp)
+                            {
+                                object v;
+                                readValues[i].TryGetValue(kv.Key.Name, out v);
+                                stampBefore[kv.Key.Name] = v;
+                            }
+                            rows[i].StampBefore = stampBefore;
+                        }
+                        result["undoScript"] = RenderUndoScript(r, requestId, rows);
+                        if (!Fits(result))
+                        {
+                            tooLarge = true;
+                            return false;
+                        }
+                    }
+                    if (mode == "check") return false;
                     foreach (var row in rows)
                     {
-                        var n = tx.Update(r.Meta, r.Key, row.Key, row.After);
+                        var set = new Row(row.After);
+                        foreach (var kv in userStamp) set[kv.Key] = kv.Value;
+                        var n = tx.Update(r.Meta, dbKeyCols, DbKey(r, row.Key), set, nowStamp);
                         if (n != 1) throw new PatchiriDbException("UPDATE の影響行数が " + n + " でした（1 のはず）: " + PatchiriJson.Stringify(row.Key));
                         updated += n;
                     }
@@ -697,6 +917,12 @@ namespace Patchiri.Server
                     },
                 };
             }
+            if (ruleErrors != null)
+            {
+                var indexes = new HashSet<int>();
+                foreach (Dictionary<string, object> e in ruleErrors) indexes.Add((int)e["index"]);
+                throw new PatchiriFailure("bad_request", indexes.Count + " 行がサーバの業務ルールに合いません") { RowErrors = ruleErrors };
+            }
             if (conflicts.Count > 0)
             {
                 var entry = logEntry("conflict");
@@ -705,6 +931,7 @@ namespace Patchiri.Server
                 throw new PatchiriFailure("conflict", conflicts.Count + " 行が差分を取った後に変わっていたため、何も反映していません") { Conflicts = conflicts };
             }
 
+            if (tooLarge) EnsureFits(result, ApplyTooLarge);
             targetResult["updated"] = updated;
             if (mode == "execute")
             {
@@ -778,19 +1005,117 @@ namespace Patchiri.Server
             }
         }
 
-        void RenderScripts(Resolved r, string requestId, string mode, List<ApplyRow> rows, out string script, out string undoScript)
+        /// <summary>サーバの業務ルールのうち error のもの。</summary>
+        static List<PatchiriRule> ErrorRules(Resolved r)
         {
-            var d = o.Dialect;
-            var head = "-- patchiri " + requestId + " " + r.Name + " (" + r.Meta.Table + ") " + rows.Count + "行";
+            var list = new List<PatchiriRule>();
+            if (r.Rules == null) return list;
+            foreach (var rule in r.Rules) if (rule.Severity == "error") list.Add(rule);
+            return list;
+        }
+
+        /// <summary>stamp の "user" の列に、反映した人の名前が入るか。入らなければ DB に触る前に止める。</summary>
+        void CheckStampUser(Resolved r, string user)
+        {
+            foreach (var kv in r.Stamp)
+            {
+                if (kv.Value != "user") continue;
+                var col = kv.Key;
+                var bad = PatchiriValues.CheckValue(col, user, false);
+                if (bad == null)
+                {
+                    var res = o.Dialect.CheckStrings(r.Meta, new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>(col.Name, user) })[0];
+                    if (res != null && !res.Encodable) bad = "列の文字コードで表せない字があります";
+                    else if (res != null && col.MaxBytes.HasValue && res.Bytes > col.MaxBytes.Value) bad = col.MaxBytes.Value + " バイトを超えています（" + res.Bytes + " バイト）";
+                }
+                if (bad != null)
+                {
+                    throw new PatchiriFailure("bad_request", "反映した人の名前（" + user + "）が stamp の列 " + col.Name + " に入りません（" + bad + "）")
+                    {
+                        Details = new Dictionary<string, object> { { "column", col.Name } },
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// サーバに置いた業務ルールのうち error のものを、反映した後の行（ロックして読んだ値に after を重ねたもの）で見る。
+        /// 行が変える列にかかわるルールだけを見る（変えない列のルールは見ない）。
+        /// </summary>
+        List<object> CheckServerRules(Resolved r, List<ApplyRow> rows, List<Row> readValues)
+        {
+            var errors = new List<object>();
+            var rules = ErrorRules(r);
+            if (rules.Count == 0) return errors;
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                var merged = new Row(readValues[i]);
+                foreach (var kv in r.Scope) merged[kv.Key] = kv.Value;
+                foreach (var kv in row.Key) merged[kv.Key] = kv.Value;
+                foreach (var kv in row.After) merged[kv.Key] = kv.Value;
+                foreach (var rule in rules)
+                {
+                    string touched = null;
+                    foreach (var c in rule.Columns)
+                    {
+                        if (row.After.ContainsKey(c))
+                        {
+                            touched = c;
+                            break;
+                        }
+                    }
+                    if (touched == null) continue;
+                    var changesColumn = row.After.ContainsKey(rule.Column);
+                    var column = changesColumn ? rule.Column : touched;
+                    object v;
+                    merged.TryGetValue(rule.Column, out v);
+                    var broken = PatchiriRules.Check(rule, v, merged);
+                    if (broken == null && changesColumn) broken = PatchiriRules.CheckChange(rule, row.Before[rule.Column], row.After[rule.Column], merged);
+                    if (broken == null) continue;
+                    errors.Add(new Dictionary<string, object>
+                    {
+                        { "target", r.Name },
+                        { "index", i },
+                        { "code", "rule_violation" },
+                        { "column", column },
+                        { "message", PatchiriRules.MessageAt(rule, broken, column, merged) },
+                    });
+                }
+            }
+            return errors;
+        }
+
+        static string ScriptHead(Resolved r, string requestId, List<ApplyRow> rows)
+        {
+            return "-- patchiri " + requestId + " " + r.Name + " (" + r.Meta.Table + ") " + rows.Count + "行";
+        }
+
+        string RenderApplyScript(Resolved r, string requestId, string mode, List<ApplyRow> rows, string user)
+        {
+            var now = new List<string>();
+            foreach (var kv in r.Stamp) if (kv.Value == "now") now.Add(kv.Key.Name);
             var updates = new List<ScriptUpdate>();
-            var undoUpdates = new List<ScriptUpdate>();
             foreach (var row in rows)
             {
-                updates.Add(new ScriptUpdate { Set = row.After, Key = row.Key, Expect = row.Before });
-                undoUpdates.Add(new ScriptUpdate { Set = row.Before, Key = row.Key, Expect = row.After });
+                var set = new Row(row.After);
+                foreach (var kv in r.Stamp) if (kv.Value == "user") set[kv.Key.Name] = user;
+                updates.Add(new ScriptUpdate { Set = set, Key = DbKey(r, row.Key), Expect = row.Before, Now = now.Count > 0 ? now : null });
             }
-            script = d.RenderScript(r.Meta, head + " " + (mode == "check" ? "実行予定" : "実行済み"), updates, "apply");
-            undoScript = d.RenderScript(r.Meta, head + " の戻し", undoUpdates, "undo");
+            return o.Dialect.RenderScript(r.Meta, ScriptHead(r, requestId, rows) + " " + (mode == "check" ? "実行予定" : "実行済み"), updates, "apply");
+        }
+
+        /// <summary>戻し SQL。stamp の列は反映する前の値（ロックして読んだ値）に戻す。戻す条件はデータの列が after のままか。</summary>
+        string RenderUndoScript(Resolved r, string requestId, List<ApplyRow> rows)
+        {
+            var updates = new List<ScriptUpdate>();
+            foreach (var row in rows)
+            {
+                var set = new Row(row.Before);
+                if (row.StampBefore != null) foreach (var kv in row.StampBefore) set[kv.Key] = kv.Value;
+                updates.Add(new ScriptUpdate { Set = set, Key = DbKey(r, row.Key), Expect = row.After });
+            }
+            return o.Dialect.RenderScript(r.Meta, ScriptHead(r, requestId, rows) + " の戻し", updates, "undo");
         }
     }
 }

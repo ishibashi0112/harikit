@@ -57,14 +57,15 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 ### 1.4 認証と CSRF
 
 - **認証と認可は載せ先のアプリに任せる。** WebForms ならフォーム認証やセッションをそのまま使い、ログインしていない・権限がないときは載せ先の流儀で 401/403 を返す。patchiri 自体はユーザー管理を持たない。
-- サーバは「誰が反映したか」を自分で判定して記録する（クライアントが名乗る名前は信じない）。
+- サーバは「誰が反映したか」を自分で判定して記録する（クライアントが名乗る名前は信じない）。判定の仕方は載せ先に合わせて差し替えられる（C#・VB.NET 版は `PatchiriWebMethods.WhoAmI`。Session に社員番号を置く自前のログインのアプリ向け。Node 版は `whoAmI(ctx)`）。差し替えた判定が名前を返さなければ、未ログインとして HTTP 401 を返す。
+- ターゲットごとの権限は、許可リストの `roles` で絞れる（[2](#2-許可リストサーバ側の設定)）。ロールの判定も載せ先の仕組みで行う（C#・VB.NET 版は既定で `User.IsInRole`、`PatchiriWebMethods.IsInRole` で差し替え可。Node 版は `isInRole(role, ctx)`）。
 - CSRF 対策として、すべての呼び出しに `X-Patchiri: 1` ヘッダを必須にする。`application/json` 必須と合わせ、他サイトのフォームからは呼べない。
 - Node 版をローカル（`127.0.0.1`）で立てるときは、起動時に乱数トークンを表示し、`Authorization: Bearer <token>` を必須にする。同じ PC の別タブのページから叩かれないため。
 
 ### 1.5 結果とエラーの返し方
 
 - **業務上の結果はすべて HTTP 200** で返し、本文の `ok` で成否を表す。WebMethod は例外を投げると 500 で中身が読みにくいので、例外は捕まえてこの形に直す。
-- HTTP 200 以外は「届かなかった」場合だけ: 401（未ログイン、Node 版のトークン違い）、403（権限なし、`X-Patchiri` ヘッダなし）、404、413（大きすぎ）、415（`Content-Type` が `application/json` でない）、5xx（サーバが落ちた）。
+- HTTP 200 以外は「届かなかった」場合だけ: 401（未ログイン、Node 版のトークン違い、差し替えた「誰が」の判定が名前を返さない）、403（権限なし、`X-Patchiri` ヘッダなし）、404、413（大きすぎ）、415（`Content-Type` が `application/json` でない）、5xx（サーバが落ちた）。
 
 成功:
 ```json
@@ -95,6 +96,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | `bad_request` | JSON の形が違う、必須項目がない |
 | `version_unsupported` | `v` が知らない版 |
 | `unknown_target` | 許可リストにないターゲット |
+| `forbidden` | そのターゲットを使う権限がない（許可リストの `roles`）。載せ先が返す HTTP 403（ページごと使えない）とは別 |
 | `column_not_allowed` | 許可されていない列を読もう・更新しようとした |
 | `key_mismatch` | キーの列がターゲットのキー列と一致しない |
 | `too_many_rows` | 1回の上限（`limits`）を超えた。返せる応答の大きさに上限がある実装で、それを超える場合も含む（`details` に上限と長さ） |
@@ -108,6 +110,7 @@ Node 版と WebForms の WebMethod 版で同じクライアントが使えるよ
 | --- | --- |
 | `invalid_value` | `key` / `before` / `after` の値が列の型の形でない（`decimal` に数値でない文字列、NOT NULL に `null`、桁あふれ、`maxBytes` 超え、列の文字コードで表せない字など）。`column` で列を示す |
 | `duplicate_key` | 照合順序のうえで、前の行と同じ DB 行を指している（`"a001"` と `"A001"` など） |
+| `rule_violation` | サーバに置いた業務ルール（許可リストの `rules`）に合わない。`column` と `message` で示す（apply のみ） |
 
 `column_not_allowed`、`key_mismatch`、`bad_request` も行単位で使える。
 
@@ -186,7 +189,40 @@ MySQL / MariaDB での書き方:
 - PostgreSQL では `"` で囲まない名前は小文字にし（`App.M_Product` は `app.m_product`）、スキーマを省くと `search_path` で探す。テーブルのほか、ビュー、パーティションテーブル、外部テーブルも指せる。MySQL / MariaDB では `` ` `` で囲んでも囲まなくてもよく、データベースを省くと接続先のデータベース。大文字小文字を区別するかは DB の `lower_case_table_names` に従う。
 - `key` は主キー（または一意キー）の列。指定がなければ DB の主キーを使う。
 - `updatable` は `readable` の部分集合。キー列は更新できない（v1）。
-- 「更新日時」や「更新者」を自動で入れたい場合のために、将来 `stamp` 設定を足す余地を残す（v1 では持たない）。
+
+ターゲットには、次の項目も書ける（どれも任意。書かなければ今までどおり）。
+
+```json
+"term": {
+  "table": "dbo.M_Term",
+  "access": "update",
+  "key": ["TermCode"],
+  "readable": ["TermCode", "StartDate", "EndDate", "UnitPrice"],
+  "updatable": ["StartDate", "EndDate", "UnitPrice"],
+  "labels": { "UnitPrice": "単価" },
+  "stamp": { "UpdatedAt": "now", "UpdatedBy": "user" },
+  "scope": { "CompanyCode": "001" },
+  "roles": ["MasterAdmin"]
+}
+```
+
+| 項目 | 形 | 意味 |
+| --- | --- | --- |
+| `labels` | `{ "列名": "表示名" }` | 列の表示名。describe の `columns[].label` に返す。コアは取込の見出しを列名でも表示名でも受ける（どちらも大文字小文字は問わず、列名が先）。列は `readable` の中から。表示名がほかの列の名前や表示名とぶつかる（大文字小文字を問わず）ときは設定の誤り |
+| `stamp` | `{ "列名": "now" か "user" }` | 反映する行ごとに、サーバが UPDATE に足す列。`"now"` は DB の今の時刻（下記）、`"user"` は `appliedBy`。`access: "update"` のターゲットだけ。キー列・`updatable` の列・自動で入る列（IDENTITY、計算列）には書けない。`readable` に載っていなくてよい。`"now"` は日付・時刻の列（型が `date` か `datetime`）だけ、`"user"` は文字列の列だけ |
+| `scope` | `{ "列名": 値 }` | このターゲットで触れる行の固定の条件（等号だけ。値は文字列、数、`true` / `false`）。外の行はこのターゲットから見えない（fetch は `found: false`、apply は衝突 `not_found`）。`updatable` と `stamp` の列には書けない。`readable` に載っていなくてよい。キー列に書いた場合、クライアントのキーの値がその値と厳密に同じ（[1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき)）でなければ外の行の扱い |
+| `roles` | `["ロール", …]` | このターゲットを使えるロール（どれか 1 つに入っていればよい）。入っていない人には、一覧（target 省略の describe）に出さず、describe / fetch / apply は `forbidden`。ほかのターゲットの外部キーの参照先としても使わない（`referencedTarget` は `null`）。ロールの判定は載せ先の仕組みで行い（[1.4](#14-認証と-csrf)）、判定の手段がない実装では `forbidden`（閉じる側に倒す） |
+
+- `stamp` の `"now"` の式は列の型に合わせて DB の関数にする（アプリのサーバではなく DB の時計。社内アプリの `GETDATE()` と同じ時計）。SQL Server は `SYSDATETIME()`、Oracle は `DATE` が `SYSDATE`、`TIMESTAMP` が `CAST(SYSTIMESTAMP AS TIMESTAMP)`、PostgreSQL は `date` が `CURRENT_DATE`、`timestamp` が `LOCALTIMESTAMP`（トランザクションの始まりの時刻）、MySQL / MariaDB は `date` が `CURDATE()`、`datetime` / `timestamp` が `NOW(6)`（列の桁に丸まる）。タイムゾーン付きの列（型が `other`）には使えない。
+- `scope` は固定の値だけ。人ごとに変わる範囲（自部署だけ）は、ページと許可リストを部署ごとに分けて組む（C#・VB.NET 版は `PatchiriWebMethods.Call` の `configPath` でページごとに許可リストを持てる）。
+
+許可リストの全体には、次も書ける。
+
+- `rules`: 業務ルール（`patchiri.rules.json` と同じ形の `{ "targets": { "ターゲット名": [ルール, …] } }`）。中身そのものか、ファイルのパス（許可リストのファイルのフォルダから。書き直したら読み直す）。書いたターゲットだけ、
+  - describe に、そのターゲットのルールの配列を `rules` で返す。コアはこれを外せないルールとして使い、手元のルール（CLI の `--rules`、画面で選ぶファイル）はその上に足す。
+  - apply で、`severity` が `"error"` のルールを反映した後の行に当てる（[7](#7-apply反映) の手順 5）。`"warning"` はサーバでは見ない（承認資料のためのもの）。
+  - `pattern` は実装ごとの正規表現で読む。JavaScript と .NET で同じ意味になる書き方にする（C#・VB.NET 版は ECMAScript 互換の指定で読み、`\p{…}` は使えない。.NET の `$` は末尾の改行の前にも当たるので、改行で終わる値まで断りたいときは `$` の代わりに `(?![\s\S])` と書く）。
+- `lockWaitSeconds`: 反映で行のロックを待つ秒数（[7](#7-apply反映) の手順 3、既定 10）。最上位にも `database` の中にも書け、どの実装も両方を読む（両方あって違えば設定の誤り）。
 
 ## 3. describe（テーブル定義）
 
@@ -267,7 +303,9 @@ MySQL / MariaDB での書き方:
 - `emptyIsNull: true` は、空文字 `""` を NULL として保存する文字列の列に付ける（Oracle の文字列の列は全部）。コアは取込でその列の空のセルを `null` にし、`""` を値として渡されたら検証エラーにする（「この列では空文字は NULL になります。空にするなら null」）。サーバはその列に `""` が来たら `invalid_value`。
 - `min` / `max` は `integer` / `bigint` の列の範囲で、値と同じ書き方（`integer` は数値、`bigint` は文字列）。型名だけで範囲が決まらないときに付ける（MySQL の `tinyint` は `-128`〜`127`、`int unsigned` は `0`〜`4294967295`、`bigint unsigned` は `"0"`〜`"18446744073709551615"`）。無ければコアは `dbType` の型名で決める（SQL Server の `tinyint` は 0〜255 など）。サーバは範囲外の値を `invalid_value` にする。
 - `foreignKeys[].referencedTarget` は、参照先が許可リストに読めるターゲットとして載っていればその名前、なければ `null`。許可リストの各ターゲットを DB で解決した名前と、外部キーの参照先の名前で照らし合わせる（シノニムやスキーマ省略で書いてあっても見つかるように）。`null` のときコアは存在確認を飛ばし、「確認できない」と警告を出す。
-- 業務ルール（価格は0より大きい等）は describe に含めない。コア側の設定で持つ。
+- `columns[].label` は許可リストの `labels` に書いた表示名（書いた列だけ）。
+- 許可リストに書いたときだけ、次も返す。`rules`: サーバに置いた業務ルールの配列（書いたまま。[2](#2-許可リストサーバ側の設定)）。`stamp`: `[{ "column": "UpdatedAt", "value": "now" }, …]`（列名は DB の綴り）。`scope`: `{ "CompanyCode": "001" }`（列名は DB の綴り）。
+- 業務ルール（価格は0より大きい等）は、サーバに置いたとき（許可リストの `rules`）だけ describe で返す。ふだんはコア側の設定で持つ。
 
 ### 文字列の列の長さと文字コード
 
@@ -351,6 +389,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
   ]
 }
 ```
+- 使う権限のないターゲット（`roles`）は一覧に出さない。
 - 一覧の `table` は許可リストに書いたままの文字列で、DB を引かない（ターゲットが多くても軽く、設定を誤ったターゲットがあっても一覧は返せるように）。DB で引いた名前はターゲットを指した describe で返す。
 
 ## 4. fetch（現在値）
@@ -391,6 +430,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - `rows` はリクエストの `keys` と同じ順・同じ数。`index` はその位置。
 - キーの照合は DB の比較規則（照合順序）に従う（[1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき)）。大文字小文字や末尾空白の扱いは DB 次第で、サーバは揃えない。返す `values` は DB に入っている値そのままで、揃えない。
 - 外部キーの存在確認は、参照先ターゲットに対してキーだけで fetch し、`found` を見る。
+- ターゲットに `scope` があれば、その外の行は `found: false`。`values` はキー列と頼んだ列だけで、`scope` の列は入れない。
 
 ## 5. 差分（コアの仕事、参考）
 
@@ -443,29 +483,33 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - `note`: 任意。ログに残す人向けのメモ（依頼番号、承認番号など）。
 - `changes`: v1 では**要素ちょうど1つ**（1テーブル）。複数テーブルへ広げるときの入れ物として今から配列にしてある。
 - `rows[].op`: v1 は `"update"` だけ。省略時も `"update"`。
-- `before` と `after` は**同じ列の集まり**で、どちらも `updatable` の列だけ。`before == after` の列が混じっていたら `bad_request`（差分を取り違えている）。
+- `before` と `after` は**同じ列の集まり**で、どちらも `updatable` の列だけ。`before == after` の列が混じっていたら `bad_request`（差分を取り違えている）。`stamp` と `scope` の列はクライアントから送らない（サーバが入れる・見る）。
 - 行数が `limits.maxApplyRows` を超えたら `too_many_rows`。1トランザクションの約束を守るため、コアは**勝手に分割しない**（分けるかは人が決める）。
 - 同じキーの行が2つあったら `rowErrors` で `duplicate_key`（後の行の `index`）。JSON の文字列が違っても照合順序で同じ行を指すもの（`"a001"` と `"A001"`）も含む。サーバはロックして読んだ行の実際のキー値で確かめる。コアの差分でも同じ確認をする。
 
 ### サーバの処理（実装が守ること）
 
 1. ターゲット・列・キーを許可リストで照合し、値が列の型の形か（`invalid_value`）も確かめる。違えばすぐ失敗（DB に触らない）。戻し SQL に値を埋め込むので、この確認は省けない。
-   返せる応答の大きさに上限がある実装（C# 版の `maxJsonLength` など）は、ここで結果（`script`、`undoScript` を含む）を組み立てて長さを見積もり、超えるなら `too_many_rows` で止める。コミットした後に結果が返せないと、戻し SQL がクライアントに届かないため。fetch も同じ。
+   `stamp` の `"user"` の列に `appliedBy` が入らない（長さ、文字コード）ときもここで止める（`bad_request`、どの列かを `message` と `details.column` に）。
+   返せる応答の大きさに上限がある実装（C# 版の `maxJsonLength` など）は、ここで結果（`script`、`undoScript` を含む）を組み立てて長さを見積もり、超えるなら `too_many_rows` で止める。コミットした後に結果が返せないと、戻し SQL がクライアントに届かないため。fetch も同じ。`stamp` がある場合、戻し SQL は手順 3 で読んだ値で作り直すので、手順 5 の後にもう一度確かめる。
 2. トランザクションを開始する。
 3. 対象行を更新ロックを掛けて読む（SQL Server なら `WITH (UPDLOCK, HOLDLOCK)`、Oracle なら `SELECT … FOR UPDATE WAIT n`）。待つ秒数 `n` はサーバ設定（`lockWaitSeconds`、既定 10 秒）。待っても取れなければ全体をロールバックして `db_error`（`message` は [1.5](#15-結果とエラーの返し方) の固定の文でよい）。SQL Server も `SET LOCK_TIMEOUT` で同じ設定を使ってよい。PostgreSQL は `SELECT … FOR UPDATE` と、トランザクションの中だけ効く `SET LOCAL lock_timeout`（`set_config('lock_timeout', '10s', true)`）、MySQL / MariaDB は `SELECT … FOR UPDATE` とセッションの `innodb_lock_wait_timeout`。キーごとに、
-   - 行がない → 衝突（`reason: "not_found"`）
+   - 行がない → 衝突（`reason: "not_found"`）。`scope` があれば、その条件もキーに足して探す（`scope` の外の行は「ない」）。
    - `before` の列のどれかが今の値と違う → 衝突（`reason: "changed"`）。比較は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の「厳密に同じ」で行う（NULL 同士は一致）。行の特定（キー）は照合順序のまま。
+   - 同じ読み取りで、`stamp` の列の今の値（戻し SQL のため）と、サーバの業務ルールが見るほかの列の今の値も読む。
 4. 読んだ行の実際のキー値で、2行が同じ DB 行を指していないかを確かめる（`duplicate_key`。あればロールバックして `rowErrors` で返す）。
 5. 衝突が1行でもあれば**全体をロールバック**し、衝突した行を全部返す（v1 は全部か無しか）。
+   衝突がなく、許可リストに `rules` があれば、`severity` が `"error"` のルールを、反映した後の行（手順 3 で読んだ値に `scope`、`key`、`after` を重ねたもの）で見る。その行が変える列にかかわるルールだけを見る（ルールの列か、境界・`when` の列のどれかが `after` にある）。`maxChangePercent` は `before` から `after` への変動。合わない行があれば全体をロールバックし、`rowErrors` の `rule_violation`（`column` はルールの列、それを変えていなければ変えた列のうちルールが見るもの）で返す（`error.code` は `bad_request`）。
 6. 衝突がなければ、行ごとにパラメータ付き UPDATE を流す。
    ```sql
    UPDATE [dbo].[M_Product]
       SET [UnitPrice] = @p1
     WHERE [ProductCode] = @k1
    ```
+   `stamp` があれば、`"user"` の列に `appliedBy` をパラメータで、`"now"` の列に DB の時刻の式（[2](#2-許可リストサーバ側の設定)）を足す。`scope` があれば WHERE にその条件も足す。
    テーブル名と列名は許可リストの値から組み、`[]`（Oracle と PostgreSQL は `"`、MySQL / MariaDB は `` ` ``）で囲む（クライアントの文字列を名前に使わない）。UPDATE 文そのものの影響行数が1でなければ全体をロールバックして `db_error`。トリガーの中の行数は含めない（SQL Server では UPDATE トリガーがあると、`ExecuteNonQuery` や mssql の `rowsAffected` にトリガーの行数が混ざるので、同じバッチの `SELECT @@ROWCOUNT` で読む）。
 7. コミットする。`check` のときは手順 3〜5 の後でロールバックして終わる（手順 6 は流さず、SQL を組むだけ）。
-8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。
+8. サーバ側のログに、誰が・いつ・`requestId`・`note`・行ごとの前後の値を残す（ファイルでよい。履歴テーブルはオプション）。`stamp` があれば、行ごとに `stamp` の列の前の値（手順 3 で読んだもの）も `stampBefore` で残す。
 
 ### レスポンス（成功）
 ```json
@@ -484,8 +528,8 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 }
 ```
 
-- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう包み、**どれかの行の UPDATE が1行でなければ（行が見つからないか値が変わっていれば）全部戻して止まる**形にする（`check` で出した SQL を後から人が流したときに、変わっていた行だけ黙って飛ばさないため）。SQL Server では `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包み、UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, N'patchiri: 行が見つからないか、値が変わっています（ProductCode=A001）。何も反映していません', 1;` を続ける（トリガーがあっても `@@ROWCOUNT` は UPDATE 文そのものの行数。SQL Server 2022 で確かめた）。メッセージにキーの値を入れるときは、リテラルと同じく引用を直す。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。
-- `undoScript`: 戻し用 SQL。「今の値が patchiri で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。値の条件は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の厳密な比べ方で書く（キーの条件は照合順序のまま）。`script` と同じくトランザクションで包むが、0行の UPDATE があっても止めずに続ける（戻さなかった行を出力に出してよい）。`check` のときも返す。
+- `script`: 実行した（`check` なら実行する予定の）内容を、値を埋め込んだ人が読める SQL にしたもの。承認資料やエビデンスにそのまま貼れる。実際の実行はパラメータで行い、この文字列は使わない。人が流しても1トランザクションになるよう包み、**どれかの行の UPDATE が1行でなければ（行が見つからないか値が変わっていれば）全部戻して止まる**形にする（`check` で出した SQL を後から人が流したときに、変わっていた行だけ黙って飛ばさないため）。SQL Server では `SET XACT_ABORT ON; BEGIN TRANSACTION; … COMMIT;` で包み、UPDATE ごとに `IF @@ROWCOUNT <> 1 THROW 50001, N'patchiri: 行が見つからないか、値が変わっています（ProductCode=A001）。何も反映していません', 1;` を続ける（トリガーがあっても `@@ROWCOUNT` は UPDATE 文そのものの行数。SQL Server 2022 で確かめた）。メッセージにキーの値を入れるときは、リテラルと同じく引用を直す。`note` は改行で SQL を壊しうるのでスクリプトには入れない（ログにだけ残す）。`stamp` の列も同じ式で書く（`"user"` は値を埋め込み、`"now"` は DB の関数のまま。`check` で出した SQL を後から人が流したら、流した時刻になる）。
+- `undoScript`: 戻し用 SQL。「今の値が patchiri で入れた値のままなら戻す」形（`WHERE` に `after` の値を条件として入れる）にし、後から入った別の更新は上書きしない。値の条件は [1.6](#16-比べ方行を探すときと値が変わっていないかを確かめるとき) の厳密な比べ方で書く（キーの条件は照合順序のまま）。`script` と同じくトランザクションで包むが、0行の UPDATE があっても止めずに続ける（戻さなかった行を出力に出してよい）。`check` のときも返す。`stamp` の列も手順 3 で読んだ前の値に戻す（戻す条件はデータの列が `after` の値のままかだけで、`stamp` の列は条件に入れない）。
 - `script` と `undoScript` は方言ごとの書き方（引用、日付リテラル、NULL 比較）を知っているサーバが作る。コアはそれをファイルに保存する。トランザクションの包み方と止め方も方言の書き方でよい。Oracle では PL/SQL の無名ブロックにし、`SET DEFINE OFF`（値の `&` を置き換えさせない）、UPDATE ごとに `IF SQL%ROWCOUNT <> 1 THEN RAISE_APPLICATION_ERROR(-20001, '…'); END IF;`、`EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;` とする。戻し用は `SET SERVEROUTPUT ON` にして、戻さなかった行と「n / m 行を戻しました」を `DBMS_OUTPUT` に出す。
 - PostgreSQL では `DO` ブロック 1 つにする（1 文なので、途中のエラーでも全部戻る）。先頭で `SET client_encoding = 'UTF8';` にし、UPDATE ごとに `GET DIAGNOSTICS patchiri_rows = ROW_COUNT;` と `IF patchiri_rows <> 1 THEN RAISE EXCEPTION USING MESSAGE = 'patchiri: …'; END IF;`（`USING MESSAGE` は `%` を書式として読まない）。ブロックの区切りは `$patchiri$` で、値にその文字列が入っていたら `$patchiri_1$` などに変える。PL/pgSQL の変数と列名がぶつからないよう `#variable_conflict use_column` を付ける。戻し用は戻さなかった行と「n / m 行を戻しました」を `RAISE NOTICE` で出す。
 - MySQL / MariaDB は、ストアドプログラムの外では `IF` も例外も使えないので、**先に全部の行をロックして数え、1 行でも合わなければどの UPDATE も当たらない**形にする（MySQL 8.4 と MariaDB 11.4 の mysql コマンドで確かめた）。結果は最後の `SELECT` に出す（流したツールの結果の欄に出る）。
@@ -528,7 +572,7 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 
 ### 行単位の形の誤り
 
-許可リストの照合と値の形の確認で行ごとに見つかった誤りは、まとめて返す（1件目で止めない）。DB は変えていない（`duplicate_key` だけはロックして読んだ後に分かるので、ロールバックしてから返す）。
+許可リストの照合と値の形の確認で行ごとに見つかった誤りは、まとめて返す（1件目で止めない）。DB は変えていない（`duplicate_key` と `rule_violation` はロックして読んだ後に分かるので、ロールバックしてから返す）。
 ```json
 {
   "ok": false,
@@ -542,11 +586,23 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 }
 ```
 
+サーバの業務ルールに合わないとき（`message` はコアの業務ルールと同じ文。ルールの列とは別の列に付けるときは、頭にルールの列と今の値を付ける）:
+```json
+{
+  "ok": false,
+  "v": 1,
+  "error": { "code": "bad_request", "message": "1 行がサーバの業務ルールに合いません" },
+  "rowErrors": [
+    { "target": "term", "index": 0, "code": "rule_violation", "column": "StartDate", "message": "EndDate（2026-09-30）は StartDate（2026-10-01） 以上にしてください" }
+  ]
+}
+```
+
 ## 8. 実装メモ
 
 ### Node 版
 - 依存は DB ドライバ（SQL Server は `mssql`、Oracle は `oracledb`、PostgreSQL は `pg`、MySQL / MariaDB は `mysql2`）だけを目安に。HTTP は標準の `http` で足りる。
-- 既定で `127.0.0.1` にだけ待ち受け、起動時にトークンを出す（[1.4](#14-認証と-csrf)）。`appliedBy` は OS のユーザー名。
+- 既定で `127.0.0.1` にだけ待ち受け、起動時にトークンを出す（[1.4](#14-認証と-csrf)）。`appliedBy` は OS のユーザー名。ほかのアプリに組み込むときは、`startServer` の `whoAmI(ctx)` / `isInRole(role, ctx)`（`ctx.req` は届いた HTTP の要求）で差し替える。
 - `decimal` / `bigint` はドライバから文字列で受けて文字列で返す。
 - Oracle のドライバは `oracledb`（node-oracledb）の Thin モード（Oracle Client 不要、12.1 以降）。11g は Thick モード（Oracle Instant Client が要る）。
 - Oracle の NUMBER は文字列で受けて文字列で返し、パラメータも文字列で渡して `TO_NUMBER(:p)`（セッションの `NLS_NUMERIC_CHARACTERS = '.,'`）。DATE / TIMESTAMP は `TO_CHAR(…, 'YYYY-MM-DD"T"HH24:MI:SS.FF9')` で読み、`TO_DATE` / `TO_TIMESTAMP` で渡す（タイムゾーンをドライバに任せない）。
@@ -560,8 +616,9 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - WebMethod の受け取りと返しの両方に効くのは `web.config` の `system.web.extensions/scripting/webServices/jsonSerialization` の `maxJsonLength`（Mono の既定は 2097152）。超えると HTTP 500（`Maximum length exceeded`）になるので、上げる手順を README に書き、apply と fetch は DB を変える前に結果の長さを見て `too_many_rows`（`details.maxJsonLength`、`details.length`）で止める（[7](#7-apply反映) の手順 1）。
 - `application/json` でない POST は WebMethod に届かずページそのものが動くので、ページ側で 415 を返す。GET は画面（patchiri-web の同梱アプリ）を返し、画面は同じページの WebMethod を呼ぶ（載せ先のログインと、ページに掛けた権限がそのまま効く）。ページの名前と置き場所は載せ先が決めてよい。
 - 日付は `DateTime` をそのまま返すと `"\/Date(...)\/"` になるので、必ず [1.3](#13-値の書き方json-と-db-型の対応) の文字列に変換して返す。`decimal` も文字列で返す。
-- 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は `HttpContext.Current.User.Identity.Name`（載せ先が匿名を通す設定でログインしていないときは `"(anonymous)"`）。
-- 権限チェックは載せ先の仕組み（`web.config` の `<authorization>`、ロール判定など）に任せる。
+- 実行は `SqlTransaction` と `SqlParameter`。`appliedBy` は既定で `HttpContext.Current.User.Identity.Name`（載せ先が匿名を通す設定でログインしていないときは `"(anonymous)"`）。Global.asax の `Application_Start` で `PatchiriWebMethods.WhoAmI`（`Func<HttpContext, string>`）を差し替えられ、差し替えた判定が名前を返さなければ API も画面も 401。1 回の呼び出しの中では最初の答えを使う。
+- 権限チェックは載せ先の仕組み（`web.config` の `<authorization>`、ロール判定など）に任せる。許可リストの `roles` は既定で `User.IsInRole` で判定し、`PatchiriWebMethods.IsInRole` で差し替えられる。
+- ページごとに別の許可リストを使える（`PatchiriWebMethods.Call(name, req, configPath)`）。読んだ許可リストはパスごとに覚え、許可リストか `rules` のファイルを書き直したら読み直す。
 - `maxBytes` と表せない字の確認は `Encoding.GetEncoding(codePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback)` の `GetByteCount` でできる（[文字列の列の長さと文字コード](#文字列の列の長さと文字コード)）。
 - DB は web.config の接続文字列の `providerName` で選ぶ（省くか `System.Data.SqlClient` なら SQL Server、`Oracle.ManagedDataAccess.Client` なら Oracle）。
 - Oracle のドライバは ODP.NET Managed Driver（NuGet の `Oracle.ManagedDataAccess`、Oracle Client 不要）。コンパイル時には参照せず、`DbProviderFactories` か `bin` の DLL から名前で読み込み、ADO.NET の共通の型で使う（SQL Server だけの載せ先に DLL を要らせず、載せ先が入れた版をそのまま使うため）。ODP.NET にしかない `OracleCommand.BindByName = true` と `OracleParameter.OracleDbType`（`NVARCHAR2` / `NCHAR` は `NVarchar2`）だけリフレクションで触る。ODP.NET 23.x と 19.x で確かめる。
@@ -593,4 +650,4 @@ SQL Server の `varchar(n)` の `n` はバイト数で、照合順序が Japanes
 - **複数テーブル**: `changes` に複数のターゲットを並べ、まとめて1トランザクションにする。並び順＝実行順（親→子）。
 - **一部だけ反映**: `onConflict: "skipRow"` を足す（既定は今のまま全部止める）。
 - **ほかの DB**: `dialect` を増やす。API の形は変えない（Oracle、PostgreSQL、MySQL / MariaDB はこの形で足した。SQLite はまだ）。C# 版と VB.NET 版は SQL Server と Oracle（PostgreSQL と MySQL / MariaDB はまだ）。
-- **自動で入れる列**: 許可リストに `stamp`（例 `UpdatedAt = 現在時刻`、`UpdatedBy = 実行者`）を足し、サーバが UPDATE に加える。
+- **人ごとの範囲**: `scope` に「ログインした人の部署」のような値を書けるようにする（今は固定の値だけ）。

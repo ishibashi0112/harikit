@@ -89,6 +89,8 @@ Namespace Global.Patchiri.Server
         Public Changed As List(Of String)
         ''' <summary>DB にあるキーの値（照合順序で同じ行を指す 2 行を見分けるため）。</summary>
         Public DbKey As Row
+        ''' <summary>read に書いた列の今の値。</summary>
+        Public Read As Row
     End Class
 
     ''' <summary>文字列を列の文字コードで書いた結果（DB 自身に確かめたもの）。</summary>
@@ -99,10 +101,13 @@ Namespace Global.Patchiri.Server
     End Class
 
     Public Interface IPatchiriTransaction
-        ''' <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。</summary>
-        Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row) As LockedRow
-        ''' <summary>パラメータ付き UPDATE を 1 行流し、UPDATE そのものの影響行数を返す（トリガーの行数は含めない）。</summary>
-        Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row) As Integer
+        ''' <summary>更新ロックを掛けて 1 行読み、before と DB の比較規則で比べる。read の列は今の値を読むだけ（LockedRow.Read）。</summary>
+        Function LockAndCompare(meta As TableMeta, keyColumns As IList(Of String), key As Row, before As Row, read As IList(Of String)) As LockedRow
+        ''' <summary>
+        ''' パラメータ付き UPDATE を 1 行流し、UPDATE そのものの影響行数を返す（トリガーの行数は含めない）。
+        ''' now の列は DB の今の時刻（NowExpression）にする。
+        ''' </summary>
+        Function Update(meta As TableMeta, keyColumns As IList(Of String), key As Row, [set] As Row, now As IList(Of String)) As Integer
     End Interface
 
     ''' <summary>DB がエラーを返したとき。Message は生のエラー文。</summary>
@@ -128,6 +133,8 @@ Namespace Global.Patchiri.Server
         Public [Set] As Row
         Public Key As Row
         Public Expect As Row
+        ''' <summary>DB の今の時刻（NowExpression）にする列。Nothing なら無し。</summary>
+        Public Now As List(Of String)
     End Class
 
     ''' <summary>人が読む SQL を作るときの小道具（方言に依らないもの）。</summary>
@@ -187,6 +194,8 @@ Namespace Global.Patchiri.Server
         ''' "undo" なら戻し SQL（今の値が Expect のままの行だけ戻し、ほかは飛ばして続ける）。
         ''' </summary>
         Function RenderScript(meta As TableMeta, head As String, updates As IList(Of ScriptUpdate), kind As String) As String
+        ''' <summary>列に DB の今の時刻を入れる SQL の式（許可リストの stamp の "now"）。日付・時刻の列でなければ Nothing。</summary>
+        Function NowExpression(col As ColumnMeta) As String
     End Interface
 
 End Namespace

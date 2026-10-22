@@ -314,6 +314,16 @@ function quoteTable(m: MyMeta): string {
   return `${quoteName(m.schema)}.${quoteName(m.name)}`;
 }
 
+/** 列に DB の今の時刻を入れる式（stamp の "now"）。NOW(6) は列の秒の桁に丸まる。 */
+function nowExpression(col: { type: string }): string | null {
+  if (col.type === "date") return "CURDATE()";
+  return col.type === "datetime" ? "NOW(6)" : null;
+}
+
+function nowAssigns(meta: TableMeta, now: string[]): string[] {
+  return cols(meta, now).map((c) => `${quoteName(c.name)} = ${nowExpression(c)!}`);
+}
+
 function cols(meta: TableMeta, names: string[]): MyColumn[] {
   return names.map((n) => {
     const c = (meta.columns as MyColumn[]).find((x) => x.name === n);
@@ -354,12 +364,13 @@ const SAFE_NAME = /^[a-z0-9_]+$/;
 class MyTransaction implements Transaction {
   constructor(private readonly c: mysql.PoolConnection) {}
 
-  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row): Promise<LockedRow> {
+  async lockAndCompare(meta: TableMeta, keyColumns: string[], key: Row, before: Row, read: string[] = []): Promise<LockedRow> {
     const m = meta as MyMeta;
     const keyCols = cols(m, keyColumns);
     const beforeCols = cols(m, Object.keys(before));
+    const readCols = cols(m, read);
     const params: unknown[] = [];
-    const select = [...keyCols, ...beforeCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
+    const select = [...keyCols, ...beforeCols, ...readCols].map((c, i) => `${selectExpr(c)} AS ${quoteName(`__v${i}`)}`);
     // パラメータは SQL に出てくる順に足す（SELECT の比べる式が WHERE より前）。
     const checks = beforeCols.map((c, i) => {
       const v = before[c.name]!;
@@ -379,13 +390,15 @@ class MyTransaction implements Transaction {
       current[c.name] = readValue(c, row[`__v${keyCols.length + i}`]);
       if (Number(row[`__m${i}`]) !== 1) changed.push(c.name);
     });
-    return { found: true, current, changed, dbKey };
+    const values: Row = {};
+    readCols.forEach((c, i) => (values[c.name] = readValue(c, row[`__v${keyCols.length + beforeCols.length + i}`])));
+    return { found: true, current, changed, dbKey, read: values };
   }
 
-  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row): Promise<number> {
+  async update(meta: TableMeta, keyColumns: string[], key: Row, set: Row, now: string[] = []): Promise<number> {
     const m = meta as MyMeta;
     const params: unknown[] = [];
-    const assigns = cols(m, Object.keys(set)).map((c) => `${quoteName(c.name)} = ${bindValue(params, c, set[c.name]!)}`);
+    const assigns = [...cols(m, Object.keys(set)).map((c) => `${quoteName(c.name)} = ${bindValue(params, c, set[c.name]!)}`), ...nowAssigns(m, now)];
     const where = cols(m, keyColumns).map((c) => keyCondition(c, bindValue(params, c, key[c.name]!)));
     try {
       const [res] = await this.c.execute<mysql.ResultSetHeader>(`UPDATE ${quoteTable(m)} SET ${assigns.join(", ")} WHERE ${where.join(" AND ")}`, params as never);
@@ -582,9 +595,11 @@ export class MySqlDialect implements Dialect {
   }
 
   private assigns(m: MyMeta, u: ScriptUpdate): string {
-    return cols(m, Object.keys(u.set))
-      .map((c) => `${quoteName(c.name)} = ${literal(c, u.set[c.name]!)}`)
-      .join(", ");
+    return [...cols(m, Object.keys(u.set)).map((c) => `${quoteName(c.name)} = ${literal(c, u.set[c.name]!)}`), ...nowAssigns(m, u.now ?? [])].join(", ");
+  }
+
+  nowExpression(col: ColumnMeta): string | null {
+    return nowExpression(col);
   }
 
   /**

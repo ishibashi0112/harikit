@@ -5,6 +5,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Patchiri.Server
@@ -18,6 +20,14 @@ namespace Patchiri.Server
         public List<string> Key;
         public List<string> Readable = new List<string>();
         public List<string> Updatable = new List<string>();
+        /// <summary>列の表示名（列名 → 表示名）。取込の見出しは列名でもこれでもよい。</summary>
+        public Dictionary<string, string> Labels = new Dictionary<string, string>();
+        /// <summary>反映する行ごとにサーバが入れる列（列名 → "now" か "user"）。書いた順。</summary>
+        public List<KeyValuePair<string, string>> Stamp = new List<KeyValuePair<string, string>>();
+        /// <summary>このターゲットで触れる行の固定の条件（列名 → 値。等号だけ）。外の行は見えない。</summary>
+        public Dictionary<string, object> Scope = new Dictionary<string, object>();
+        /// <summary>このターゲットを使えるロール（どれか 1 つ）。null なら誰でも。</summary>
+        public List<string> Roles;
     }
 
     public class PatchiriConfigException : Exception
@@ -40,8 +50,14 @@ namespace Patchiri.Server
         public string LogDir = "~/App_Data/patchiri-log";
         /// <summary>db_error の message に DB の生のエラー文を出すか。既定は出さない。</summary>
         public bool ExposeDbErrors;
-        /// <summary>反映で行のロックを待つ秒数（仕様 7 の手順 3）。既定は 10 秒。</summary>
+        /// <summary>反映で行のロックを待つ秒数（仕様 7 の手順 3）。既定は 10 秒。最上位にも database の中にも書ける。</summary>
         public int LockWaitSeconds = 10;
+        /// <summary>サーバに置く業務ルール（ターゲット名 → ルールの配列）。rules を書いていなければ null。</summary>
+        public Dictionary<string, object> Rules;
+        /// <summary>rules をファイルで書いたときの、そのファイルのパス（書き直したら読み直すため）。</summary>
+        public string RulesPath;
+        /// <summary>rules のファイルの、読む前の更新日時（UTC）。</summary>
+        public DateTime RulesStamp;
 
         static void Fail(string message)
         {
@@ -76,8 +92,106 @@ namespace Patchiri.Server
             return (int)d;
         }
 
-        /// <summary>設定の JSON を読み、形を確かめる。おかしければ PatchiriConfigException。</summary>
+        /// <summary>設定の JSON を読み、形を確かめる。おかしければ PatchiriConfigException。rules をファイルで書くなら Load を使う。</summary>
         public static PatchiriConfig Parse(string json)
+        {
+            return Parse(json, null);
+        }
+
+        /// <summary>設定ファイルを読む。rules にファイルのパスを書いたら、設定ファイルのフォルダから読む。</summary>
+        public static PatchiriConfig Load(string path)
+        {
+            return Parse(File.ReadAllText(path, Encoding.UTF8), Path.GetDirectoryName(Path.GetFullPath(path)));
+        }
+
+        static object ReadRulesFile(string baseDir, string rel, out string full, out DateTime stamp)
+        {
+            full = Path.GetFullPath(Path.Combine(baseDir, rel));
+            string text;
+            try
+            {
+                stamp = File.GetLastWriteTimeUtc(full);
+                text = File.ReadAllText(full, Encoding.UTF8);
+            }
+            catch (Exception e)
+            {
+                throw new PatchiriConfigException("rules のファイル " + full + " が読めません（" + e.Message + "）");
+            }
+            try
+            {
+                return PatchiriJson.Parse(text);
+            }
+            catch (Exception e)
+            {
+                throw new PatchiriConfigException("rules のファイル " + full + " が JSON として読めません（" + e.Message + "）");
+            }
+        }
+
+        static void ParseTargetExtras(string name, IDictionary<string, object> t, TargetConfig target)
+        {
+            if (t.ContainsKey("labels"))
+            {
+                var labels = PatchiriJson.AsObject(t["labels"]);
+                if (labels == null) Fail(name + ".labels は { \"列名\": \"表示名\" } の形です");
+                var seen = new Dictionary<string, string>();
+                foreach (var c in target.Readable) seen[c.ToLowerInvariant()] = c;
+                foreach (var kv in labels)
+                {
+                    if (!ContainsIgnoreCase(target.Readable, kv.Key)) Fail(name + ".labels の " + kv.Key + " が readable にありません");
+                    var label = kv.Value as string;
+                    if (label == null || label.Trim().Length == 0) Fail(name + ".labels." + kv.Key + " は文字列です");
+                    var k = label.Trim().ToLowerInvariant();
+                    string other;
+                    if (seen.TryGetValue(k, out other) && !string.Equals(other, kv.Key, StringComparison.OrdinalIgnoreCase))
+                        Fail(name + ".labels の " + label + " が " + other + " とぶつかります");
+                    seen[k] = kv.Key;
+                    target.Labels[kv.Key] = label.Trim();
+                }
+            }
+            if (t.ContainsKey("stamp"))
+            {
+                var stamp = PatchiriJson.AsObject(t["stamp"]);
+                if (stamp == null) Fail(name + ".stamp は { \"列名\": \"now\" か \"user\" } の形です");
+                if (target.Access != "update") Fail(name + " は read なので stamp を持てません");
+                foreach (var kv in stamp)
+                {
+                    var v = kv.Value as string;
+                    if (v != "now" && v != "user") Fail(name + ".stamp." + kv.Key + " は \"now\" か \"user\" です");
+                    if (target.Key != null && ContainsIgnoreCase(target.Key, kv.Key)) Fail(name + " のキー列 " + kv.Key + " は stamp にできません");
+                    if (ContainsIgnoreCase(target.Updatable, kv.Key)) Fail(name + ".stamp の " + kv.Key + " は updatable にもあります（どちらか一方にしてください）");
+                    target.Stamp.Add(new KeyValuePair<string, string>(kv.Key, v));
+                }
+            }
+            if (t.ContainsKey("scope"))
+            {
+                var scope = PatchiriJson.AsObject(t["scope"]);
+                if (scope == null || scope.Count == 0) Fail(name + ".scope は { \"列名\": 値 } の形です");
+                foreach (var kv in scope)
+                {
+                    var v = PatchiriJson.Normalize(kv.Value);
+                    if (!(v is string) && !(v is double) && !(v is bool)) Fail(name + ".scope." + kv.Key + " は文字列、数、true / false のどれかです");
+                    if (ContainsIgnoreCase(target.Updatable, kv.Key)) Fail(name + ".scope の " + kv.Key + " は updatable にもあります（範囲の列は変えられません）");
+                    foreach (var st in target.Stamp)
+                        if (string.Equals(st.Key, kv.Key, StringComparison.OrdinalIgnoreCase)) Fail(name + ".scope の " + kv.Key + " は stamp にもあります");
+                    target.Scope[kv.Key] = v;
+                }
+            }
+            if (t.ContainsKey("roles"))
+            {
+                var roles = PatchiriJson.AsArray(t["roles"]);
+                if (roles == null || roles.Count == 0) Fail(name + ".roles はロールの名前の配列です");
+                target.Roles = new List<string>();
+                foreach (var role in roles)
+                {
+                    var s = role as string;
+                    if (string.IsNullOrEmpty(s)) Fail(name + ".roles はロールの名前の配列です");
+                    target.Roles.Add(s);
+                }
+            }
+        }
+
+        /// <summary>設定の JSON を読み、形を確かめる。rulesBaseDir は rules にファイルのパスを書いたときに読むフォルダ（null ならパスは書けない）。</summary>
+        public static PatchiriConfig Parse(string json, string rulesBaseDir)
         {
             object root;
             try
@@ -122,6 +236,7 @@ namespace Patchiri.Server
                         if (target.Key != null && ContainsIgnoreCase(target.Key, c)) Fail(name + " のキー列 " + c + " は更新できません");
                     }
                 }
+                ParseTargetExtras(name, t, target);
                 config.TargetNames.Add(name);
                 config.Targets[name] = target;
             }
@@ -142,11 +257,45 @@ namespace Patchiri.Server
                 config.LogDir = o["logDir"] as string;
                 if (string.IsNullOrEmpty(config.LogDir)) Fail("logDir は文字列です");
             }
-            if (o.ContainsKey("lockWaitSeconds"))
+            // Node 版と同じく database.lockWaitSeconds にも書ける（接続先は web.config なので、database の中はこれだけを読む）。
+            var database = PatchiriJson.AsObject(PatchiriJson.Get(o, "database"));
+            int? top = null, inner = null;
+            if (o.ContainsKey("lockWaitSeconds")) top = PositiveInt(o["lockWaitSeconds"], "lockWaitSeconds");
+            if (database != null && database.ContainsKey("lockWaitSeconds")) inner = PositiveInt(database["lockWaitSeconds"], "database.lockWaitSeconds");
+            if (top.HasValue && inner.HasValue && top.Value != inner.Value) Fail("lockWaitSeconds と database.lockWaitSeconds が違います（どちらか一方に書いてください）");
+            if (top.HasValue || inner.HasValue)
             {
-                config.LockWaitSeconds = PositiveInt(o["lockWaitSeconds"], "lockWaitSeconds");
+                config.LockWaitSeconds = top ?? inner.Value;
                 // SET LOCK_TIMEOUT はミリ秒の int。
                 if (config.LockWaitSeconds > int.MaxValue / 1000) Fail("lockWaitSeconds が大きすぎます");
+            }
+            if (o.ContainsKey("rules"))
+            {
+                var rules = o["rules"];
+                var path = rules as string;
+                if (path != null)
+                {
+                    if (rulesBaseDir == null) Fail("rules にファイルのパスを書くときは PatchiriConfig.Load で読んでください");
+                    string full;
+                    DateTime stamp;
+                    rules = ReadRulesFile(rulesBaseDir, path, out full, out stamp);
+                    config.RulesPath = full;
+                    config.RulesStamp = stamp;
+                }
+                var ro = PatchiriJson.AsObject(rules);
+                if (ro == null) Fail("rules は { \"targets\": { … } } の形です");
+                config.Rules = new Dictionary<string, object>(StringComparer.Ordinal);
+                if (ro.ContainsKey("targets"))
+                {
+                    var rt = PatchiriJson.AsObject(ro["targets"]);
+                    if (rt == null) Fail("rules は { \"targets\": { … } } の形です");
+                    foreach (var kv in rt)
+                    {
+                        if (!config.Targets.ContainsKey(kv.Key)) Fail("rules.targets の " + kv.Key + " は targets にありません");
+                        if (PatchiriJson.AsArray(kv.Value) == null) Fail("rules.targets." + kv.Key + " はルールの配列です");
+                        config.Rules[kv.Key] = kv.Value;
+                    }
+                }
             }
             if (o.ContainsKey("exposeDbErrors"))
             {

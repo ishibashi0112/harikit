@@ -25,13 +25,22 @@ VB.NET の Web サイトの `App_Code` には C# のソースを混ぜられな�
 5. **web.config に足す**: C# 版と同じ（[C# 版の「載せ方」の 5](../server-dotnet/README.md#載せ方)）。接続文字列 `Patchiri`（Oracle なら `providerName` も）、ページへの `<authorization>`（画面と API の両方に効く）、`maxRequestLength`、`maxJsonLength`。
 6. **開く**: ブラウザで `https://.../Admin/Patchiri.aspx` を開く。Edge か Chrome で開くことなど、C# 版と同じ（[C# 版の「載せ方」の 6](../server-dotnet/README.md#載せ方)）。
 
-設定の項目（`targets`、`limits`、`connectionStringName`、`logDir`、`exposeDbErrors`、`lockWaitSeconds`）、反映ログとエラーのファイル、気をつけていること（varchar の列への日本語、char の埋め空白、照合順序と厳密な比較、止まる `script`、トリガー、`maxJsonLength`、real の値、パラメータの長さ、CSRF、画面のページ、Oracle のセッションの設定と数）は C# 版の README のとおり。
+設定の項目（`targets`、`rules`、`limits`、`connectionStringName`、`logDir`、`exposeDbErrors`、`lockWaitSeconds`）、「誰が反映したか」とロールの判定の差し替え（`PatchiriWebMethods.WhoAmI` / `IsInRole`）、ページごとの許可リスト（`PatchiriWebMethods.Call` の 3 つ目）、反映ログとエラーのファイル、気をつけていること（varchar の列への日本語、char の埋め空白、照合順序と厳密な比較、止まる `script`、トリガー、`maxJsonLength`、real の値、パラメータの長さ、CSRF、画面のページ、Oracle のセッションの設定と数）は C# 版の README のとおり。
+
+`Global.asax` での差し替えは VB.NET ではこう書く（Session を読むなら、ページの WebMethod を `<WebMethod(EnableSession:=True)>` に、`EnableSessionState` を `"ReadOnly"` にする）。
+
+```vb
+Sub Application_Start(sender As Object, e As EventArgs)
+    PatchiriWebMethods.WhoAmI = Function(ctx) If(ctx.Session Is Nothing, Nothing, TryCast(ctx.Session("EmployeeCode"), String))
+    PatchiriWebMethods.IsInRole = Function(ctx, role) ctx.Session IsNot Nothing AndAlso role = TryCast(ctx.Session("Role"), String)
+End Sub
+```
 
 ## VB.NET に書き直すときに気をつけたこと
 
 C# 版から直すとき、または C# 版の変更をこちらに写すときに、そのまま書くと C# と違う動きになるところ。
 
-- **大文字小文字を区別しない**: 引数や変数を `file`、`path` にすると `File`、`Path` のクラスが隠れる（`fileName`、`value` にしてある）。`Imports Row = Dictionary(Of String, Object)` があるファイルで `For Each row In rows` と書くと、新しい変数ではなく型の `Row` を指してしまう（`item` にしてある）。関数の中で関数と同じ名前の変数は作れない。
+- **大文字小文字を区別しない**: 引数や変数を `file`、`path` にすると `File`、`Path` のクラスが隠れる（`fileName`、`value` にしてある）。`Imports Row = Dictionary(Of String, Object)` があるファイルで `For Each row In rows` と書くと、新しい変数ではなく型の `Row` を指してしまう（`item` にしてある）。関数の中で関数と同じ名前の変数は作れず、クラスのメソッドと同じ名前の変数も使えない（`Allowed` と `allowed`、`DbKey` と `dbKey`。`allowedColumns`、`dbKeyId` にしてある）。
 - **文字列の `=`**: `Nothing = ""` が `True` になる。`Nothing` と空文字を分けたいところや、大文字小文字の区別が要るところは `String.Equals(a, b, StringComparison.Ordinal)` にする。
 - **数**: 整数の割り算は `\`（`/` は小数になる）。`CInt` などは切り捨てではなく偶数への丸めなので、整数だと確かめた値にだけ使う。
 - **キーワードと同じ名前**: `Set`、`Get`、`Call`、`Error`、`Select` は `[Set]` のように角かっこで囲むか、別の名前にする（`ScriptUpdate.[Set]`、`PatchiriJson.[Get]`、`PatchiriWebMethods.[Call]`、`IPatchiriTransaction.Update` の引数 `[set]`）。公開メンバーの引数の名前も C# 版と同じにする（C# から名前付き引数で呼べるように）。
@@ -40,7 +49,7 @@ C# 版から直すとき、または C# 版の変更をこちらに写すとき�
 
 ## テスト
 
-C# 版と同じテスト（[../server-dotnet/test/webmethod.integration.test.mjs](../server-dotnet/test/webmethod.integration.test.mjs)、画面をブラウザで通す [../server-dotnet/test/screen.e2e.test.mjs](../server-dotnet/test/screen.e2e.test.mjs)、実際の Oracle で通す [../server-dotnet/test/oracle.integration.test.mjs](../server-dotnet/test/oracle.integration.test.mjs)）を、載せるパッケージを VB.NET 版に替えて流す。
+C# 版と同じテスト（[../server-dotnet/test/webmethod.integration.test.mjs](../server-dotnet/test/webmethod.integration.test.mjs)、カスタマイズの口を見る [../server-dotnet/test/customize.integration.test.mjs](../server-dotnet/test/customize.integration.test.mjs)、画面をブラウザで通す [../server-dotnet/test/screen.e2e.test.mjs](../server-dotnet/test/screen.e2e.test.mjs)、実際の Oracle で通す [../server-dotnet/test/oracle.integration.test.mjs](../server-dotnet/test/oracle.integration.test.mjs)）を、載せるパッケージを VB.NET 版に替えて流す。
 
 ```sh
 PATCHIRI_TEST_DOTNET_PKG=packages/server-vbnet PATCHIRI_TEST_MSSQL='{"server":"localhost","user":"sa","password":"..."}' npm run test:dotnet
@@ -49,7 +58,7 @@ PATCHIRI_TEST_DOTNET_PKG=packages/server-vbnet PATCHIRI_TEST_ORACLE='{"connectSt
 
 - Linux では Mono の ASP.NET で動かす（`mono-complete` と .NET SDK、画面のテストには Playwright の Chromium が要る）。DLL は `build.sh` が .NET SDK 付属の Roslyn の `vbc` で VB 11 に限ってビルドする。Mono には `vbnc` も `Microsoft.VisualBasic.dll` もないので、VB のページ（`Patchiri.aspx`）や `App_Code` は [../server-dotnet/test/mono-path/vbnc](../server-dotnet/test/mono-path/vbnc) が Roslyn の `vbc` に（VB 11 に限って）渡し、VB のランタイムは DLL に埋め込む。
 - CI では加えて、Windows の IIS（.NET Framework 4.8）に `App_Code` の形（IIS が付属の `vbc` でビルドする）と `bin` の形（`build.cmd`）で載せ、Windows に入れた SQL Server で同じテストを通す。Oracle は Linux の Mono で、Oracle 23ai Free と 21c XE につないで通す（C# 版と同じ `dotnet-oracle` のジョブ）。
-- テスト用の `Probe.aspx`、`OracleSessions.aspx`、`Global.asax`、`Login.aspx` は C# のまま使う（VB.NET の DLL の型を C# から使えることの確認にもなる）。
+- テスト用の `Probe.aspx`、`OracleSessions.aspx`、`Global.asax`、`Login.aspx`、ページごとの許可リストを見るページは C# のまま使う（VB.NET の DLL の型を C# から使えることの確認にもなる）。
 
 ## ファイル
 
@@ -61,7 +70,8 @@ PATCHIRI_TEST_DOTNET_PKG=packages/server-vbnet PATCHIRI_TEST_ORACLE='{"connectSt
 | `src/PatchiriDialect.vb` | DB ごとの違いを閉じ込める入口（ほかの DB はここに足す） |
 | `src/PatchiriValues.vb` | 値の形の確認と比較（コアの `values.ts` と同じ判定） |
 | `src/PatchiriConfig.vb` | 許可リストと設定の読み込み |
-| `src/PatchiriWebMethods.vb` | WebMethod からの入口（ヘッダの確認、設定の読み込み、接続文字列の `providerName` で DB を選ぶ、ログイン名） |
+| `src/PatchiriRules.vb` | サーバに置く業務ルール（コアの `rules.ts`、C# 版の `PatchiriRules.cs` と同じ決まりと文） |
+| `src/PatchiriWebMethods.vb` | WebMethod からの入口（ヘッダの確認、設定の読み込み、接続文字列の `providerName` で DB を選ぶ、ログイン名とロールの判定と差し替え） |
 | `src/PatchiriScreen.vb` | ページをブラウザで開いたときの画面（HTML と、画面のファイルの場所） |
 | `src/PatchiriFileLog.vb` | 反映ログとエラーのファイル出力 |
 | `src/PatchiriJson.vb` | `JavaScriptSerializer` の形を扱う小道具 |

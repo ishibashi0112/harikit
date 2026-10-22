@@ -137,7 +137,8 @@ test("取込に無い列を見る行のルールは、差分で DB の値を使�
   );
   assert.deepEqual(d.issues.map((i) => [i.code, i.cell, i.message]), [
     ["rule_violation", "C2", "今の値 100.00 から 20% 変わります（±10% まで）"],
-    ["rule_violation", "B2", "StartDate（2024-05-01） 以上にしてください"],
+    // ルールの列（EndDate）が取込に無いので、取込にある列のセルに付け、文の頭にルールの列と DB の今の値を付ける。
+    ["rule_violation", "B2", "EndDate（2024-04-30）は StartDate（2024-05-01） 以上にしてください"],
     ["rule_violation", "C3", "0 以下にしてください"],
   ]);
 });

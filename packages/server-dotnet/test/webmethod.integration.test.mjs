@@ -100,7 +100,7 @@ before(async () => {
 </configuration>
 `,
   );
-  // 載せ先の認証の代わり: X-Test-User ヘッダの名前でログインしたことにする。
+  // 載せ先の認証の代わり: X-Test-User ヘッダの名前でログインしたことにする。ロールは X-Test-Roles（, 区切り）。
   await writeFile(
     join(root, "Global.asax"),
     `<%@ Application Language="C#" %>
@@ -108,7 +108,8 @@ before(async () => {
 <script runat="server">
   protected void Application_AuthenticateRequest(object sender, EventArgs e) {
     var name = Request.Headers["X-Test-User"];
-    if (!string.IsNullOrEmpty(name)) Context.User = new GenericPrincipal(new GenericIdentity(name), new string[0]);
+    var roles = (Request.Headers["X-Test-Roles"] ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+    if (!string.IsNullOrEmpty(name)) Context.User = new GenericPrincipal(new GenericIdentity(name), roles);
   }
 </script>
 `,
@@ -125,6 +126,8 @@ before(async () => {
         },
         kind: { table: "Kind", access: "read", readable: ["KindCode"] },
         note: { table: "dbo.note", access: "update", readable: ["Id", "Body", "Wide"], updatable: ["Body", "Wide"] },
+        // ロールを書いたターゲット。既定の判定は User.IsInRole。
+        admin: { table: "dbo.Kind", access: "read", readable: ["KindCode"], roles: ["MasterAdmin"] },
       },
       lockWaitSeconds: 1,
     }),
@@ -573,6 +576,15 @@ test("リクエストの誤りは HTTP 200 の ok:false で返す", { skip }, as
   assert.deepEqual(await codes("Apply", applyReq([row], { requestId: "abcdefgh\nDROP TABLE dbo.Kind" })), [false, "bad_request"]);
   const { body } = await call("Apply", applyReq([row], { requestId: "abc" }));
   assert.deepEqual([body.requestId, body.mode], ["abc", "check"]);
+});
+
+test("roles は既定で User.IsInRole で判定し、入っていない人には一覧に出さず forbidden", { skip }, async () => {
+  const denied = await call("Describe", { v: 1, target: "admin" }, { "Content-Type": "application/json", "X-Patchiri": "1", "X-Test-User": USER });
+  assert.equal(denied.body.error.code, "forbidden");
+  assert.ok(!(await client.targets()).targets.some((t) => t.target === "admin"));
+  const admin = new PatchiriClient({ baseUrl: `${url}/Patchiri.aspx`, style: "webmethod", headers: { "X-Test-User": USER, "X-Test-Roles": "Viewer,MasterAdmin" } });
+  assert.deepEqual((await admin.targets()).targets.map((t) => t.target), ["item", "kind", "note", "admin"]);
+  assert.equal((await admin.describe("admin")).table, "dbo.Kind");
 });
 
 test("X-Patchiri がなければ 403、WebMethod 以外の POST は 415", { skip }, async () => {

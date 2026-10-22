@@ -31,6 +31,23 @@ patchiri サーバを起動しました: http://127.0.0.1:7357
 - 画面は同じオリジンの API だけにつなぐよう、Content-Security-Policy で外への通信を止めています。
 - 反映ログは `logDir`（既定 `./patchiri-log`）に、日ごとの `apply-YYYY-MM-DD.jsonl` で残します。1 行 1 件で、誰が（OS のユーザー名）・いつ・`requestId`・メモ・行ごとの前後の値が入ります。
 
+## ほかのアプリに組み込む
+
+`patchiri-server-node` の `startServer` に、反映した人とロールの判定を渡せます。前に置いた認証の仕組み（リバースプロキシが足すヘッダなど）から読むときに使います。
+
+```js
+import { loadConfig, startServer } from "patchiri-server-node";
+
+const server = await startServer(await loadConfig("patchiri.config.json"), {
+  // 名前を返さなければ（null や ""）未ログインとして HTTP 401。
+  whoAmI: ({ req }) => req?.headers["x-forwarded-user"] ?? null,
+  // 許可リストの roles。渡さなければ、roles を書いたターゲットは誰も使えない。
+  isInRole: (role, { req }) => String(req?.headers["x-forwarded-groups"] ?? "").split(",").includes(role),
+});
+```
+
+反映ログの書き先は `log`（`(entry) => Promise<void>`）で差し替えられます。HTTP を通さずに同じプロセスから呼ぶときは、`Handlers` の `handle(name, body, ctx)` を使います。
+
 ## 社内のサーバに置くとき
 
 Node 版の認証はトークンだけです。複数の人で使うなら、載せ先のアプリの認証の中に置ける [WebForms 版](/servers/webforms/)にするか、認証付きのリバースプロキシの後ろに置いてください。

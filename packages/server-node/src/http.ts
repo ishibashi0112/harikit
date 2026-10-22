@@ -3,7 +3,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import type { Handlers } from "./handlers.js";
+import { Unauthenticated, type Handlers } from "./handlers.js";
 
 export interface StaticFile {
   type: string;
@@ -97,8 +97,10 @@ export function createHttpServer(handlers: Handlers, options: HttpOptions): Serv
       } catch {
         return send(res, 200, { ok: false, v: 1, error: { code: "bad_request", message: "JSON として読めません" } });
       }
-      send(res, 200, await handlers.handle(name as "describe" | "fetch" | "apply", parsed));
+      send(res, 200, await handlers.handle(name as "describe" | "fetch" | "apply", parsed, { req }));
     } catch (e) {
+      // whoAmI が名前を返さなかった（未ログイン）。
+      if (e instanceof Unauthenticated) return send(res, 401, { message: "login required" });
       console.error(e);
       if (!res.headersSent) send(res, 500, { message: "internal error" });
     }
