@@ -45,7 +45,7 @@ UPDATE 文は人が書きません。サーバが許可リストと照合して�
 
 - **コア**（`patchiri-core`）は TypeScript で、ブラウザでも Node でも動きます。取込・検証・差分はここで行います。
 - **サーバ**に求めるのは、DB に触る API 3 本（テーブル定義、現在値、反映）だけです。仕様を決めてあるので、中身はどの言語でも作れます。参考実装は Node 版、C# 版、VB.NET 版があり、C# 版と VB.NET 版は既存の ASP.NET WebForms のアプリに WebMethod として足せます。
-- **画面**（`patchiri-web`）は [spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) を使った React の部品で、Node 版サーバが配るほか、ほかの React アプリにも埋め込めます。
+- **画面**（`patchiri-web`）は [spreadsheet-grid](https://www.npmjs.com/package/@ishibashi0112/spreadsheet-grid) を使った React の部品で、Node 版サーバと WebForms のページが配るほか、ほかの React アプリにも埋め込めます。見た目を自前で作るなら、流れだけを持つフック（`usePatchiri`）とコアの関数を使います。
 
 ## 安全のための約束
 
@@ -58,7 +58,8 @@ UPDATE 文は人が書きません。サーバが許可リストと照合して�
 
 - DB: SQL Server、Oracle、PostgreSQL、MySQL / MariaDB（Node 版サーバ）。C# 版と VB.NET 版は SQL Server と Oracle。
 - 1 回に 1 テーブル、UPDATE だけ。INSERT・DELETE と複数テーブルは、仕様に足せる形で残してあります（[構想の 9 章](/reference/concept/#9-まだ決めていないこと)）。
-- 入口は画面（表への貼り付け）と CLI（Excel / CSV 取込）。
+- 入口は画面（表への貼り付け、Excel を開く）と CLI（Excel / CSV 取込）。
+- 列の表示名、更新日時・更新者の自動セット、触れる行の範囲、ロール、サーバに置く業務ルール、「誰が」の判定、画面の見た目などは、設定と部品で合わせられます。どれも書かなければ今までどおりです（[システムに合わせる](/usage/customize/)）。
 
 ## 名前について
 
